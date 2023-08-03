@@ -1,5 +1,13 @@
+![изображение](https://github.com/geekAmis/mangapoiskAPI/assets/49157841/be0c6f51-74cd-4887-b05a-ac8599e3b522)
+
 # mangapoiskAPI
 Flask server + mangapoisk api + modern web page = M.I.T. (Manga and Illustration Technology)
+
+![изображение](https://github.com/geekAmis/mangapoiskAPI/assets/49157841/98d4bc05-0134-41a9-8070-85b662167e1c)
+
+![изображение](https://github.com/geekAmis/mangapoiskAPI/assets/49157841/b5f36cc1-b275-493d-bbf6-0a271e75d25b)
+
+
 
 # ENG Language
 
@@ -28,3 +36,9 @@ Flask server + mangapoisk api + modern web page = M.I.T. (Manga and Illustration
 # Запустить проект:
   В файле <код>app.py </code> отредактируйте host='localhost' на вашем хосте (для проверки - не трогайте это)
   В папке проекта запустите файл <код>app.py </код>
+
+
+
+
+
+![изображение](https://github.com/geekAmis/mangapoiskAPI/assets/49157841/31a4a897-abbe-49e6-876e-e278d2f72da3)
