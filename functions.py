@@ -101,7 +101,7 @@ def manga_read(manga,chapter):
 	
 	data_js = MP_get_json_datas(manga)
 
-	user_agent = UserAgent(request.headers.get('User-Agent'))
+	user_agent = request.headers.get('User-Agent')
 	if 'android' in str(user_agent).lower()  or 'iphone' in str(user_agent).lower():
 		series = 'phone'
 	else:
