@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ru-RU">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{title}} {{at_page}}</title>
+  <meta name="description" content="Читать мангу {{title}} на {{at_page}}" />
+
+  <link rel="apple-touch-icon" href="/img/window.png">
+  <link rel="apple-touch-icon" sizes="57x57" href="/img/window.png" />
+  <link rel="apple-touch-icon" sizes="72x72" href="/img/window.png" />
+  <link rel="apple-touch-icon" sizes="76x76" href="/img/window.png" />
+  <link rel="apple-touch-icon" sizes="114x114" href="/img/window.png" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/img/window.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="/img/window.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/img/window.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/img/window.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="https://mangapoisk.org/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://mangapoisk.org/favicon-16x16.png">
+  <link rel="shortcut icon" href="https://mangapoisk.org/favicon.ico" type="image/x-icon">
+  <link rel="manifest" href="https://mangapoisk.org/site.webmanifest">
+  <link rel="mask-icon" href="https://mangapoisk.org/safari-pinned-tab.svg" color="#5bbad5">
+  <meta name="msapplication-TileColor" content="#00aba9">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="csrf-token" content="9A4LpNW8L9dWTCSVehCfILnPdI8CoPIK6LRVcltX">
+  <link rel="stylesheet" type="text/css" href="/style/{{key}}/style_for_readilka.css">
+  <link rel="preconnect" href="https://static2.mangapoisk.org">
+  <link rel="preconnect" href="https://ddb404e7-a763-4312-8e2d-04eb348534e4.selcdn.net">
+  <link rel="stylesheet" type="text/css" href="/style/{{key}}/style_for_settings.css">
+  <script type="text/javascript">
+    document.write(`<style type="text/css">body,html{max-width: ${window.innerWidth}px;max-height: 100dvh;} #navbar{max-width: ${window.innerWidth}px;}</style>`);
+  </script>
+
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.2/socket.io.js"></script>
+  <script type="text/javascript" charset="utf-8">
+    var socket = io();
+  </script>
+</head>
+<style type="text/css" id="script-style"></style>
+
+<body class="dark">
+
+  <header>
+    <!--
+      Знай - если ты видишь это, то ты пользуешься компьютером, АУФ!
+    -->
+  </header>
+
+  <div class="settings-wrapper">
+    <script type="text/javascript">
+      if (window.innerWidth <= 700){
+        var dop_size_str = `style=""`;
+      }else{
+        var dop_size_str = '';
+      }
+      document.write(`<button class="settings-button" onclick="document.querySelector('.settings-menu').classList.toggle('show');" ${dop_size_str}><span class="settings-icon"></span></button>`);
+    </script>
+    <script type="text/javascript">
+      document.write(`<div class="settings-menu dark" ${dop_size_str}>`);
+    </script>
+    
+      <div class="settings-box">
+        
+        <span class="settings-name range-settings-label">Размер манги по ширине: </span>
+        <script type="text/javascript">
+          document.write(`<input type="range" min="${window.innerWidth/20}" max="${window.innerWidth}" step="${window.innerWidth/20}" value="${window.innerWidth}" class="range-size" title="Размер страничек" onclick="change_width();" style="right: -1px;"> `)
+        </script>
+        <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top" id="navbar">
+          <form class="form-inline my-2 my-lg-0 position-relative" action="/search" method="POST" autocomplete="off" novalidate="novalidate">
+            <input id="search_box" name="q" class="form-control mr-sm-2 searchInput" type="text" placeholder="Поиск" title="* Введите поисковый запрос" autocomplete="off" oninput="on_type_text();">
+            <ul id="result_box" tabindex="0" class=""></ul>
+            <button class="btn btn-secondary my-2 my-sm-0" type="submit">Искать</button>
+          </form>
+          <span id="button-url-view-label-text"></span>
+        </nav>
+        <div class="checkbox-block">
+          <span class="title-settings-bar">GUI настройка:<br></span>
+
+          <div class="custom-button">
+            Автопролистывание
+            <label class="toggle-button">
+              <input type="checkbox" onchange="autoPage_load();" class="button-autoscrol">
+              <div class="slide-button"></div>
+              <span class="label" id="button-autoscrol-label">Выкл.</span>
+            </label>
+          </div>
+
+          <div class="custom-button">
+            Тёмная тема
+            <label class="toggle-button">
+              <input type="checkbox" onchange="document.body.classList.toggle('dark');document.querySelector('.settings-menu').classList.toggle('dark');
+              if (document.body.classList.contains('dark')){
+                document.getElementById('button-dark_theme-label').innerHTML = 'Вкл.'
+              }else{
+                document.getElementById('button-dark_theme-label').innerHTML = 'Выкл.'
+              }" class="button-dark_theme" checked="">
+              
+              <div class="slide-button"></div>
+              <span class="label" id="button-dark_theme-label">Вкл.</span>
+            </label>
+          </div>
+          
+          <div class="custom-button">
+            Показать ссылку
+            <label class="toggle-button">
+              <input type="checkbox" onchange="view_URL();" class="button-url-view" disabled="">
+              <div class="slide-button"></div>
+              <span class="label" id="button-url-view-label">не актив.</span>
+            </label>
+          </div>
+
+          <span class="title-settings-bar">Фильтры:<br></span>
+
+          <div class="custom-button">
+            Сеппия
+            <label class="toggle-button">
+              <input type="checkbox" onchange="set_seppia();" class="button-seppia-set" >
+              <div class="slide-button"></div>
+              <span class="label" id="button-seppia-set-label">Выкл.</span>
+            </label>
+          </div>
+          <div class="custom-button">
+            Макс. контраст
+            <label class="toggle-button">
+              <input type="checkbox" onchange="set_max_contrast();" class="button-contrast-set" >
+              <div class="slide-button"></div>
+              <span class="label" id="button-contrast-set-label">Выкл.</span>
+            </label>
+          </div>
+          <div class="custom-button">
+            ЧБ
+            <label class="toggle-button">
+              <input type="checkbox" onchange="set_C_B();" class="button-CB-set" >
+              <div class="slide-button"></div>
+              <span class="label" id="button-CB-set-label">Выкл.</span>
+            </label>
+          </div>
+          <div class="custom-button">
+            Негатив
+            <label class="toggle-button">
+              <input type="checkbox" onchange="set_negative();" class="button-negative-set" >
+              <div class="slide-button"></div>
+              <span class="label" id="button-negative-set-label">Выкл.</span>
+            </label>
+          </div>
+        </div>
+        <script type="text/javascript">
+            document.querySelector('.button-autoscrol').checked = false;
+            document.querySelector('.button-autoscrol').checked = false;
+            document.querySelector('.button-url-view').disabled = true;
+            document.querySelector('.button-seppia-set').checked = false;
+            document.querySelector('.button-dark_theme').checked = true;
+
+            function filters_set(){
+              var filters_string = '';
+              if (window.seppia){filters_string+='sepia(100%) ';}
+              if (window.C_B){filters_string+='saturate(0%) ';}
+              if (window.contrast){filters_string+='contrast(150%) ';}
+              if (window.negative){filters_string+='invert(100%) ';}
+
+              to_set = `.img-fluid{
+                  filter: TO_SET;
+                  -webkit-filter: TO_SET;
+                  -moz-filter: TO_SET;
+                }`;
+                document.getElementById('script-style').innerHTML = to_set.replace('TO_SET',filters_string).replace('TO_SET',filters_string).replace('TO_SET',filters_string);
+              return to_set.replace('TO_SET',filters_string).replace('TO_SET',filters_string).replace('TO_SET',filters_string);
+            }
+
+            function set_negative(){
+              window.negative = document.querySelector('.button-negative-set').checked;
+              if (window.negative){
+                document.getElementById('button-negative-set-label').innerHTML = 'Вкл.';
+              }else{
+                document.getElementById('button-negative-set-label').innerHTML = 'Выкл.';
+              }
+              filters_set();
+            }
+
+            function set_max_contrast(){
+              window.contrast = document.querySelector('.button-contrast-set').checked;
+              if (window.contrast){
+                document.getElementById('button-contrast-set-label').innerHTML = 'Вкл.';
+              }else{
+                document.getElementById('button-contrast-set-label').innerHTML = 'Выкл.';
+              }
+              filters_set();
+            }
+
+            function set_C_B(){
+              window.C_B = document.querySelector('.button-CB-set').checked;
+              if (window.C_B){
+                document.getElementById('button-CB-set-label').innerHTML = 'Вкл.';
+              }else{
+                document.getElementById('button-CB-set-label').innerHTML = 'Выкл.';
+              }
+              filters_set();
+            }
+
+            function set_seppia(){
+              window.seppia = document.querySelector('.button-seppia-set').checked;
+              if (window.seppia){
+                document.getElementById('button-seppia-set-label').innerHTML = 'Вкл.';
+              }else{
+                document.getElementById('button-seppia-set-label').innerHTML = 'Выкл.';
+              }
+            filters_set();
+            }
+
+        </script>
+      </div>
+    </div>
+  </div>
+
+  <div class="container-fluid chapter-container">
+
+    <div class="text-center">
+      <h1 class="mb-2"><a class="page-link-title" href="PAGE_LINK" style="color: #EC5E26;">NAME_PAGE</a><br><b class="at-page-title">AT_PAGE</b></h1>
+    </div>
+
+    <div class="row w-100 mt-4 mb-2">
+      <div class="col-12">
+        <div class="reading-mode input-group mx-auto justify-content-center">
+          <div class="input-group-prepend">
+            <div class="input-group-text bg-primary px-2">Режим чтения</div>
+          </div>
+          <div class="input-group-append">
+            <button class="readingMode input-group-text bg-primary btn btn-primary px-3  text-success " data-mode="v" title="Вертикальный">
+              <i class="fas fa-scroll" style="width: 22px"></i>
+            </button>
+          </div>
+          <div class="input-group-append">
+            <button class="readingMode input-group-text bg-primary btn btn-primary px-3 " data-mode="h" title="Горизонтальный" onclick="window.location.href=window.location.href+'/0/xgemx'">
+              <i class="fas fa-book-open" style="width: 22px"></i>
+            </button>
+          </div>
+          <div class="input-group-append">
+            <button class="readingMode input-group-text bg-primary btn btn-primary px-3 " data-mode="h" title="Всё и сразу" onclick="autoPage_load();">
+              <i class="fas fa-file-alt" style="font-size: 24px;"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-1 d-flex flex-column align-items-center chapter-images">
+      <img src="" class="img-fluid page-image full-image" width="900" height="11181" data-number="1" id="page-" alt="" title="">
+
+    </div>
+
+    <div class="row text-center god-dem-right">
+      <div class="col-12">
+        <h2>Конец главы</h2>
+        <span class="current-chapter at-page">
+                              AT_PAGE  </span>
+        <div class="clearfix"></div>
+        <form action="NEXT_PAGE_LINK" class="mt-2 btn btn-lg btn-primary next-page">
+          <script type="text/javascript">
+            document.write(`<input type="range" min="${window.innerWidth/20}" max="${window.innerWidth}" step="${window.innerWidth/20}" value="${window.scale}" name="scale" class="hidden-scale"> `);
+          </script>
+          <button type="submit" class="mirror">Следующая глава - NEXT_PAGE</button>
+        </form>
+        <button class="mt-2 btn btn-lg btn-primary next-page" onclick="hot_load_more();">Продолжить на этой странице</button>
+
+      </div>
+    </div>
+
+  </div>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplebar@3.1.5/dist/simplebar.min.css" integrity="sha256-F6uSa4Nj6dofBQLQWxJ8zmauOTcjFKL4cMsotUXXXrU=" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/simplebar@3.1.5/dist/simplebar.min.js" integrity="sha256-90mMeviB7m300abRXt4C/ytnjcgb1Ufcj7N1a2AWp2U=" crossorigin="anonymous"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/infinite-scroll@4.0.1/dist/infinite-scroll.pkgd.min.js"></script>
+  <div class="jsdocparse">{{all_imgs}}</div>
+
+  <script type="text/javascript">
+    window.i = 0;
+    window.scale = {{scale}}
+    window.auto = false;
+    window.end_of_manga = false;
+    window.series = '{{series}}'
+    window.at_pages = [];
+    if (window.series == 'phone') {
+      document.querySelector('header').innerHTML = '';
+    }
+    if (scale == 0){
+      scale = window.innerWidth;
+    }
+
+    function change_width() {
+      window.scale = document.querySelector('.range-size').value;
+      document.querySelector('.range-settings-label').innerHTML = 'Размер манги по ширине: '+window.scale+'px';
+
+      for (var i = 0; i < document.querySelector('.chapter-images').children.length; i++) {
+        try {
+          
+          document.querySelector('.chapter-images').children[i].width = window.scale;
+        } catch {
+        }
+        try {
+          document.querySelector('.hidden-scale').value = window.scale;
+        } catch {
+          console.log('Fail to send window.scale');
+        }
+      }
+    }
+    function autoPage_load(){
+      window.auto = !window.auto;
+      if(window.auto){var lett = 'Вкл.';var lett2 = 'Выкл.';alert('Режим авто-подгрузки глав манги активирован. Приятного чтения взапой и не оглядывайтесь на всякие кнопки впредь');}
+      else{alert('Режим авто-подгрузки отключен, видимо вы большой любитель потыкать где надо и не очень :( ,а я между прочем старался и делал его специально для вас, целых 4 строки кода ушло... А и да, mangapoisk уже года 2 никак не сделает эту функцию.');var lett = 'Выкл.';var lett2 = 'не актив.'}
+
+      document.querySelector('.button-url-view').disabled = !window.auto;
+      document.querySelector('.button-autoscrol').checked = window.auto;
+      document.getElementById('button-url-view-label').innerHTML = `${lett2}`;
+      document.getElementById('button-autoscrol-label').innerHTML = `${lett}`;
+    }
+    
+
+    function get_all_idS() {
+      var articls_idS = [];
+      for (var i = 0; i < document.getElementById('result_box').children.length; i++) {
+        articls_idS[i] = document.getElementById('result_box').children[i].id;
+      }
+      return articls_idS;
+    }
+
+    function hot_load_pages(data = false) {
+      if (data == false) {
+        this_data = JSON.parse(document.querySelector('.jsdocparse').innerHTML);
+      } else {
+        this_data = data;
+      }
+      if (document.querySelector('.chapter-images').children.length > 151){
+        for (var i = 0; i < 30; i++) {
+          document.querySelector('.chapter-images').removeChild(document.querySelector('.chapter-images').children[i]);
+        }
+      }else{console.log('Сейчас на странице '+document.querySelector('.chapter-images').children.length+' картинок.')}
+      for (var i = 0; i < this_data.length; i++) {
+        this_data[i]["width"] = window.scale;
+        if (window.i == 0) {
+          document.querySelector('.full-image').src = this_data[i]["img"];
+          document.querySelector('.full-image').alt = this_data[i]["alt"];
+          document.querySelector('.full-image').title = document.querySelector('.full-image').alt;
+          document.querySelector('.full-image').id = this_data[i]["page_id"];
+          document.querySelector('.full-image').width = this_data[i]["width"];
+          document.querySelector('.full-image').height = this_data[i]["height"];
+        } else {
+          img = document.createElement('img');
+          img.classList.add("img-fluid");
+          img.classList.add("page-image");
+          img.classList.add("lazy");
+          img.classList.add("lazy-preload");
+          img.alt = this_data[i]["alt"];
+          img.src = this_data[i]["img"];
+          img.title = img.alt;
+          img.id = this_data[i]["page_id"];
+          img.width = this_data[i]["width"];
+          img.height = this_data[i]["height"];
+          document.querySelector('.chapter-images').appendChild(img);
+        }
+        window.i++;
+      }
+      try {
+        document.querySelector('.hidden-scale').value = window.scale;
+      } catch {
+        console.log('OP OP  SKIBIDI');
+      }
+    }
+    hot_load_pages();
+
+    function hot_load_more() {
+      try{
+        hrefa = document.querySelector('.next-page').action;
+        document.querySelector('.next-page').classList.add('hider');
+        socket.emit('load_more_pages', {
+          link: `${hrefa}`
+        });
+        window.end_of_manga = false;
+        
+      }catch{
+        socket.emit('load_more_pages', {
+          link: `${document.querySelector('form').action}`
+        });
+        window.end_of_manga = true;
+      }
+      
+    }
+
+    function nextView() {
+      manga = "{{link}}";
+      chapter = "{{chapter}}";
+      socket.emit('nextView', [manga, chapter]);
+    }
+
+    function nextView_soft(manga, chapter) {
+      socket.emit('nextView', [manga, chapter]);
+    }
+    socket.on('load_more_pagesOk', function(data) {
+      console.log(data);
+      console.log(document.querySelector('.god-dem-right').children[0])
+      document.querySelector('.jsdocparse').innerHTML = data[0];
+      hot_load_pages(JSON.parse(data[0]));
+      let this_data = JSON.parse(data[1]);
+      if (!window.at_pages.includes(this_data["at_page"])){
+            if (this_data["end"]) {
+              window.end_of_manga = true;
+              document.querySelector('.god-dem-right').children[0].removeChild(document.querySelector('.god-dem-right').children[0].children[document.querySelector('.god-dem-right').children[0].children.length - 1]);
+              for (var i = 0; i < document.querySelector('.god-dem-right').children[0].children.length; i++) {
+                if (document.querySelector('.god-dem-right').children[0].children[i].classList.contains('next-page')) {
+                  document.querySelector('.god-dem-right').children[0].removeChild(document.querySelector('.god-dem-right').children[0].children[i]);
+                } else {
+                  console.log(document.querySelector('.god-dem-right').children[0].children[i]);
+                }
+              }
+              document.body.innerHTML = document.body.innerHTML.replace('AT_PAGE', this_data["next_page"].replace('Глава', 'Новая глава')).replace('NAME_PAGE', this_data["name_page"]).replace('AT_PAGE', this_data["next_page"].replace('Глава', 'Новая глава') + `<hr><br><a href="${window.location.href.substring(0,window.location.href.lastIndexOf('/chapter'))}">Вернуться к манге</a>`);
+              document.querySelector('.at-page').innerHTML = this_data["next_page"].replace('Глава', 'Новая глава');
+      
+            }
+            try {
+              document.querySelector('.next-page').innerHTML = '';
+              document.querySelector('.next-page').action = JSON.parse(data[1])["next_page_link"];
+              document.querySelector('.at-page').innerHTML = JSON.parse(data[1])["next_page"];
+            } catch {
+              console.log(this_data);
+            }
+          window.at_pages.push(this_data["at_page"]);
+        }
+    });
+    socket.on('searchOk', function(data) {
+      if (data["message"] == "ok") {
+        for (var i = 0; i < data["results"].length; i++) {
+          articl = document.createElement('li');
+          articl.id = `${data["results"][i]["image"]}`
+          articl.innerHTML = `
+                                
+                                <a href="${data["results"][i]["link"]}">
+                                    <div class="search-container"><div class="search-image">
+                                        <img src="${data["results"][i]["image"]}">
+                                    </div>
+                                    <div class="search-label">
+                                        ${data["results"][i]["label"]}
+                                    </div>
+                                    <div class="search-year">
+                                        ${data["results"][i]["year"]}
+                                        <hr>
+                                        ${data["results"][i]["updated"]}
+                                    </div>
+                                </a>
+                                <div>
+                                </div>
+                            `;
+          if (!get_all_idS().includes(articl.id)) {
+            document.getElementById('result_box').appendChild(articl);
+          } else {
+            articl = '';
+          }
+          //data["results"][i]
+        }
+        for (var i = 0; i < document.getElementById('result_box').children.length; i++) {
+          document.getElementById('result_box').removeChild(document.getElementById('result_box').children[i]);
+        }
+        if (document.querySelector('.searchInput').value == ''){
+          document.getElementById('result_box').innerHTML = '';
+        }
+      }
+    });
+    async function on_type_text() {
+      if (document.querySelector('.searchInput').value == ''){
+        document.getElementById('result_box').innerHTML = '';
+      }else{
+        text = document.querySelector('.searchInput').value;
+        await socket.emit('searchThis', text);
+      }
+    }
+    nextView();
+    socket.on('nextViewOk', function(data) {
+      if (!window.end_of_manga) {
+        document.querySelector('.next-page').action = data["next_page_link"];
+        document.querySelector('.next-page').innerHTML = document.querySelector('.next-page').innerHTML.replace('NEXT_PAGE', data["next_page"]);
+        document.querySelector('.at-page').innerHTML = data["at_page"];
+        document.querySelector('.at-page-title').innerHTML = data["at_page"];
+        document.querySelector('.page-link-title').href = data["page_link"];
+        document.querySelector('.page-link-title').innerHTML = document.querySelector('.page-link-title').innerHTML.replace('NAME_PAGE', data["name_page"]);
+        if (window.scale != 0) {
+          try {
+            document.querySelector('.hidden-scale').value = window.scale;
+          } catch {
+          }
+        }
+      } else {
+        document.body.innerHTML = document.body.innerHTML.replace('AT_PAGE', data["next_page"].replace('Глава', 'Новая глава')).replace('NAME_PAGE', data["name_page"]).replace('AT_PAGE', data["next_page"].replace('Глава', 'Новая глава') + `<hr><br><a href="${window.location.href.substring(0,window.location.href.lastIndexOf('/chapter'))}">Вернуться к манге</a>`);
+      }
+    });
+
+
+    window.addEventListener('scroll', function() {
+      try{if (document.querySelector('.range-size').value != window.scale){document.querySelector('.range-size').value = window.scale;}} catch{}
+      
+
+
+      document.body.innerHTML = document.body.innerHTML.replace('action="null"',`action="${window.location.href.substring(0,window.location.href.lastIndexOf('/chapter'))}"`);
+      if (window.innerHeight + window.scrollY >= document.querySelector('.chapter-images').offsetHeight) {
+        if (window.auto) {
+          setTimeout(hot_load_more, 100);
+          console.log(`${window.innerHeight + window.scrollY} - ${document.querySelector('.chapter-images').offsetHeight}`)
+        }
+      }
+      if (window.end_of_manga){
+        document.body.innerHTML = document.body.innerHTML.replace('Конец главы',`<a href="${window.location.href.substring(0,window.location.href.lastIndexOf('/chapter'))}">На страницу манги</a>`)
+      }
+
+      if (window.scrollX !== 0) {}
+        window.scrollTo(0, window.pageYOffset);
+    });
+
+  function view_URL(){
+    if (!document.querySelector('.button-url-view').disabled){
+        if (document.querySelector('.button-url-view').checked){
+          document.getElementById('button-url-view-label').innerHTML = 'Вкл.'
+          document.getElementById('button-url-view-label-text').innerHTML = `<a href="`+document.querySelector('.next-page').action+`?scale=${window.scale}">${document.querySelector('.next-page').action}</a>`;
+        }else{
+          document.getElementById('button-url-view-label').innerHTML = 'Выкл.'
+          document.getElementById('button-url-view-label-text').innerHTML = '';
+        }
+      }
+    else{
+      document.getElementById('button-url-view-label').innerHTML = 'не актив.';
+      document.querySelector('.button-url-view').checked = false;
+      document.getElementById('button-url-view-label-text').innerHTML = '';
+
+    }
+  }
+  window.scrollTo(0,0);
+  </script>
+</body>
+
+</html>

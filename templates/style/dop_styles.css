@@ -1,0 +1,197 @@
+    /*ICON SETTINGS STYLE*/
+    .settings-button {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      background-color: #171717;
+      border: none;
+      box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.2);
+      padding: 10px;
+      cursor: pointer; /* Изменяем курсор на кнопке при наведении */
+      border-radius: 50%; /* Закругляем углы кнопки чтобы она имела круглую форму */
+    }
+
+    .settings-icon {
+      width: 24px;
+      height: 24px;
+      background-image: url('/img/window.png');
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      display: block; /* Делаем блочным элементом, чтобы размеры соответствовали размерам иконки */
+    }
+    .settings-wrapper {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+    }
+    /*
+    .settings-button {
+      background-color: #fff;
+      border: none;
+      box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.2);
+      padding: 10px;
+      cursor: pointer;
+      border-radius: 50%;
+    }
+
+    .settings-icon {
+      width: 24px;
+      height: 24px;
+      background-image: url('path-to-icon');
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      display: block;
+    }*/
+
+    .settings-menu {
+      position: absolute;
+
+      top: 59px;
+      right: -1000px;
+      width: auto;
+      height: 740px;
+      background-color: #ececec;
+      box-shadow: -5px 0px 5px rgba(0, 0, 0, 0.2);
+      transition: all 0.2s ease-out; /* Добавляем плавную анимацию при показе или скрытии меню */
+      padding: 40px;
+      padding-top: 24px;
+      padding-right: 56px;
+      visibility: hidden;
+      overflow-y: scroll; 
+    }
+
+    .settings-menu.show {
+      right: -15px; /* Смещаем меню на 200px вправо, чтобы оно появилось на экране */
+      visibility: visible;
+      opacity: 0.8;
+
+    }
+
+    /* Контейнер кнопки */
+.toggle-button {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  width: 60px;
+  height: 30px;
+}
+
+/* Скрытие стандартного checkbox элемента */
+.toggle-button input {
+  display: none;
+}
+
+/* Стилизация ползунка кнопки */
+.slide-button {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: gray;
+  border-radius: 50px;
+  -webkit-transition: .4s;
+  transition: .4s;
+
+}
+
+/* Стилизация активированного ползунка кнопки */
+.slide-button::before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  border-radius: 50%;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+/* Стилизация checkbox в состоянии "on" */
+input:checked + .slide-button {
+  background-color: #007bff;
+}
+
+/* Стилизация активированного ползунка в состоянии "on" */
+input:checked + .slide-button::before {
+  -webkit-transform: translateX(26px);
+  -ms-transform: translateX(26px);
+  transform: translateX(26px);
+}
+
+
+
+/* Стилизация подписи */
+.label {
+  position: absolute;
+  top: 50%;
+  right: -100px;
+  transform: translateY(-50%);
+}
+
+/* Увеличение отступа слева для учета ширины подписи */
+.toggle-button {
+  padding-right: 30px;
+}
+
+.checkbox-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.custom-button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+
+}
+#result_box li{
+  border: 1px solid #202830;
+}
+#result_box hr{visibility: hidden;padding-top: 2px;padding-left: 5px;padding-bottom: 12px;}
+#result_box{
+  font-family: 'Rubik';
+}
+.search-image img{
+  width: 71px;
+  height: 90px;
+}
+
+.settings-button:active, .settings-button:focus{
+  background-color: #202830;
+}
+input[type="checkbox"]:disabled + label::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #ccc;
+}
+body{
+  overflow-x: hidden;
+}
+
+.chapter-container{
+  overscroll-behavior-x:contain;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+
+.title-settings-bar{
+  font-size: 1.2em;
+  color: #7abcff;
+}
+.dark{
+  background-color: #1c1c1c;
+  color: snow;
+}
+.settings-box{
+  overflow-y: scroll; 
+}
+.navbar{
+  padding: 0rem .4rem;
+}

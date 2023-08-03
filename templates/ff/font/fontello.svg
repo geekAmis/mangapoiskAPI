@@ -1,0 +1,12 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg">
+<metadata>Copyright (C) 2023 by original authors @ fontello.com</metadata>
+<defs>
+<font id="fontello" horiz-adv-x="1000" >
+<font-face font-family="fontello" font-weight="400" font-stretch="normal" units-per-em="1000" ascent="850" descent="-150" />
+<missing-glyph horiz-adv-x="1000" />
+<glyph glyph-name="bell-1" unicode="&#xe801;" d="M632 426q16-34 40-52t45-22 44-23 35-55q22-62-74-161t-252-157q-164-58-297-45t-155 75q-20 54 12 111t18 111q-56 192-47 300t113 192q26 22 29 51t29 39q24 8 46-12t56-18q132 2 198-66t160-268z m-186-404q88 32 159 85t100 91 25 50q-8 22-49 33t-124 1-187-48q-102-38-173-87t-94-84-17-53q4-12 50-22t134-4 176 38z m-62 174q8 2 21 7t17 7l2-2q14-40-17-83t-89-63q-96-36-152 14 78 68 218 120z" horiz-adv-x="800" />
+</font>
+</defs>
+</svg>

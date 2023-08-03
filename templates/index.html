@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="utf-8">
+<title>Пять слайдеров со своим текстом на каждом слайде</title>
+<!-- Подключение CSS-файла Swiper -->
+<link rel="stylesheet" href="/css/{{key}}/slide_bar.css" />
+<link rel="stylesheet" href="/css/{{key}}/index.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.2/socket.io.js"></script>
+<link rel="stylesheet" type="text/css" href="https://fonts.bunny.net/css?family=Rubik:300,400,500">
+<script type="text/javascript">
+	var socket = io();
+</script>
+</head>
+
+<body>
+	<div class="app">
+		<!-- Первый слайдер -->
+		<h2>Обновления топ манги</h2>
+		<div class="swiper-container-big swiper-container">
+			<div class="swiper-wrapper big-img">
+				{{s1 | safe}}
+			</div>
+		</div>
+		<!-- Маленькие слайдеры -->
+		<div class="inner-panel">
+			<!-- Второй слайдер -->
+			<h2 class="lazy-title">Горячие новинки <a class="max-list" href="javascript:;"></a></h2>
+				<div class="swiper-container">
+					<div class="swiper-wrapper mini-img">
+						{{s2 | safe}}
+				</div>
+			</div>
+
+			<!-- Третий слайдер -->
+			<h2 class="lazy-title">Популярное <a class="max-list" href="javascript:;"></a></h2>
+				<div class="swiper-container">
+					<div class="swiper-wrapper mini-img">
+						{{s3 | safe}}
+				</div>
+			</div>
+
+			<!-- Третий слайдер -->
+			<h2 class="lazy-title">Недавно на сайте <a class="max-list" href="javascript:;"></a></h2>
+				<div class="swiper-container">
+					<div class="swiper-wrapper mini-img">
+						{{s4 | safe}}
+				</div>
+			</div>
+		</div>
+		<!-- Подключение JavaScript-файла Swiper -->
+		<script src="/slider/nav/{{key}}/bibl.js"></script>
+		<script src="/slider/nav/{{key}}/slider.js"></script>
+		<script type="text/javascript">
+			var urls = ['/manga?sortBy=-published_at','/manga?sortBy=popular','/manga?sortBy=-year'];
+			for (var i = 0; i < document.querySelectorAll('.lazy-title').length; ++i) {
+			    document.querySelectorAll('.lazy-title')[i].children[0].href=urls[i];
+			}
+
+			function update_keys(){
+				socket.emit('update-secret-key', '{{key}}');
+			}
+			update_keys();
+		</script>
+	</div>
+</body>
+</html>
