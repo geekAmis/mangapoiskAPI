@@ -27,7 +27,7 @@ Flask server + mangapoisk api + modern web page = M.I.T. (Manga and Illustration
 # RU Language (Русский язык)
 # Установка Windows 10+
   Установите python 3, если он не существует ( https://www.python.org/ftp/python/3.11.4/python-3.11.4-amd64.exe )<br>
-  В пути запуска проекта cmd.exe (Победа+R)<br>
+  В пути запуска проекта cmd.exe (Win+R)<br>
   (Чтобы перейти в папку проекта, введите cmd: cd C:\your проект path)<br>
   Запустите это (в cmd):<br>
   python.exe -m pip install --upgrade pip<br>
