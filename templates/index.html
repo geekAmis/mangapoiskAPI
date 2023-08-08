@@ -12,15 +12,18 @@
 <script type="text/javascript">
 	var socket = io();
 </script>
+
+
 </head>
 
-<body>
+<body oncontextmenu="return false;">
+	<nocode></nocode>
 	<div class="app">
 		<!-- Первый слайдер -->
 		<h2>Обновления топ манги</h2>
 		<div class="swiper-container-big swiper-container">
-			<div class="swiper-wrapper big-img">
-				{{s1 | safe}}
+			<div class="swiper-wrapper big-img" id="s1">
+				
 			</div>
 		</div>
 		<!-- Маленькие слайдеры -->
@@ -28,24 +31,24 @@
 			<!-- Второй слайдер -->
 			<h2 class="lazy-title">Горячие новинки <a class="max-list" href="javascript:;"></a></h2>
 				<div class="swiper-container">
-					<div class="swiper-wrapper mini-img">
-						{{s2 | safe}}
+					<div class="swiper-wrapper mini-img" id="s2">
+						
 				</div>
 			</div>
 
 			<!-- Третий слайдер -->
 			<h2 class="lazy-title">Популярное <a class="max-list" href="javascript:;"></a></h2>
 				<div class="swiper-container">
-					<div class="swiper-wrapper mini-img">
-						{{s3 | safe}}
+					<div class="swiper-wrapper mini-img" id="s3">
+						
 				</div>
 			</div>
 
 			<!-- Третий слайдер -->
 			<h2 class="lazy-title">Недавно на сайте <a class="max-list" href="javascript:;"></a></h2>
 				<div class="swiper-container">
-					<div class="swiper-wrapper mini-img">
-						{{s4 | safe}}
+					<div class="swiper-wrapper mini-img" id="s4">
+						
 				</div>
 			</div>
 		</div>
@@ -61,7 +64,33 @@
 			function update_keys(){
 				socket.emit('update-secret-key', '{{key}}');
 			}
+			function load_page(key='{{key}}'){
+				document.querySelector('head').innerHTML += '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">';
+				fetch(`/api/v0.0.1/${key}/?main_page=fuck_you_stupid_coder`)
+				  .then(response => response.json())
+				  .then(data => {
+				    const htmlCode1 = data[0];
+				    const htmlCode2 = data[1];
+				    const htmlCode3 = data[2];
+				    const htmlCode4 = data[3];
+				    document.getElementById('s1').innerHTML = htmlCode1;
+				    document.getElementById('s2').innerHTML = htmlCode2;
+				    document.getElementById('s3').innerHTML = htmlCode3;
+				    document.getElementById('s4').innerHTML = htmlCode4;
+				  });
+
+				fetch(`/api/v0.0.1/${key}/?header_generate=ok`)
+					.then(response => response.json())
+					.then(data => {
+						document.querySelector('nocode').innerHTML = document.querySelector('nocode').innerHTML+data[0];
+					});
+			}
+			load_page();
 			update_keys();
+
+			document.addEventListener('contextmenu', function(e) {
+			  e.preventDefault();
+			});
 		</script>
 	</div>
 </body>

@@ -29,7 +29,7 @@
   <link rel="preconnect" href="https://ddb404e7-a763-4312-8e2d-04eb348534e4.selcdn.net">
   <link rel="stylesheet" type="text/css" href="/style/{{key}}/style_for_settings.css">
   <script type="text/javascript">
-    document.write(`<style type="text/css">body,html{max-width: ${window.innerWidth}px;max-height: 100dvh;} #navbar{max-width: ${window.innerWidth}px;}</style>`);
+    document.write(`<style type="text/css">body,html{max-width: ${window.innerWidth}px;height: auto;} #navbar{max-width: ${window.innerWidth-10}px;}</style>`);
   </script>
 
 
@@ -78,14 +78,14 @@
         <div class="checkbox-block">
           <span class="title-settings-bar">GUI настройка:<br></span>
 
-          <div class="custom-button">
+          <!--<div class="custom-button">
             Автопролистывание
             <label class="toggle-button">
               <input type="checkbox" onchange="autoPage_load();" class="button-autoscrol">
               <div class="slide-button"></div>
               <span class="label" id="button-autoscrol-label">Выкл.</span>
             </label>
-          </div>
+          </div>-->
 
           <div class="custom-button">
             Тёмная тема
@@ -236,10 +236,10 @@
               <i class="fas fa-book-open" style="width: 22px"></i>
             </button>
           </div>
-          <div class="input-group-append">
+          <!--<div class="input-group-append">
             <button class="readingMode input-group-text bg-primary btn btn-primary px-3 " data-mode="h" title="Всё и сразу" onclick="autoPage_load();">
               <i class="fas fa-file-alt" style="font-size: 24px;"></i>
-            </button>
+            </button>-->
           </div>
         </div>
       </div>
@@ -397,7 +397,19 @@
     function nextView_soft(manga, chapter) {
       socket.emit('nextView', [manga, chapter]);
     }
+    function CookiesDelete() {
+    var cookies = document.cookie.split(";");
+    for (var i = 0; i < cookies.length; i++) {
+      var cookie = cookies[i];
+      var eqPos = cookie.indexOf("=");
+      var name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;";
+      document.cookie = name + '=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    }
+  }
     socket.on('load_more_pagesOk', function(data) {
+      
+      var cookies = data[2];
       console.log(data);
       console.log(document.querySelector('.god-dem-right').children[0])
       document.querySelector('.jsdocparse').innerHTML = data[0];
@@ -425,6 +437,13 @@
             } catch {
               console.log(this_data);
             }
+          CookiesDelete();
+          console.log(document.cookie);
+          console.log(cookies);
+          document.cookie = cookies.split(';')[0];
+          document.cookie = cookies.split(';')[1];
+          document.cookie = 'foo=bar';
+          console.log(document.cookie);
           window.at_pages.push(this_data["at_page"]);
         }
     });
@@ -504,15 +523,17 @@
       if (window.innerHeight + window.scrollY >= document.querySelector('.chapter-images').offsetHeight) {
         if (window.auto) {
           setTimeout(hot_load_more, 100);
-          console.log(`${window.innerHeight + window.scrollY} - ${document.querySelector('.chapter-images').offsetHeight}`)
         }
       }
       if (window.end_of_manga){
         document.body.innerHTML = document.body.innerHTML.replace('Конец главы',`<a href="${window.location.href.substring(0,window.location.href.lastIndexOf('/chapter'))}">На страницу манги</a>`)
       }
 
-      if (window.scrollX !== 0) {}
+      if (window.scrollX !== 0) {
         window.scrollTo(0, window.pageYOffset);
+      }
+      console.log(`${window.innerHeight + window.scrollY} - ${document.querySelector('.chapter-images').offsetHeight}`);
+        
     });
 
   function view_URL(){

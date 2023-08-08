@@ -19,65 +19,8 @@
 	</script>
 </head>
 <body>
+<nocode></nocode>
 
-
-<div class="card shadow-sm rounded-0 w-100">
-    <div class="inner-panel">
-        <h1 class="text-center js_animation_loader_text"></h1>
-        <form class="search-form filters-form" action="javascript:on_type_text();">
-          <input type="text" name="search" class="searchInput search-input"  value="" placeholder="Поиск" oninput="if (event.target.value != ''){on_type_text();}else{document.querySelector('.flex-container').innerHTML = '';}">
-          <button type="submit" class="search-button">
-            <svg class="submit-button">
-              <use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#search"></use>
-            </svg>
-          </button>
-          <div class="search-option">
-            <div>
-              <input name="type" type="radio" value="type-users" id="type-users">
-              <label for="type-users">
-                <svg class="edit-pen-title">
-                  <use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#user"></use>
-                </svg>
-                <span>По новизне</span>
-              </label>
-            </div>
-            <div>
-              <input name="type" type="radio" value="type-posts" id="type-posts">
-              <label for="type-posts">
-                <svg class="edit-pen-title">
-                  <use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#post"></use>
-                </svg>
-                <span>По рейтингу</span>
-              </label>
-            </div>
-            <div>
-              <input name="type" type="radio" value="type-images" id="type-images">
-              <label for="type-images">
-                <svg class="edit-pen-title">
-                  <use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#images"></use>
-                </svg>
-                <span>По просмотрам</span>
-              </label>
-            </div>
-            <div>
-              <input name="type" type="radio" value="type-special" id="type-special" checked="">
-              <label for="type-special">
-                <svg class="edit-pen-title">
-                  <use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#special"></use>
-                </svg>
-                <span>Эксклюзивы</span>
-              </label>
-            </div>
-          </div>
-        </form>
-
-
-        <div class="card-body p-1">
-            <div class="flex-container row align-items-start justify-content-center flex-wrap">
-            </div>
-        </div>
-    </div>
-</div>
 
 
 <div class="app">
@@ -178,6 +121,11 @@ if (q != ''){
     document.querySelector('.searchInput').value = window.q;
     on_type_text();
 }
+
+document.querySelector('head').innerHTML += '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">';
+fetch(`/api/v0.0.1/{{key}}/?header_generate=ok`).then(response => response.json()).then(data => {document.querySelector('nocode').innerHTML = document.querySelector('nocode').innerHTML+data[0];});
+fetch(`/api/v0.0.1/{{key}}/?search_generate=ok`).then(response => response.json()).then(data => {document.querySelector('nocode').innerHTML = document.querySelector('nocode').innerHTML+data[0];});
+
 </script>
 
 <script src='//cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js'></script>

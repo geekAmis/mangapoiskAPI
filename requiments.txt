@@ -7,3 +7,4 @@ flask_socketio
 simple-websocket
 fake_headers
 markupsafe
+werkzeug
