@@ -7,7 +7,7 @@ from microservices.api_templates.load_this import QuikLoad
 app = Flask(import_name=__name__)
 app.config['SECRET_KEY'] = 'secret!'
 app.debug = False
-socketio = SocketIO(app,debug=app.debug)
+socketio = SocketIO(app,debug=app.debug,allow_unsafe_werkzeug=True )
 
 
 
