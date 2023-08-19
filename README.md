@@ -3,9 +3,6 @@
 # mangapoiskAPI
 Flask server + mangapoisk api + modern web page = M.I.T. (Manga and Illustration Technology)
 
-![изображение](https://github.com/geekAmis/mangapoiskAPI/assets/49157841/b5f36cc1-b275-493d-bbf6-0a271e75d25b)
-
-
 
 # ENG Language
 
