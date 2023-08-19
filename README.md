@@ -1,7 +1,6 @@
 ![изображение](https://github.com/geekAmis/mangapoiskAPI/assets/49157841/be0c6f51-74cd-4887-b05a-ac8599e3b522)
 
-# mangapoiskAPI
-Flask server + mangapoisk api + modern web page = M.I.T. (Manga and Illustration Technology)
+Sold:  M.I.T. (Manga and Illustration Technology)
 
 
 # ENG Language
