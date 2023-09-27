@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="utf-8">
+<title>M.I.T.</title>
+<!-- Подключение CSS-файла Swiper -->
+<!--<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.2/socket.io.js"></script>
+-->
+<link rel="stylesheet" type="text/css" href="https://fonts.bunny.net/css?family=Rubik:300,400,500">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<!-- Custom css code -->
+
+</head>
+
+<body oncontextmenu="return false;">
+	<nocode></nocode>
+	<div class="app">
+		<!-- Первый слайдер -->
+		<h2>Обновления топ манги</h2>
+		<div class="swiper-container-big swiper-container">
+			<div class="swiper-wrapper big-img" id="s1">
+				
+			</div>
+		</div>
+		<!-- Маленькие слайдеры -->
+		<div class="inner-panel">
+			<!-- Второй слайдер -->
+			<h2 class="lazy-title">Горячие новинки <a class="max-list" href="javascript:;"></a></h2>
+				<div class="swiper-container">
+					<div class="swiper-wrapper mini-img" id="s2">
+						
+				</div>
+			</div>
+
+			<!-- Третий слайдер -->
+			<h2 class="lazy-title">Популярное <a class="max-list" href="javascript:;"></a></h2>
+				<div class="swiper-container">
+					<div class="swiper-wrapper mini-img" id="s3">
+						
+				</div>
+			</div>
+
+			<!-- Третий слайдер -->
+			<h2 class="lazy-title">Недавно на сайте <a class="max-list" href="javascript:;"></a></h2>
+				<div class="swiper-container">
+					<div class="swiper-wrapper mini-img" id="s4">
+						
+				</div>
+			</div>
+		</div>
+	</div>
+	<script>
+		window.code_template = `<a href="MAIN_HREF" class="img-container"><div class="shadow-container"><img src="IMG" alt="        Скоро загрузится."></div><div class="text-lazy">NAME</div></a><a class="last_page_link" href="LAST_LINK" style="color:#889D9D;"><div class="text-desc">LAST_UPDATE</div></a>`;
+		
+		function convertations(dict,id){
+			codes = window.code_template;
+			console.log(dict.length)
+			for (var i = 0; i < dict.length; i++) {
+				diva = document.createElement('div');
+				diva.classList.add('swiper-slide');
+				diva.innerHTML = (codes.replace('MAIN_HREF',dict[i]["link"])).replace('IMG',dict[i]["img"]).replace('NAME',dict[i]["name"]).replace('LAST_LINK',dict[i]["last_glavLink"]).replace('LAST_UPDATE',dict[i]["ago"]);
+				document.getElementById(id).appendChild(diva);
+			}
+			
+		}
+
+		console.log('/api?version=v0&method=get_colliders')
+		fetch(`/api?version=v0&method=get_colliders`)
+				  .then(response => response.json())
+				  .then(data => {
+				    convertations(data["mangas"][0],'s1');
+				    convertations(data["mangas"][1],'s2');
+				    convertations(data["mangas"][2],'s3');
+				    convertations(data["mangas"][3],'s4');
+				  });
+	</script>
+	<!-- Подключение JavaScript-файла Swiper -->
+</body>
+</html>

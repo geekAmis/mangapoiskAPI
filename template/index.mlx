@@ -1,0 +1,21 @@
+#path=/;
+#hyper=html/index.html;
+#styles(
+	css/index.css,
+	css/sliderStyleCode.css
+);
+#js(
+	js/SliderJSmain.js,
+	js/indexhtmlSlider_control.js
+);
+#path=/manga;
+#hyper=html/choose_glav.html;
+#styles(
+    css/app-4f1e9ba5.css,
+    css/app-1df3623d.css
+);
+#js(
+    js/app-aceda283.js,
+    js/tag.js,
+    js/enable-push.js
+);
