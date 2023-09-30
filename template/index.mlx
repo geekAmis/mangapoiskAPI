@@ -19,3 +19,9 @@
     js/tag.js,
     js/enable-push.js
 );
+#path=/read;
+#hyper=html/read_page.html;
+#styles(
+	css/style.css,
+	css/dop_styles.css
+)

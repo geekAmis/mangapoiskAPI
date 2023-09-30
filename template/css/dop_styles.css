@@ -1,0 +1,197 @@
+    /*ICON SETTINGS STYLE*/
+    .settings-button {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      background-color: #171717;
+      border: none;
+      box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.2);
+      padding: 10px;
+      cursor: pointer; /* Изменяем курсор на кнопке при наведении */
+      border-radius: 50%; /* Закругляем углы кнопки чтобы она имела круглую форму */
+    }
+
+    .settings-icon {
+      width: 24px;
+      height: 24px;
+      background-image: url('data:image/png;base64,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');
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      display: block; /* Делаем блочным элементом, чтобы размеры соответствовали размерам иконки */
+    }
+    .settings-wrapper {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+    }
+    /*
+    .settings-button {
+      background-color: #fff;
+      border: none;
+      box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.2);
+      padding: 10px;
+      cursor: pointer;
+      border-radius: 50%;
+    }
+
+    .settings-icon {
+      width: 24px;
+      height: 24px;
+      background-image: url('path-to-icon');
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      display: block;
+    }*/
+
+    .settings-menu {
+      position: absolute;
+
+      top: 59px;
+      right: -1000px;
+      width: auto;
+      height: 740px;
+      background-color: #ececec;
+      box-shadow: -5px 0px 5px rgba(0, 0, 0, 0.2);
+      transition: all 0.2s ease-out; /* Добавляем плавную анимацию при показе или скрытии меню */
+      padding: 40px;
+      padding-top: 24px;
+      padding-right: 56px;
+      visibility: hidden;
+      overflow-y: scroll; 
+    }
+
+    .settings-menu.show {
+      right: -15px; /* Смещаем меню на 200px вправо, чтобы оно появилось на экране */
+      visibility: visible;
+      opacity: 0.8;
+
+    }
+
+    /* Контейнер кнопки */
+.toggle-button {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  width: 60px;
+  height: 30px;
+}
+
+/* Скрытие стандартного checkbox элемента */
+.toggle-button input {
+  display: none;
+}
+
+/* Стилизация ползунка кнопки */
+.slide-button {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: gray;
+  border-radius: 50px;
+  -webkit-transition: .4s;
+  transition: .4s;
+
+}
+
+/* Стилизация активированного ползунка кнопки */
+.slide-button::before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  border-radius: 50%;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+/* Стилизация checkbox в состоянии "on" */
+input:checked + .slide-button {
+  background-color: #007bff;
+}
+
+/* Стилизация активированного ползунка в состоянии "on" */
+input:checked + .slide-button::before {
+  -webkit-transform: translateX(26px);
+  -ms-transform: translateX(26px);
+  transform: translateX(26px);
+}
+
+
+
+/* Стилизация подписи */
+.label {
+  position: absolute;
+  top: 50%;
+  right: -100px;
+  transform: translateY(-50%);
+}
+
+/* Увеличение отступа слева для учета ширины подписи */
+.toggle-button {
+  padding-right: 30px;
+}
+
+.checkbox-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.custom-button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+
+}
+#result_box li{
+  border: 1px solid #202830;
+}
+#result_box hr{visibility: hidden;padding-top: 2px;padding-left: 5px;padding-bottom: 12px;}
+#result_box{
+  font-family: 'Rubik';
+}
+.search-image img{
+  width: 71px;
+  height: 90px;
+}
+
+.settings-button:active, .settings-button:focus{
+  background-color: #202830;
+}
+input[type="checkbox"]:disabled + label::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #ccc;
+}
+body{
+  overflow-x: hidden;
+}
+
+.chapter-container{
+  overscroll-behavior-x:contain;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+
+.title-settings-bar{
+  font-size: 1.2em;
+  color: #7abcff;
+}
+.dark{
+  background-color: #1c1c1c;
+  color: snow;
+}
+.settings-box{
+  overflow-y: scroll; 
+}
+.navbar{
+  padding: 0rem .4rem;
+}

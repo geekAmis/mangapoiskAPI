@@ -66,7 +66,8 @@ class MangaPoisk(object):
 
 		return self.mangaList
 
-	def parse_choisen_glav(self,path):
+	def parse_her_api(self,path):
+		print(self.url+f'/manga/{path}')
 		self.curl = requests.get(self.url+f'/manga/{path}',headers=self.config["headers"],cookies=self.config["cookies"])
 		if self.curl.status_code == 200:
 			print("Успешное подключение к сайту, по адресу: {}\nНачинаю зеркалить сайт".format(self.url))
@@ -77,10 +78,10 @@ class MangaPoisk(object):
 		self.HtmlCode = self.curl.json()
 		
 		return self.HtmlCode
-		
+
 if __name__ == '__main__':
 	MangaParser = MangaPoisk()
 	with open('a.html','w',encoding='UTF-8') as f:
-		json.dump(MangaParser.parse_choisen_glav('berserk'),f,ensure_ascii=False,indent=4)
+		json.dump(MangaParser.parse_her_api(input('Manga name: ')),f,ensure_ascii=False,indent=4)
 	
 	
