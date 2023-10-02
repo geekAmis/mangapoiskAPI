@@ -5,6 +5,8 @@ app = FastAPI(host='vaka-bit.online')
 from api.engine import *
 from template.mlxDecoder import template
 
+with open('microservice.json','r',encoding='UTF-8') as settings_file:
+	config_settings = json.loads(settings_file.read())
 
 @app.get('/')
 async def root(
@@ -74,8 +76,9 @@ async def read(name,chapter):
 		GLAVA=chapter["number"],
 		TOM=chapter["volume"],
 		IMGS=''.join(imgs),
-		NAME=manga["slug"]
+		NAME=manga["slug"],
+		SERVER=config_settings["root"]["host"]+':'+str(config_settings["root"]["port"])
 		))
 
 if __name__ == '__main__':
-	start(app,host='0.0.0.0',port=322)
+	start(app,host=config_settings["root"]["host"],port=config_settings["root"]["port"])
