@@ -1,8 +1,8 @@
-#from __init__.file import *
-import os,requests
+from __init__.file import *
+"""import os,requests
 from bs4 import BeautifulSoup as bs
 from fake_headers import Headers as Hd
-import json
+import json"""
 
 
 
@@ -66,9 +66,10 @@ class MangaPoisk(object):
 
 		return self.mangaList
 
-	def parse_her_api(self,path):
-		print(self.url+f'/manga/{path}')
-		self.curl = requests.get(self.url+f'/manga/{path}',headers=self.config["headers"],cookies=self.config["cookies"])
+	def parser_with_api(self,path):
+		print(self.url+f'{path}')
+		self.curl = requests.get(self.url+path,headers=self.config["headers"],cookies=self.config["cookies"])
+
 		if self.curl.status_code == 200:
 			print("Успешное подключение к сайту, по адресу: {}\nНачинаю зеркалить сайт".format(self.url))
 			self.mainsoup = bs(self.curl.content,'html5lib')
@@ -78,6 +79,11 @@ class MangaPoisk(object):
 		self.HtmlCode = self.curl.json()
 		
 		return self.HtmlCode
+
+	def parse_her_api(self,path):
+		return self.parser_with_api(f'/manga/{path}')
+		
+		
 
 if __name__ == '__main__':
 	MangaParser = MangaPoisk()

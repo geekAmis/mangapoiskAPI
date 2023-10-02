@@ -24,4 +24,7 @@
 #styles(
 	css/style.css,
 	css/dop_styles.css
-)
+);
+#js(
+	js/load_new.js%</title>
+);

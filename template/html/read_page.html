@@ -2,255 +2,280 @@
 <html lang="ru-RU">
 
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{TITLE}}</title>
-  <meta name="description" content="Читать мангу {{TITLE}} {{DESCRIPTION}}" />
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{TITLE}}</title>
+	<meta name="description" content="Читать мангу {{TITLE}} {{DESCRIPTION}}" />
 
-  <link rel="apple-touch-icon" href="/img/window.png">
-  <link rel="apple-touch-icon" sizes="57x57" href="/img/window.png" />
-  <link rel="apple-touch-icon" sizes="72x72" href="/img/window.png" />
-  <link rel="apple-touch-icon" sizes="76x76" href="/img/window.png" />
-  <link rel="apple-touch-icon" sizes="114x114" href="/img/window.png" />
-  <link rel="apple-touch-icon" sizes="120x120" href="/img/window.png" />
-  <link rel="apple-touch-icon" sizes="144x144" href="/img/window.png" />
-  <link rel="apple-touch-icon" sizes="152x152" href="/img/window.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/img/window.png" />
-  <link rel="icon" type="image/png" sizes="32x32" href="https://mangapoisk.org/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="https://mangapoisk.org/favicon-16x16.png">
-  <link rel="shortcut icon" href="https://mangapoisk.org/favicon.ico" type="image/x-icon">
-  <link rel="manifest" href="https://mangapoisk.org/site.webmanifest">
-  <link rel="mask-icon" href="https://mangapoisk.org/safari-pinned-tab.svg" color="#5bbad5">
-  <meta name="msapplication-TileColor" content="#00aba9">
-  <meta name="theme-color" content="#ffffff">
-  <meta name="csrf-token" content="9A4LpNW8L9dWTCSVehCfILnPdI8CoPIK6LRVcltX">
-    <style type="text/css">*{border: 1px lime solid}</style>
-
+	<link rel="apple-touch-icon" href="/img/window.png">
+	<link rel="apple-touch-icon" sizes="57x57" href="/img/window.png" />
+	<link rel="apple-touch-icon" sizes="72x72" href="/img/window.png" />
+	<link rel="apple-touch-icon" sizes="76x76" href="/img/window.png" />
+	<link rel="apple-touch-icon" sizes="114x114" href="/img/window.png" />
+	<link rel="apple-touch-icon" sizes="120x120" href="/img/window.png" />
+	<link rel="apple-touch-icon" sizes="144x144" href="/img/window.png" />
+	<link rel="apple-touch-icon" sizes="152x152" href="/img/window.png" />
+	<link rel="apple-touch-icon" sizes="180x180" href="/img/window.png" />
+	<link rel="icon" type="image/png" sizes="32x32" href="https://mangapoisk.org/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="https://mangapoisk.org/favicon-16x16.png">
+	<link rel="shortcut icon" href="https://mangapoisk.org/favicon.ico" type="image/x-icon">
+	<link rel="manifest" href="https://mangapoisk.org/site.webmanifest">
+	<link rel="mask-icon" href="https://mangapoisk.org/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-TileColor" content="#00aba9">
+	<meta name="theme-color" content="#ffffff">
+	<meta name="csrf-token" content="9A4LpNW8L9dWTCSVehCfILnPdI8CoPIK6LRVcltX">
+	<style type="text/css">*{border: 1px lime solid}</style>
+	<script type="text/javascript">
+		var name = '{{NAME}}';
+		var glva = '{{GLAVA}}';
+		var tom = '{{TOM}}';
+		
+	</script>
 </head>
 
-
+<style type="text/css" id="script-style"></style>
 <body class="dark">
 
-  <header>
-    <!--
-      Знай - если ты видишь это, то ты пользуешься компьютером, АУФ!
-    -->
-  </header>
+	<header>
+	<!--
+		Знай - если ты видишь это, то ты пользуешься компьютером, АУФ!
+	-->
+	</header>
 
-  <div class="settings-wrapper">
-    <button class="settings-button" onclick="document.querySelector('.settings-menu').classList.toggle('show');"><span class="settings-icon"></span></button>
+	<div class="settings-wrapper">
+	<button class="settings-button" onclick="document.querySelector('.settings-menu').classList.toggle('show');"><span class="settings-icon"></span></button>
 
-   <div class="settings-menu dark" >
-    
-      <div class="settings-box">
-        
-        <span class="settings-name range-settings-label">Размер манги по ширине: </span>
-        <input type="range" min="150" max="1980" step="140" value="0" class="range-size" title="Размер страничек" onclick="change_width();" style="right: -1px;"> `)
-        </script>
-        <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top" id="navbar">
-          <form class="form-inline my-2 my-lg-0 position-relative" action="/search" method="POST" autocomplete="off" novalidate="novalidate">
-            <input id="search_box" name="q" class="form-control mr-sm-2 searchInput" type="text" placeholder="Поиск" title="* Введите поисковый запрос" autocomplete="off" oninput="on_type_text();">
-            <ul id="result_box" tabindex="0" class=""></ul>
-            <button class="btn btn-secondary my-2 my-sm-0" type="submit">Искать</button>
-          </form>
-          <span id="button-url-view-label-text"></span>
-        </nav>
-        <div class="checkbox-block">
-          <span class="title-settings-bar">GUI настройка:<br></span>
+	 <div class="settings-menu dark" >
+	
+		<div class="settings-box">
+		
+		<span class="settings-name range-settings-label">Размер манги по ширине: <b class="range-size-b">710</b>px</span>
+		<input type="range" min="150" max="1980" step="140" value="0" class="range-size" title="Размер страничек" oninput="change_width();" style="right: -1px;"> `)
+		</script>
+		<nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top" id="navbar">
+			<form class="form-inline my-2 my-lg-0 position-relative" action="/search" method="POST" autocomplete="off" novalidate="novalidate">
+			<input id="search_box" name="q" class="form-control mr-sm-2 searchInput" type="text" placeholder="Поиск" title="* Введите поисковый запрос" autocomplete="off" oninput="on_type_text();">
+			<ul id="result_box" tabindex="0" class=""></ul>
+			<button class="btn btn-secondary my-2 my-sm-0" type="submit">Искать</button>
+			</form>
+			<span id="button-url-view-label-text"></span>
+		</nav>
+		<div class="checkbox-block">
+			<span class="title-settings-bar">GUI настройка:<br></span>
 
-          <!--<div class="custom-button">
-            Автопролистывание
-            <label class="toggle-button">
-              <input type="checkbox" onchange="autoPage_load();" class="button-autoscrol">
-              <div class="slide-button"></div>
-              <span class="label" id="button-autoscrol-label">Выкл.</span>
-            </label>
-          </div>-->
+			<!--<div class="custom-button">
+			Автопролистывание
+			<label class="toggle-button">
+				<input type="checkbox" onchange="autoPage_load();" class="button-autoscrol">
+				<div class="slide-button"></div>
+				<span class="label" id="button-autoscrol-label">Выкл.</span>
+			</label>
+			</div>-->
 
-          <div class="custom-button">
-            Тёмная тема
-            <label class="toggle-button">
-              <input type="checkbox" onchange="document.body.classList.toggle('dark');document.querySelector('.settings-menu').classList.toggle('dark');
-              if (document.body.classList.contains('dark')){
-                document.getElementById('button-dark_theme-label').innerHTML = 'Вкл.'
-              }else{
-                document.getElementById('button-dark_theme-label').innerHTML = 'Выкл.'
-              }" class="button-dark_theme" checked="">
-              
-              <div class="slide-button"></div>
-              <span class="label" id="button-dark_theme-label">Вкл.</span>
-            </label>
-          </div>
-          
-          <div class="custom-button">
-            Показать ссылку
-            <label class="toggle-button">
-              <input type="checkbox" onchange="view_URL();" class="button-url-view" disabled="">
-              <div class="slide-button"></div>
-              <span class="label" id="button-url-view-label">не актив.</span>
-            </label>
-          </div>
+			<div class="custom-button">
+			Тёмная тема
+			<label class="toggle-button">
+				<input type="checkbox" onclick="document.body.classList.toggle('dark');document.querySelector('.settings-menu').classList.toggle('dark');
+				if (document.body.classList.contains('dark')){
+				document.getElementById('button-dark_theme-label').innerHTML = 'Вкл.'
+				}else{
+				document.getElementById('button-dark_theme-label').innerHTML = 'Выкл.'
+				}" class="button-dark_theme" checked="">
+				
+				<div class="slide-button"></div>
+				<span class="label" id="button-dark_theme-label">Вкл.</span>
+			</label>
+			</div>
+			
+			<div class="custom-button">
+			Включить радио
+			<label class="toggle-button">
+				<input type="checkbox" onchange="check_radio_on();" class="button-radio-on" >
+				<div class="slide-button"></div>
+				<audio class="audio-play" ><!--https://radiorecord.hostingradio.ru/rmx96.aacp-->
+					<source src="https://nashe1.hostingradio.ru/rock-256">
+				</audio>
 
-          <span class="title-settings-bar">Фильтры:<br></span>
+				<span class="label" id="button-url-view-label">Выкл.</span>
+			</label>
+			</div>
+			<script type="text/javascript">
+			document.querySelector('.button-radio-on').checked=false; check_radio_on();
+			function check_radio_on(){
+				if (document.querySelector('.button-radio-on').checked){
+				document.querySelector('.audio-play').play();
+				document.getElementById('button-url-view-label').innerHTML = 'Вкл.';
+				}else{
+				document.querySelector('.audio-play').pause();
+				document.getElementById('button-url-view-label').innerHTML = 'Выкл.';
+				}
+			}
 
-          <div class="custom-button">
-            Сеппия
-            <label class="toggle-button">
-              <input type="checkbox" onchange="set_seppia();" class="button-seppia-set" >
-              <div class="slide-button"></div>
-              <span class="label" id="button-seppia-set-label">Выкл.</span>
-            </label>
-          </div>
-          <div class="custom-button">
-            Макс. контраст
-            <label class="toggle-button">
-              <input type="checkbox" onchange="set_max_contrast();" class="button-contrast-set" >
-              <div class="slide-button"></div>
-              <span class="label" id="button-contrast-set-label">Выкл.</span>
-            </label>
-          </div>
-          <div class="custom-button">
-            ЧБ
-            <label class="toggle-button">
-              <input type="checkbox" onchange="set_C_B();" class="button-CB-set" >
-              <div class="slide-button"></div>
-              <span class="label" id="button-CB-set-label">Выкл.</span>
-            </label>
-          </div>
-          <div class="custom-button">
-            Негатив
-            <label class="toggle-button">
-              <input type="checkbox" onchange="set_negative();" class="button-negative-set" >
-              <div class="slide-button"></div>
-              <span class="label" id="button-negative-set-label">Выкл.</span>
-            </label>
-          </div>
-        </div>
-        <script type="text/javascript">
-            document.querySelector('.button-autoscrol').checked = false;
-            document.querySelector('.button-autoscrol').checked = false;
-            document.querySelector('.button-url-view').disabled = true;
-            document.querySelector('.button-seppia-set').checked = false;
-            document.querySelector('.button-dark_theme').checked = true;
+			function change_width(){
+				var width = document.querySelector('.range-size').value;
+				document.querySelector('.range-size-b').innerText = width;
+				for (var i = 0; i < document.querySelectorAll('.page-image').length; i++) {
+				document.querySelectorAll('.page-image')[i].width = width;
+				}
+			}
+			</script>
 
-            function filters_set(){
-              var filters_string = '';
-              if (window.seppia){filters_string+='sepia(100%) ';}
-              if (window.C_B){filters_string+='saturate(0%) ';}
-              if (window.contrast){filters_string+='contrast(150%) ';}
-              if (window.negative){filters_string+='invert(100%) ';}
+			<span class="title-settings-bar">Фильтры:<br></span>
 
-              to_set = `.img-fluid{
-                  filter: TO_SET;
-                  -webkit-filter: TO_SET;
-                  -moz-filter: TO_SET;
-                }`;
-                document.getElementById('script-style').innerHTML = to_set.replace('TO_SET',filters_string).replace('TO_SET',filters_string).replace('TO_SET',filters_string);
-              return to_set.replace('TO_SET',filters_string).replace('TO_SET',filters_string).replace('TO_SET',filters_string);
-            }
+			<div class="custom-button">
+			Сеппия
+			<label class="toggle-button">
+				<input type="checkbox" onchange="filter('seppia',event);" class="button-seppia-set" >
+				<div class="slide-button"></div>
+				<span class="label" id="button-seppia-set-label">off.</span>
+			</label>
+			</div>
+			<div class="custom-button">
+			Макс. контраст
+			<label class="toggle-button">
+				<input type="checkbox" onchange="filter('contrast',event);" class="button-contrast-set" >
+				<div class="slide-button"></div>
+				<span class="label" id="button-contrast-set-label">off.</span>
+			</label>
+			</div>
+			<div class="custom-button">
+			ЧБ
+			<label class="toggle-button">
+				<input type="checkbox" onchange="filter('cb',event);" class="button-CB-set" >
+				<div class="slide-button"></div>
+				<span class="label" id="button-CB-set-label">off.</span>
+			</label>
+			</div>
+			<div class="custom-button">
+			Негатив
+			<label class="toggle-button">
+				<input type="checkbox" onchange="filter('negative',event);" class="button-negative-set" >
+				<div class="slide-button"></div>
+				<span class="label" id="button-negative-set-label">off.</span>
+			</label>
+			</div>
+			<script type="text/javascript">
+				window.stylish = ``;
+				function filter(hoo,e){
+					stylish = '';
 
-            function set_negative(){
-              window.negative = document.querySelector('.button-negative-set').checked;
-              if (window.negative){
-                document.getElementById('button-negative-set-label').innerHTML = 'Вкл.';
-              }else{
-                document.getElementById('button-negative-set-label').innerHTML = 'Выкл.';
-              }
-              filters_set();
-            }
+					e.target.parentNode.children[2].innerText = e.target.value+'.';
 
-            function set_max_contrast(){
-              window.contrast = document.querySelector('.button-contrast-set').checked;
-              if (window.contrast){
-                document.getElementById('button-contrast-set-label').innerHTML = 'Вкл.';
-              }else{
-                document.getElementById('button-contrast-set-label').innerHTML = 'Выкл.';
-              }
-              filters_set();
-            }
+					if (document.querySelector('.button-seppia-set').checked){
+						stylish = window.stylish + 'sepia(100%) ';
+					}
+					if (document.querySelector('.button-contrast-set').checked){
+						stylish = window.stylish + 'contrast(170%) ';
+					}
+					if (document.querySelector('.button-CB-set').checked){
+						stylish = window.stylish + 'grayscale(.92) ';
+					}
+					if (document.querySelector('.button-negative-set').checked){
+						stylish = window.stylish + 'invert(1) ';
+					}
+					document.getElementById('script-style').innerHTML = `.page-image{filter: ${stylish} ;}`;
+				}
+			</script>
+		</div>
+		</div>
+	</div>
+	</div>
 
-            function set_C_B(){
-              window.C_B = document.querySelector('.button-CB-set').checked;
-              if (window.C_B){
-                document.getElementById('button-CB-set-label').innerHTML = 'Вкл.';
-              }else{
-                document.getElementById('button-CB-set-label').innerHTML = 'Выкл.';
-              }
-              filters_set();
-            }
+	<div class="container-fluid chapter-container">
 
-            function set_seppia(){
-              window.seppia = document.querySelector('.button-seppia-set').checked;
-              if (window.seppia){
-                document.getElementById('button-seppia-set-label').innerHTML = 'Вкл.';
-              }else{
-                document.getElementById('button-seppia-set-label').innerHTML = 'Выкл.';
-              }
-            filters_set();
-            }
+	<div class="text-center">
+		<h1 class="mb-2"><a class="page-link-title" href="{{MANGA_LINK}}" style="color: #EC5E26;">{{TITLE}}</a><br><none class="at-page-title">{{DESCRIPTION}}</none></h1>
+	</div>
 
-        </script>
-      </div>
-    </div>
-  </div>
+	<div class="row w-100 mt-4 mb-2">
+		<div class="col-12">
+		<div class="reading-mode input-group mx-auto justify-content-center">
+			<div class="input-group-prepend">
+			<div class="input-group-text bg-primary px-2">Режим чтения</div>
+			</div>
+			<div class="input-group-append">
+			<button class="readingMode input-group-text bg-primary btn btn-primary px-3	text-success " data-mode="v" title="Вертикальный">
+				<i class="fas fa-scroll" style="width: 22px"></i>
+			</button>
+			</div>
+			<div class="input-group-append">
+			<button class="readingMode input-group-text bg-primary btn btn-primary px-3 " data-mode="h" title="Горизонтальный" onclick="window.location.href=window.location.href+'/0/xgemx'">
+				<i class="fas fa-book-open" style="width: 22px"></i>
+			</button>
+			</div>
+			<!--<div class="input-group-append">
+			<button class="readingMode input-group-text bg-primary btn btn-primary px-3 " data-mode="h" title="Всё и сразу" onclick="autoPage_load();">
+				<i class="fas fa-file-alt" style="font-size: 24px;"></i>
+			</button>-->
+			</div>
+		</div>
+		</div>
+	</div>
 
-  <div class="container-fluid chapter-container">
+	<div class="mt-1 d-flex flex-column align-items-center chapter-images">
+		{{IMGS}}
+		
+		
+	</div>
 
-    <div class="text-center">
-      <h1 class="mb-2"><a class="page-link-title" href="{{MANGA_LINK}}" style="color: #EC5E26;">{{TITLE}}</a><br><b class="at-page-title">{{DESCRIPTION}}</b></h1>
-    </div>
+	<div class="row text-center god-dem-right">
+		<div class="col-12">
+		<h2>Конец главы {{GLAVA}} {{DESCRIPTION}} Том {{TOM}} </h2>
+		<span class="current-chapter at-page date-timer">
+								{{DATE}}	</span>
+		<div class="clearfix"></div>
+		<button link="{{NAME}}" next_link="" class="mt-2 btn btn-lg btn-primary next-page fist" style="" onclick="next_page_loader();">Продолжить на этой странице</button>
 
-    <div class="row w-100 mt-4 mb-2">
-      <div class="col-12">
-        <div class="reading-mode input-group mx-auto justify-content-center">
-          <div class="input-group-prepend">
-            <div class="input-group-text bg-primary px-2">Режим чтения</div>
-          </div>
-          <div class="input-group-append">
-            <button class="readingMode input-group-text bg-primary btn btn-primary px-3  text-success " data-mode="v" title="Вертикальный">
-              <i class="fas fa-scroll" style="width: 22px"></i>
-            </button>
-          </div>
-          <div class="input-group-append">
-            <button class="readingMode input-group-text bg-primary btn btn-primary px-3 " data-mode="h" title="Горизонтальный" onclick="window.location.href=window.location.href+'/0/xgemx'">
-              <i class="fas fa-book-open" style="width: 22px"></i>
-            </button>
-          </div>
-          <!--<div class="input-group-append">
-            <button class="readingMode input-group-text bg-primary btn btn-primary px-3 " data-mode="h" title="Всё и сразу" onclick="autoPage_load();">
-              <i class="fas fa-file-alt" style="font-size: 24px;"></i>
-            </button>-->
-          </div>
-        </div>
-      </div>
-    </div>
+		</div>
+	</div>
 
-    <div class="mt-1 d-flex flex-column align-items-center chapter-images">
-        {{IMGS}}
-      
-        
-    </div>
+	</div>
 
-    <div class="row text-center god-dem-right">
-      <div class="col-12">
-        <h2>Конец главы {{GLAVA}} {{DESCRIPTION}} Том {{TOM}} </h2>
-        <span class="current-chapter at-page">
-                              {{DATE}}  </span>
-        <div class="clearfix"></div>
-        <button class="mt-2 btn btn-lg btn-primary next-page" onclick="hot_load_more();">Продолжить на этой странице</button>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplebar@3.1.5/dist/simplebar.min.css" integrity="sha256-F6uSa4Nj6dofBQLQWxJ8zmauOTcjFKL4cMsotUXXXrU=" crossorigin="anonymous">
+	<script src="https://cdn.jsdelivr.net/npm/simplebar@3.1.5/dist/simplebar.min.js" integrity="sha256-90mMeviB7m300abRXt4C/ytnjcgb1Ufcj7N1a2AWp2U=" crossorigin="anonymous"></script>
 
-      </div>
-    </div>
+	<script src="https://cdn.jsdelivr.net/npm/infinite-scroll@4.0.1/dist/infinite-scroll.pkgd.min.js"></script>
+	<script type="text/javascript">
+		function load_imgs(){
+			fetch(`http://localhost:322/manga/${document.querySelector(".next-page").getAttribute("next_link")}?method=load_pages&chapter=${document.querySelector(".next-page").getAttribute('next_tom')}-${document.querySelector(".next-page").getAttribute('next_glva')}`)
+					.then(response => response.text())
+					.then(data => {
+						document.querySelector('.chapter-images').innerHTML = data;
+				})
+		}
+		function next_page_loader(){
+			if (!document.querySelector(".next-page").classList.contains("fist")){
+				document.querySelectorAll(".page-image").forEach(function(elem){
+				  elem.parentNode.removeChild(elem);
+				});
+				
+				var link = `http://localhost:322/manga/${document.querySelector(".next-page").getAttribute("next_link")}?method=next_page&chapter=${document.querySelector(".next-page").getAttribute('next_tom')}-${document.querySelector(".next-page").getAttribute('next_glva')}`;
+				load_imgs();
+			}else{
+				var link = `http://localhost:322/manga/${document.querySelector(".next-page").getAttribute("link")}?method=next_page&chapter=${tom}-${glva}`;
+				document.querySelector(".next-page").classList.remove("fist");
+			}
+			console.log(link);
+			fetch(link)
+					.then(response => response.json())
+					.then(data => {
+						document.querySelector(".next-page").setAttribute("next_link",data["name_link"]);
+						document.querySelector(".next-page").setAttribute("next_glva",data["glva"]);
+						document.querySelector(".next-page").setAttribute("next_tom",data["tom"]);
+						document.querySelector(".next-page").innerText = `Загрузить Том ${data["tom"]} Глава ${data["glva"]} ${data["name"]}`;
+						document.querySelector(".date-timer").innerText = `${data["ago"]}`;
+						document.querySelector(".at-page-title").innerText = `Том ${data["tom"]}  Глава ${data["glva"]-1}`;
+						if (data["extra"]){
+							document.querySelector(".next-page").style = "color:d1b03a;";
+						}else{document.querySelector(".next-page").style="";}
+				});
 
-  </div>
+			
+		}
+		next_page_loader();
 
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplebar@3.1.5/dist/simplebar.min.css" integrity="sha256-F6uSa4Nj6dofBQLQWxJ8zmauOTcjFKL4cMsotUXXXrU=" crossorigin="anonymous">
-  <script src="https://cdn.jsdelivr.net/npm/simplebar@3.1.5/dist/simplebar.min.js" integrity="sha256-90mMeviB7m300abRXt4C/ytnjcgb1Ufcj7N1a2AWp2U=" crossorigin="anonymous"></script>
 
-  <script src="https://cdn.jsdelivr.net/npm/infinite-scroll@4.0.1/dist/infinite-scroll.pkgd.min.js"></script>
-  <script type="text/javascript">
-    console.log(document.querySelector('data_vid').innerHTML);
-  </script>
+	</script>
 </body>
 
 </html>

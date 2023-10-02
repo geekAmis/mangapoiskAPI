@@ -39,8 +39,13 @@ class Template(object):
 			with open(f'{self.path}/'+css_file,'r',encoding='UTF-8') as cssFile:
 				code = code.replace('</head>',f'<style class="{css_file}">{cssFile.read()}</style></head>')
 		for code_js in self.choice_link["js"]:
+			if '%' in code_js:  meta = code_js.split('%')[1];code_js = code_js.split('%')[0]
+			else:  meta = None 
+
 			with open(f'{self.path}/'+code_js,'r',encoding='UTF-8') as jsFile:
-				code = code.replace('</body>',f'<script class="{code_js}">{jsFile.read()}</script></body>')
+				if meta:
+					code = code.replace(meta,f'{meta}<script class="{code_js}">\n{jsFile.read()}</script>')
+				code = code.replace('</body>',f'<script class="{code_js}">\n{jsFile.read()}</script></body>')
 
 		return code
 

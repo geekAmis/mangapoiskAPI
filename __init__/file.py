@@ -8,3 +8,5 @@ from fastapi import FastAPI
 from typing import Annotated
 from fastapi import Query
 from fastapi.responses import HTMLResponse
+
+from uvicorn import run as start

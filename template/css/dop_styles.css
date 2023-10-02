@@ -10,6 +10,7 @@
       padding: 10px;
       cursor: pointer; /* Изменяем курсор на кнопке при наведении */
       border-radius: 50%; /* Закругляем углы кнопки чтобы она имела круглую форму */
+      opacity: .2;
     }
 
     .settings-icon {
@@ -194,4 +195,8 @@ body{
 }
 .navbar{
   padding: 0rem .4rem;
+}
+
+.settings-button:hover{
+  opacity: 1;
 }
