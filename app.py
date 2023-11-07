@@ -80,5 +80,12 @@ async def read(name,chapter):
 		SERVER=config_settings["root"]["host"]+':'+str(config_settings["root"]["port"])
 		))
 
+
+@app.post('/search')
+def search_request(q:str):
+	os.system(f'clear && echo {q}')
+	return MangaPoisk().search(q)
+
+
 if __name__ == '__main__':
 	start(app,host=config_settings["root"]["host"],port=config_settings["root"]["port"])

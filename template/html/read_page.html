@@ -29,7 +29,7 @@
 		var name = '{{NAME}}';
 		var glva = '{{GLAVA}}';
 		var tom = '{{TOM}}';
-		
+		var SITE_NAME = 'http://{{SERVER}}';
 	</script>
 </head>
 
@@ -54,10 +54,59 @@
 		</script>
 		<nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top" id="navbar">
 			<form class="form-inline my-2 my-lg-0 position-relative" action="/search" method="POST" autocomplete="off" novalidate="novalidate">
-			<input id="search_box" name="q" class="form-control mr-sm-2 searchInput" type="text" placeholder="Поиск" title="* Введите поисковый запрос" autocomplete="off" oninput="on_type_text();">
+			<input id="search_box" name="q" class="form-control mr-sm-2 searchInput" type="text" placeholder="Поиск" title="* Введите поисковый запрос" autocomplete="off" oninput="on_type_text(event);">
+
 			<ul id="result_box" tabindex="0" class=""></ul>
+
 			<button class="btn btn-secondary my-2 my-sm-0" type="submit">Искать</button>
 			</form>
+			<script type="text/javascript"
+			>
+
+				function create_item_search(data){
+
+					articl = document.createElement('li');
+					articl.classList.add('removerThis');
+         		 	articl.id = `${data["image"]}`;
+          			articl.innerHTML = `
+                                <a href="${data["link"]}">
+                                    <div class="search-container">
+                                    	<div class="search-image">
+                                        	<img src="${data["image"]}">
+                                    	</div>
+                                    	<div class="search-label">
+                                        	${data["label"]}
+                                    	</div>
+                                    	<div class="search-year">
+                                        	${data["year"]}
+                                        	<hr>
+                                        	${data["updated"]}
+                                    	</div>
+                                	
+                                	<div>
+                                </a>
+                                `;
+                    document.getElementById('result_box').appendChild(articl);
+				}
+				function on_type_text(e){
+					fetch(`/search?q=${e.target.value}`,{
+						method:"POST"
+					})
+					.then(response => response.json())
+					.then(data => {
+						document.querySelectorAll('.removerThis').forEach(function(elem){
+							elem.parentNode.removeChild(elem);
+						})
+						if (data["message"] == "Ничего не найдено"){
+							
+						}
+						for (var i = 0; i < data["results"].length; i++) {
+							create_item_search(data["results"][i]);
+						}
+					});
+
+				}
+			</script>
 			<span id="button-url-view-label-text"></span>
 		</nav>
 		<div class="checkbox-block">
@@ -237,7 +286,7 @@
 	<script src="https://cdn.jsdelivr.net/npm/infinite-scroll@4.0.1/dist/infinite-scroll.pkgd.min.js"></script>
 	<script type="text/javascript">
 		function load_imgs(){
-			fetch(`http://localhost:322/manga/${document.querySelector(".next-page").getAttribute("next_link")}?method=load_pages&chapter=${document.querySelector(".next-page").getAttribute('next_tom')}-${document.querySelector(".next-page").getAttribute('next_glva')}`)
+			fetch(`${SITE_NAME}/manga/${document.querySelector(".next-page").getAttribute("next_link")}?method=load_pages&chapter=${document.querySelector(".next-page").getAttribute('next_tom')}-${document.querySelector(".next-page").getAttribute('next_glva')}`)
 					.then(response => response.text())
 					.then(data => {
 						document.querySelector('.chapter-images').innerHTML = data;
@@ -249,11 +298,15 @@
 				  elem.parentNode.removeChild(elem);
 				});
 				
-				var link = `http://localhost:322/manga/${document.querySelector(".next-page").getAttribute("next_link")}?method=next_page&chapter=${document.querySelector(".next-page").getAttribute('next_tom')}-${document.querySelector(".next-page").getAttribute('next_glva')}`;
+				var link = `${SITE_NAME}/manga/${document.querySelector(".next-page").getAttribute("next_link")}?method=next_page&chapter=${document.querySelector(".next-page").getAttribute('next_tom')}-${document.querySelector(".next-page").getAttribute('next_glva')}`;
 				load_imgs();
 			}else{
-				var link = `http://localhost:322/manga/${document.querySelector(".next-page").getAttribute("link")}?method=next_page&chapter=${tom}-${glva}`;
+				var link = `${SITE_NAME}/manga/${document.querySelector(".next-page").getAttribute("link")}?method=next_page&chapter=${tom}-${glva}`;
 				document.querySelector(".next-page").classList.remove("fist");
+			}
+
+			if (link.indexOf('chapter=0-0')){
+				link = link.replace('chapter=0-0','chapter=0');
 			}
 			console.log(link);
 			fetch(link)

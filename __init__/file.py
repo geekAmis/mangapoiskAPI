@@ -8,5 +8,6 @@ from fastapi import FastAPI
 from typing import Annotated
 from fastapi import Query
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 from uvicorn import run as start

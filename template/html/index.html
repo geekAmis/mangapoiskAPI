@@ -15,6 +15,46 @@
 
 <body oncontextmenu="return false;">
 	<nocode></nocode>
+	<style type="text/css" id="navbar">
+header {position: fixed;top: 0;left: 0;width: 100%;background-color: #212020;opacity: .8;z-index: 999;}
+header nav {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px;
+}
+header nav img {
+	width: 50px;
+	height: 50px;
+	border-radius: 50%;
+}
+header nav a {
+	text-decoration: none;
+	color: #000000;
+	margin-left: 10px;
+	border: .5px #bc2929 solid;
+	border-radius: 50%;
+	padding: 1%;
+}
+header nav a .fa{
+	color: #bc2929;
+}
+.app{
+		padding-top: 10%;
+}
+@media only screen and (max-width: 768px) {
+	header {
+		position: static;
+	}
+	header nav a {
+		padding: 2%;
+		border: .3px #bc2929 solid;
+	}
+	
+}
+</style>
+<header>
+</header>
 	<div class="app">
 		<!-- Первый слайдер -->
 		<h2>Обновления топ манги</h2>
@@ -51,7 +91,7 @@
 		</div>
 	</div>
 	<script>
-		window.code_template = `<a href="MAIN_HREF" class="img-container"><div class="shadow-container"><img src="IMG" alt="        Скоро загрузится."></div><div class="text-lazy">NAME</div></a><a class="last_page_link" href="LAST_LINK" style="color:#889D9D;"><div class="text-desc">LAST_UPDATE</div></a>`;
+		window.code_template = `<a href="MAIN_HREF" class="img-container"><div class="shadow-container"><img src="IMG" alt="				Скоро загрузится."></div><div class="text-lazy">NAME</div></a><a class="last_page_link" href="LAST_LINK" style="color:#889D9D;"><div class="text-desc">LAST_UPDATE</div></a>`;
 		
 		function convertations(dict,id){
 			codes = window.code_template;
@@ -67,13 +107,13 @@
 
 		console.log('/api?version=v0&method=get_colliders')
 		fetch(`/api?version=v0&method=get_colliders`)
-				  .then(response => response.json())
-				  .then(data => {
-				    convertations(data["mangas"][0],'s1');
-				    convertations(data["mangas"][1],'s2');
-				    convertations(data["mangas"][2],'s3');
-				    convertations(data["mangas"][3],'s4');
-				  });
+					.then(response => response.json())
+					.then(data => {
+						convertations(data["mangas"][0],'s1');
+						convertations(data["mangas"][1],'s2');
+						convertations(data["mangas"][2],'s3');
+						convertations(data["mangas"][3],'s4');
+					});
 	</script>
 	<!-- Подключение JavaScript-файла Swiper -->
 </body>

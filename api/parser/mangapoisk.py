@@ -1,4 +1,5 @@
 from __init__.file import *
+from api.parser.KeyGet import load_keys
 """import os,requests
 from bs4 import BeautifulSoup as bs
 from fake_headers import Headers as Hd
@@ -33,6 +34,10 @@ class MangaPoisk(object):
 
 		}
 
+	def search(self,text):
+		return requests.get(f'{self.url}/search?q={text}',headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0","Accept": "application/json, text/javascript, */*; q=0.01","Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3","X-CSRF-TOKEN": "9A4LpNW8L9dWTCSVehCfILnPdI8CoPIK6LRVcltX","X-Requested-With": "XMLHttpRequest","Sec-Fetch-Dest": "empty","Sec-Fetch-Mode": "cors","Sec-Fetch-Site": "same-origin"}).json()
+
+
 	def _reduxonCount(self,c_to=[20,20,20,20]):
 		start = 0;
 		end = []
@@ -47,6 +52,10 @@ class MangaPoisk(object):
 			self.mainsoup = bs(self.curl.content,'html5lib')
 		elif self.curl.status_code == 400:
 			return 
+
+		v = load_keys(self.mainsoup)
+
+		if self.config["headers"]["X-Inertia-Version"] != v:  self.config["headers"]["X-Inertia-Version"] = v;
 
 		self.mangaList = []
 
