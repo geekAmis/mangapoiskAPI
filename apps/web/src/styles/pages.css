@@ -2207,3 +2207,355 @@
     overflow: hidden;
   }
 }
+
+/* ============================================================
+   Офлайн-библиотека: скачанное на устройство
+   ============================================================ */
+
+.library-tabs {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.library-tabs::-webkit-scrollbar {
+  display: none;
+}
+.library-tabs .tabs__item {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+.download-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.download-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+.download-card:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.download-card--skeleton {
+  align-items: stretch;
+}
+.download-card__poster {
+  flex: none;
+  width: 92px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  align-self: flex-start;
+}
+.download-card__poster .poster {
+  aspect-ratio: 2 / 3;
+}
+.download-card__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.download-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.download-card__title {
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.download-card__title:hover {
+  color: var(--accent);
+}
+.download-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.download-card__meta {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.download-card__source {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+.download-card__progress {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+.download-card__progress-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+.download-card__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--success);
+  font-size: 0.76rem;
+}
+.download-card__status--error {
+  color: var(--danger);
+}
+.download-card__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.download-card__delete {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+.download-card__delete:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Прогресс загрузки на странице тайтла */
+.manga-download-status {
+  display: grid;
+  gap: 8px;
+  margin-top: 13px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.manga-download-status.is-done {
+  border-color: color-mix(in srgb, var(--success) 32%, var(--border));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface));
+}
+.manga-download-status.is-error {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+.manga-download-status__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.manga-download-status__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.manga-download-status.is-done .manga-download-status__icon {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+.manga-download-status.is-error .manga-download-status__icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.manga-download-status__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-size: 0.77rem;
+}
+.manga-download-status__body strong {
+  font-size: 0.84rem;
+}
+.manga-download-status__body span {
+  color: var(--text-muted);
+}
+.manga-download-status__head .btn {
+  flex: none;
+}
+.manga-download-status__progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.manga-download-status__progress .progress {
+  flex: 1;
+}
+.manga-download-status__progress > span {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+/* Офлайн-страница тайтла */
+.offline-job-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.offline-job-banner > svg {
+  flex: none;
+  color: var(--accent);
+}
+.offline-job-banner--error {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
+}
+.offline-job-banner--error > svg {
+  color: var(--danger);
+}
+.offline-job-banner__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+.offline-job-banner__body > span {
+  color: var(--text-muted);
+}
+.offline-job-banner__body .progress {
+  margin-top: 4px;
+}
+.offline-job-banner .btn {
+  flex: none;
+}
+.offline-poster-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 90%, #000);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 750;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24);
+}
+.offline-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--rating);
+  font-weight: 700;
+}
+.offline-size-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+}
+.offline-delete-btn:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.offline-chapter-row .chapter-row__export {
+  align-self: center;
+  margin-right: 4px;
+}
+
+@media (max-width: 480px) {
+  .page-head__actions {
+    width: 100%;
+  }
+  .page-head__actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 44px;
+  }
+  .reading-card__actions {
+    flex-wrap: wrap;
+  }
+  .reading-card__actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .reading-card__reset {
+    margin-left: 0;
+  }
+  .download-card {
+    gap: 10px;
+    padding: 10px;
+  }
+  .download-card__poster {
+    width: 72px;
+  }
+  .download-card__title {
+    font-size: 0.92rem;
+  }
+  .download-card__actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .download-card__delete {
+    margin-left: 0;
+  }
+  .manga-download-status__head {
+    align-items: flex-start;
+  }
+  .manga-download-status__head .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .offline-size-note {
+    display: none;
+  }
+  .chapters-head {
+    align-items: flex-start;
+  }
+  .chapters-head__actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .chapters-head__actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

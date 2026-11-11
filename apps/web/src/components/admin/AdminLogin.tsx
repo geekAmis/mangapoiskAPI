@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { adminApi, adminErrorMessage, isAdminUnauthorized, setAdminToken } from '../../api/admin';
 import { Icon } from '../Icon';
+import { DancingSpinner } from '../DancingLoader';
 
 interface AdminLoginProps {
   onAuthenticated: (token: string) => void;
@@ -118,7 +119,7 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
           <button type="submit" className="btn btn--primary btn--lg btn--block" disabled={mutation.isPending}>
             {mutation.isPending ? (
               <>
-                <Icon name="loader" size={18} className="spin" />
+                <DancingSpinner size={18} />
                 Проверяем…
               </>
             ) : (

@@ -801,32 +801,7 @@ button.chip:hover {
   text-underline-offset: 3px;
 }
 
-/* --- Загрузчик страницы --- */
-.page-loader {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  min-height: 56dvh;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-.page-loader__spinner {
-  display: grid;
-  place-items: center;
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
-  color: var(--accent);
-}
-.page-loader--reader {
-  min-height: 100dvh;
-  background: #050506;
-  color: #b9b5b8;
-}
+/* --- Танцующие загрузчики --- */
 .dancing-loader {
   display: flex;
   min-height: 30dvh;
@@ -865,6 +840,13 @@ button.chip:hover {
 .dancing-loader__label {
   max-width: 320px;
   line-height: 1.45;
+}
+.dancing-spinner {
+  display: inline-block;
+  flex: none;
+  object-fit: contain;
+  vertical-align: -0.22em;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.25));
 }
 @keyframes dancer-pop {
   from { opacity: 0; transform: translateY(6px) scale(0.94); }

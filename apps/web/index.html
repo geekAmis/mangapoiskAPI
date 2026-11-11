@@ -29,6 +29,48 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="mask-icon" href="/icons/favicon.svg" color="#5ec8ff" />
 
+    <style>
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 24px;
+        background:
+          radial-gradient(circle at 50% 40%, color-mix(in srgb, #5ec8ff 16%, transparent), transparent 46%),
+          #060b12;
+        color: #b9b5b8;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 0.9rem;
+        text-align: center;
+        transition: opacity 220ms ease;
+      }
+      #boot-loader.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot-loader img {
+        width: min(280px, 56vw);
+        max-height: 280px;
+        object-fit: contain;
+        filter: drop-shadow(0 12px 32px rgba(0, 0, 0, 0.35));
+      }
+      #boot-loader span {
+        max-width: 320px;
+        line-height: 1.45;
+      }
+      html[data-theme="paper"] #boot-loader {
+        background:
+          radial-gradient(circle at 50% 40%, rgba(94, 200, 255, 0.16), transparent 46%),
+          #f1ece2;
+        color: #5a5147;
+      }
+    </style>
+
     <script>
       (function () {
         try {
@@ -62,6 +104,17 @@
     </script>
   </head>
   <body>
+    <div id="boot-loader" role="status" aria-live="polite">
+      <img id="boot-loader-gif" alt="" aria-hidden="true" draggable="false" />
+      <span>Загружаем MangaPoisk…</span>
+    </div>
+    <script>
+      (function () {
+        var n = Math.floor(Math.random() * 16) + 1;
+        var img = document.getElementById('boot-loader-gif');
+        if (img) img.src = '/loading/dance-' + (n < 10 ? '0' + n : n) + '.gif';
+      })();
+    </script>
     <div id="root"></div>
     <noscript>
       <div style="max-width: 640px; margin: 80px auto; padding: 24px; font-family: sans-serif">

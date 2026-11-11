@@ -15,7 +15,7 @@ import type { PageOut } from '../api/types';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { QueryCacheBridge } from '../components/QueryCacheBridge';
-import { DancingLoader } from '../components/DancingLoader';
+import { DancingLoader, DancingSpinner } from '../components/DancingLoader';
 import { useReaderZoom } from '../components/ReaderZoom';
 import { SearchBox } from '../components/SearchBox';
 import { ThemePicker } from '../components/ThemeSwitcher';
@@ -40,6 +40,7 @@ import {
   type ReaderMode,
 } from '../stores/reader';
 import { toast } from '../stores/toast';
+import '../styles/offline-reader.css';
 
 const READER_PAGE_PREFIX = 'reader-page-';
 const FOCUSABLE_SKIP = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
@@ -710,7 +711,11 @@ export default function ReaderPage() {
                 onClick={() => void chapterQuery.refetch()}
                 disabled={chapterQuery.isFetching}
               >
-                <Icon name="refresh" size={16} className={chapterQuery.isFetching ? 'spin' : undefined} />
+                {chapterQuery.isFetching ? (
+                  <DancingSpinner size={16} />
+                ) : (
+                  <Icon name="refresh" size={16} />
+                )}
                 Обновить главу
               </button>
               <Link to={`/manga/${chapter.manga_id}`} className="btn btn--outline">
@@ -1027,6 +1032,15 @@ export default function ReaderPage() {
           >
             <Icon name="settings" size={18} />
           </button>
+
+          <Link
+            to={`/manga/${chapter.manga_id}`}
+            className="btn btn--ghost btn--icon reader-footer__toc"
+            aria-label={`К оглавлению «${manga?.title ?? 'манги'}»`}
+            title="К оглавлению"
+          >
+            <Icon name="book" size={18} />
+          </Link>
 
           <div className="reader-footer__side reader-footer__side--next">
             <button

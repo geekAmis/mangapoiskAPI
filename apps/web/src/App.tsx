@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { ReaderFallback } from './components/PageLoader';
+import { PageLoader, ReaderFallback } from './components/PageLoader';
 import HomePage from './pages/HomePage';
 import CataloguePage from './pages/CataloguePage';
 import MangaPage from './pages/MangaPage';
@@ -15,10 +15,24 @@ import NotFoundPage from './pages/NotFoundPage';
 
 const ReaderPage = lazy(() => import('./pages/ReaderPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const OfflineMangaPage = lazy(() => import('./pages/OfflineMangaPage'));
+const OfflineReaderPage = lazy(() => import('./pages/OfflineReaderPage'));
 
 const readerElement = (
   <Suspense fallback={<ReaderFallback />}>
     <ReaderPage />
+  </Suspense>
+);
+
+const offlineMangaElement = (
+  <Suspense fallback={<PageLoader label="Открываем скачанный тайтл…" />}>
+    <OfflineMangaPage />
+  </Suspense>
+);
+
+const offlineReaderElement = (
+  <Suspense fallback={<ReaderFallback />}>
+    <OfflineReaderPage />
   </Suspense>
 );
 
@@ -47,6 +61,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="offline/manga/:mangaId" element={offlineMangaElement} />
         <Route
           path="profile"
           element={
@@ -64,6 +79,7 @@ export default function App() {
       <Route path="register" element={<RegisterPage />} />
       <Route path="read/:chapterId" element={readerElement} />
       <Route path="reader/:chapterId" element={readerElement} />
+      <Route path="offline/read/:mangaId/:chapterId" element={offlineReaderElement} />
     </Routes>
   );
 }

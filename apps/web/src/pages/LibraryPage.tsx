@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, listItems } from '../api/client';
@@ -7,30 +8,57 @@ import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { MangaCard } from '../components/MangaCard';
 import { MangaGridSkeleton, Skeleton } from '../components/Skeleton';
+import { Modal } from '../components/Modal';
 import { Poster } from '../components/Poster';
+import {
+  cancelDownload,
+  retryDownload,
+  useDownloadJobs,
+} from '../lib/downloadManager';
 import { humanizeError } from '../lib/errors';
+import { useOfflineTitles } from '../lib/offlineHooks';
+import { deleteOfflineTitle } from '../lib/offlineStorage';
+import {
+  formatBytes,
+  jobPercent,
+  offlineTitleStats,
+  type OfflineTitle,
+} from '../lib/offlineTypes';
 import {
   chapterHeading,
+  chaptersLabel,
   formatDateTime,
   formatInt,
   formatRelative,
+  pagesLabel,
   progressPercent,
+  sourceLabel,
 } from '../lib/format';
 import { useDocumentTitle } from '../lib/hooks';
 import { queryKeys } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { toast } from '../stores/toast';
 
-type LibraryTab = 'reading' | 'bookmarks' | 'history';
+type LibraryTab = 'reading' | 'bookmarks' | 'history' | 'downloads';
 
-const TABS: Array<{ id: LibraryTab; label: string; icon: 'book' | 'bookmark' | 'clock' }> = [
+const TABS: Array<{
+  id: LibraryTab;
+  label: string;
+  icon: 'book' | 'bookmark' | 'clock' | 'download';
+}> = [
   { id: 'reading', label: 'Продолжить', icon: 'book' },
   { id: 'bookmarks', label: 'Закладки', icon: 'bookmark' },
   { id: 'history', label: 'История', icon: 'clock' },
+  { id: 'downloads', label: 'Скачано', icon: 'download' },
 ];
 
 function parseTab(value: string | null): LibraryTab {
-  return value === 'bookmarks' || value === 'history' || value === 'reading' ? value : 'reading';
+  return value === 'bookmarks' ||
+    value === 'history' ||
+    value === 'downloads' ||
+    value === 'reading'
+    ? value
+    : 'reading';
 }
 
 export default function LibraryPage() {
@@ -39,6 +67,34 @@ export default function LibraryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = parseTab(searchParams.get('tab'));
   const queryClient = useQueryClient();
+  const {
+    titles: offlineTitles,
+    loading: offlineLoading,
+    error: offlineError,
+    refresh: refreshOffline,
+  } = useOfflineTitles();
+  const downloadJobs = useDownloadJobs();
+  const [deleteTarget, setDeleteTarget] = useState<OfflineTitle | null>(null);
+  const [deletingOffline, setDeletingOffline] = useState(false);
+  const tabsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = tabsRef.current;
+    const active = container?.querySelector<HTMLElement>('.tabs__item.is-active');
+    if (!container || !active) return;
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const left = activeRect.left - containerRect.left + container.scrollLeft;
+    const right = left + activeRect.width;
+    if (left < container.scrollLeft) {
+      container.scrollTo({ left: Math.max(0, left - 4), behavior: 'smooth' });
+    } else if (right > container.scrollLeft + container.clientWidth) {
+      container.scrollTo({
+        left: right - container.clientWidth + 4,
+        behavior: 'smooth',
+      });
+    }
+  }, [tab, offlineTitles.length]);
 
   const bookmarksQuery = useQuery({
     queryKey: queryKeys.bookmarks,
@@ -93,6 +149,29 @@ export default function LibraryPage() {
   const counts: Partial<Record<LibraryTab, number>> = {
     bookmarks: bookmarks.length,
     reading: progressItems.length,
+    downloads: offlineTitles.length,
+  };
+
+  const confirmOfflineDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingOffline(true);
+    try {
+      const job = downloadJobs.find(
+        (item) =>
+          item.mangaId === deleteTarget.id &&
+          (item.status === 'queued' || item.status === 'running'),
+      );
+      if (job) await cancelDownload(job.id);
+      await deleteOfflineTitle(deleteTarget.id);
+      setDeleteTarget(null);
+      toast.success('Тайтл удалён с устройства');
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : 'Не удалось удалить тайтл с устройства',
+      );
+    } finally {
+      setDeletingOffline(false);
+    }
   };
 
   return (
@@ -113,7 +192,12 @@ export default function LibraryPage() {
         </div>
       </div>
 
-      <div className="tabs library-tabs" role="tablist" aria-label="Разделы библиотеки">
+      <div
+        ref={tabsRef}
+        className="tabs library-tabs"
+        role="tablist"
+        aria-label="Разделы библиотеки"
+      >
         {TABS.map((item) => (
           <button
             key={item.id}
@@ -272,6 +356,166 @@ export default function LibraryPage() {
           )
         ) : null}
 
+        {tab === 'downloads' ? (
+          offlineLoading ? (
+            <div className="download-list" aria-hidden="true">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div className="download-card download-card--skeleton" key={index}>
+                  <Skeleton width="92px" height="138px" />
+                  <div className="download-card__body">
+                    <Skeleton width="70%" height="22px" />
+                    <Skeleton width="48%" height="15px" />
+                    <Skeleton width="100%" height="38px" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : offlineError ? (
+            <ErrorState
+              title="Не удалось прочитать скачанное"
+              message={offlineError}
+              onRetry={() => void refreshOffline()}
+            />
+          ) : offlineTitles.length > 0 ? (
+            <div className="download-list">
+              {offlineTitles.map((offlineTitle) => {
+                const stats = offlineTitleStats(offlineTitle);
+                const job = downloadJobs.find(
+                  (item) =>
+                    item.mangaId === offlineTitle.id &&
+                    (item.status === 'queued' ||
+                      item.status === 'running' ||
+                      item.status === 'error' ||
+                      item.status === 'cancelled'),
+                );
+                const activeJob =
+                  job && (job.status === 'queued' || job.status === 'running') ? job : null;
+                return (
+                  <article className="download-card" key={offlineTitle.id}>
+                    <Link
+                      to={`/offline/manga/${offlineTitle.id}`}
+                      className="download-card__poster"
+                      aria-label={`Открыть скачанный тайтл «${offlineTitle.title}»`}
+                    >
+                      <Poster src={offlineTitle.poster} alt="" />
+                    </Link>
+                    <div className="download-card__body">
+                      <div className="download-card__head">
+                        <Link
+                          to={`/offline/manga/${offlineTitle.id}`}
+                          className="download-card__title"
+                        >
+                          {offlineTitle.title}
+                        </Link>
+                        <span className="download-card__badge">
+                          <Icon name="download" size={12} />
+                          {formatBytes(stats.bytes)}
+                        </span>
+                      </div>
+                      <span className="download-card__meta">
+                        {chaptersLabel(stats.chapters)} · {pagesLabel(stats.pages)}
+                      </span>
+                      <span className="download-card__source">
+                        {sourceLabel(offlineTitle.source)} · скачано{' '}
+                        {formatRelative(offlineTitle.downloadedAt)}
+                      </span>
+
+                      {activeJob ? (
+                        <div className="download-card__progress">
+                          <div className="download-card__progress-text">
+                            <span>
+                              Скачиваем · {formatInt(activeJob.completedChapters)} из{' '}
+                              {formatInt(activeJob.chapters.length)} глав
+                              {activeJob.currentPage
+                                ? ` · стр. ${formatInt(activeJob.currentPage)}`
+                                : ''}
+                            </span>
+                            <span>{jobPercent(activeJob)}%</span>
+                          </div>
+                          <div className="progress">
+                            <div
+                              className="progress__bar"
+                              style={{ width: `${jobPercent(activeJob)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : job?.status === 'error' || job?.status === 'cancelled' ? (
+                        <div className="download-card__status download-card__status--error">
+                          <Icon name="alert" size={14} />
+                          <span>
+                            {job.status === 'cancelled'
+                              ? 'Загрузка отменена — можно продолжить'
+                              : (job.error ?? 'Загрузка остановилась')}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="download-card__status">
+                          <Icon name="check" size={14} />
+                          <span>Готово к чтению без интернета</span>
+                        </div>
+                      )}
+
+                      <div className="download-card__actions">
+                        <Link
+                          to={`/offline/manga/${offlineTitle.id}`}
+                          className="btn btn--primary btn--sm"
+                        >
+                          <Icon name="book" size={15} />
+                          Открыть
+                        </Link>
+                        {activeJob ? (
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => void cancelDownload(activeJob.id)}
+                          >
+                            <Icon name="close" size={14} />
+                            Отменить
+                          </button>
+                        ) : job?.status === 'error' || job?.status === 'cancelled' ? (
+                          <button
+                            type="button"
+                            className="btn btn--outline btn--sm"
+                            onClick={() => void retryDownload(job.id)}
+                          >
+                            <Icon name="refresh" size={14} />
+                            Повторить
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm download-card__delete"
+                          onClick={() => setDeleteTarget(offlineTitle)}
+                          aria-label={`Удалить «${offlineTitle.title}» с устройства`}
+                        >
+                          <Icon name="trash" size={15} />
+                          Удалить
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              icon="download"
+              title="На устройстве пока ничего нет"
+              description="Откройте тайтл и нажмите «Скачать всё на устройство» — главы будут доступны без интернета. Загрузку можно свернуть: прогресс сохранится."
+              action={
+                <Link to="/catalogue" className="btn btn--primary">
+                  Выбрать мангу
+                </Link>
+              }
+              secondaryAction={
+                <Link to="/library" className="btn btn--outline">
+                  К продолжению чтения
+                </Link>
+              }
+            />
+          )
+        ) : null}
+
         {tab === 'history' ? (
           historyQuery.isLoading ? (
             <div className="history-panel" aria-hidden="true">
@@ -307,6 +551,40 @@ export default function LibraryPage() {
           )
         ) : null}
       </div>
+
+      <Modal
+        open={Boolean(deleteTarget)}
+        onClose={() => (deletingOffline ? undefined : setDeleteTarget(null))}
+        title="Удалить тайтл с устройства?"
+        description={
+          deleteTarget
+            ? `Все скачанные главы и страницы «${deleteTarget.title}» будут удалены с устройства. Тайтл останется в онлайн-каталоге.`
+            : undefined
+        }
+        size="sm"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deletingOffline}
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => void confirmOfflineDelete()}
+              disabled={deletingOffline}
+            >
+              {deletingOffline ? 'Удаляем…' : 'Удалить'}
+            </button>
+          </>
+        }
+      >
+        <p className="field__hint">Скачать заново можно в любой момент со страницы тайтла.</p>
+      </Modal>
     </div>
   );
 }

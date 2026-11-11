@@ -6,6 +6,7 @@ import type { ImportMangaResponse } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
+import { DancingSpinner } from '../components/DancingLoader';
 import { MangaCard } from '../components/MangaCard';
 import { MangaGridSkeleton, Skeleton } from '../components/Skeleton';
 import { Modal } from '../components/Modal';
@@ -641,7 +642,7 @@ function ImportDialog({
           <button type="submit" form={formId} className="btn btn--primary" disabled={mutation.isPending}>
             {mutation.isPending ? (
               <>
-                <Icon name="loader" size={16} className="spin" />
+                <DancingSpinner size={16} />
                 Импортируем…
               </>
             ) : (

@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Icon } from '../components/Icon';
+import { DancingSpinner } from '../components/DancingLoader';
 import { AuthLayout } from '../components/AuthLayout';
 import { authErrorMessage } from '../lib/errors';
 import { safeNextPath } from '../lib/format';
@@ -152,7 +153,7 @@ export default function LoginPage() {
           >
             {mutation.isPending ? (
               <>
-                <Icon name="loader" size={18} className="spin" />
+                <DancingSpinner size={18} />
                 Входим…
               </>
             ) : (

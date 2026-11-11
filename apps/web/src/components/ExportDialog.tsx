@@ -6,6 +6,7 @@ import { humanizeError } from '../lib/errors';
 import { chapterHeading, formatInt } from '../lib/format';
 import { queryKeys } from '../lib/queryClient';
 import { Icon } from './Icon';
+import { DancingSpinner } from './DancingLoader';
 import { Modal } from './Modal';
 
 const FORMATS: Array<{ value: ExportFormat; name: string; description: string }> = [
@@ -118,7 +119,7 @@ export function ExportDialog({ open, onClose, chapter }: ExportDialogProps) {
             >
               {createMutation.isPending ? (
                 <>
-                  <Icon name="loader" size={16} className="spin" />
+                  <DancingSpinner size={16} />
                   Запускаем…
                 </>
               ) : (

@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
+import { DancingSpinner } from '../components/DancingLoader';
 import { Skeleton } from '../components/Skeleton';
 import { humanizeError } from '../lib/errors';
 import { useDocumentTitle } from '../lib/hooks';
@@ -55,7 +56,11 @@ export default function SourcesPage() {
             onClick={() => void sourcesQuery.refetch()}
             disabled={sourcesQuery.isFetching}
           >
-            <Icon name="refresh" size={17} className={sourcesQuery.isFetching ? 'spin' : undefined} />
+            {sourcesQuery.isFetching ? (
+              <DancingSpinner size={17} />
+            ) : (
+              <Icon name="refresh" size={17} />
+            )}
             Обновить
           </button>
         </div>

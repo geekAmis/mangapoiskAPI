@@ -10,6 +10,7 @@ import {
   type AdminServiceSpec,
 } from '../../api/admin';
 import { Icon } from '../Icon';
+import { DancingSpinner } from '../DancingLoader';
 import { Modal } from '../Modal';
 import { formatDateTime } from '../../lib/format';
 import { toast } from '../../stores/toast';
@@ -150,7 +151,7 @@ export function DeployModal({ open, server, onClose }: DeployModalProps) {
             >
               {deployMutation.isPending ? (
                 <>
-                  <Icon name="loader" size={16} className="spin" />
+                  <DancingSpinner size={16} />
                   Запускаем…
                 </>
               ) : (

@@ -34,3 +34,15 @@ createRoot(rootElement).render(
     </ErrorBoundary>
   </StrictMode>,
 );
+
+// The inline dancer in index.html is visible before the JS bundle arrives.
+// Remove it only after React has painted its first frame.
+const bootLoader = document.getElementById('boot-loader');
+if (bootLoader) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      bootLoader.classList.add('is-done');
+      window.setTimeout(() => bootLoader.remove(), 260);
+    });
+  });
+}

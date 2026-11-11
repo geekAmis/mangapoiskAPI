@@ -8,11 +8,18 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { ExportDialog } from '../components/ExportDialog';
 import { Icon } from '../components/Icon';
+import { DancingSpinner } from '../components/DancingLoader';
 import { Modal } from '../components/Modal';
 import { Poster } from '../components/Poster';
 import { Rating } from '../components/Rating';
 import { SearchBox } from '../components/SearchBox';
 import { Skeleton } from '../components/Skeleton';
+import {
+  cancelDownload,
+  retryDownload,
+  startTitleDownload,
+  useDownloadJobs,
+} from '../lib/downloadManager';
 import { humanizeError } from '../lib/errors';
 import {
   chapterHeading,
@@ -25,6 +32,8 @@ import {
   statusLabel,
 } from '../lib/format';
 import { useDocumentTitle } from '../lib/hooks';
+import { useOfflineTitle } from '../lib/offlineHooks';
+import { formatBytes, jobPercent, offlineTitleStats } from '../lib/offlineTypes';
 import { queryKeys } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { useReaderStore } from '../stores/reader';
@@ -136,6 +145,23 @@ export default function MangaPage() {
 
   const activeVariantId = activeVariant?.id ?? id;
   const bestVariantId = bestVariant?.id ?? id;
+
+  const { title: offlineTitle } = useOfflineTitle(activeVariantId);
+  const downloadJobs = useDownloadJobs();
+  const deviceJob = downloadJobs.find(
+    (job) =>
+      job.mangaId === activeVariantId &&
+      job.mode === 'title' &&
+      (job.status === 'queued' ||
+        job.status === 'running' ||
+        job.status === 'error' ||
+        job.status === 'cancelled'),
+  );
+  const activeDeviceJob =
+    deviceJob && (deviceJob.status === 'queued' || deviceJob.status === 'running')
+      ? deviceJob
+      : null;
+  const offlineStats = offlineTitle ? offlineTitleStats(offlineTitle) : null;
 
   // Полные данные выбранного источника (описание, жанры, главы).
   const activeMangaQuery = useQuery({
@@ -376,6 +402,36 @@ export default function MangaPage() {
     bookmarkMutation.mutate();
   };
 
+  const queueDeviceDownload = async () => {
+    const target = activeManga ?? (activeVariantId === id ? manga : null);
+    if (!target || chapters.length === 0) {
+      toast.info('Пока нет глав для скачивания на устройство');
+      return;
+    }
+    // Серверный архив остаётся в цепочке (нужна авторизация) и ускоряет
+    // последующие онлайн-чтения. Гостю устройство всё равно скачает страницы.
+    if (user) warmMutation.mutate();
+    try {
+      const job = await startTitleDownload({
+        manga: target,
+        chapters: target.chapters.length > 0 ? target.chapters : chapters,
+        mangaId: activeVariantId,
+        title: displayTitle,
+        poster: activeVariant?.poster_url ?? viewManga.poster_url,
+        source: activeVariant?.source ?? viewManga.source,
+      });
+      if (job) {
+        toast.success(
+          `Скачиваем «${displayTitle}» на устройство: ${formatInt(job.chapters.length)} глав. Прогресс сохранится.`,
+        );
+      } else {
+        toast.info('Все главы уже скачаны на устройство');
+      }
+    } catch (error: unknown) {
+      toast.error(humanizeError(error, 'Не удалось начать скачивание на устройство'));
+    }
+  };
+
   return (
     <div className="page container manga-page">
       <nav className="breadcrumbs" aria-label="Хлебные крошки">
@@ -541,10 +597,91 @@ export default function MangaPage() {
               onClick={() => void refreshMutation.mutate()}
               disabled={refreshMutation.isPending}
             >
-              <Icon name="refresh" size={18} className={refreshMutation.isPending ? 'spin' : undefined} />
+              {refreshMutation.isPending ? (
+                <DancingSpinner size={18} />
+              ) : (
+                <Icon name="refresh" size={18} />
+              )}
               {refreshMutation.isPending ? 'Обновляем…' : 'Обновить из источника'}
             </button>
           </div>
+
+          {deviceJob ? (
+            <div
+              className={`manga-download-status${deviceJob.status === 'error' ? ' is-error' : ''}`}
+              role="status"
+            >
+              <div className="manga-download-status__head">
+                <span className="manga-download-status__icon" aria-hidden="true">
+                  <Icon name={activeDeviceJob ? 'download' : 'alert'} size={17} />
+                </span>
+                <div className="manga-download-status__body">
+                  <strong>
+                    {activeDeviceJob
+                      ? 'Скачиваем на устройство'
+                      : deviceJob.status === 'cancelled'
+                        ? 'Загрузка отменена'
+                        : 'Загрузка остановилась'}
+                  </strong>
+                  <span>
+                    {activeDeviceJob
+                      ? `${formatInt(activeDeviceJob.completedChapters)} из ${formatInt(activeDeviceJob.chapters.length)} глав · ${formatInt(activeDeviceJob.downloadedPages)} из ${formatInt(activeDeviceJob.totalPages)} страниц`
+                      : deviceJob.error ?? 'Повторите загрузку — уже скачанное будет пропущено.'}
+                  </span>
+                </div>
+                {activeDeviceJob ? (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => void cancelDownload(activeDeviceJob.id)}
+                  >
+                    <Icon name="close" size={14} />
+                    Отменить
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={() => void retryDownload(deviceJob.id)}
+                  >
+                    <Icon name="refresh" size={14} />
+                    Повторить
+                  </button>
+                )}
+              </div>
+              {activeDeviceJob ? (
+                <div className="manga-download-status__progress">
+                  <div className="progress">
+                    <div
+                      className="progress__bar"
+                      style={{ width: `${jobPercent(activeDeviceJob)}%` }}
+                    />
+                  </div>
+                  <span>{jobPercent(activeDeviceJob)}%</span>
+                </div>
+              ) : null}
+            </div>
+          ) : offlineStats && offlineStats.chapters > 0 ? (
+            <div className="manga-download-status is-done" role="status">
+              <span className="manga-download-status__icon" aria-hidden="true">
+                <Icon name="check" size={17} />
+              </span>
+              <div className="manga-download-status__body">
+                <strong>Уже на устройстве</strong>
+                <span>
+                  {formatInt(offlineStats.chapters)}{' '}
+                  {offlineStats.chapters === 1 ? 'глава' : 'глав'} ·{' '}
+                  {formatInt(offlineStats.pages)}{' '}
+                  {offlineStats.pages === 1 ? 'страница' : 'страниц'} ·{' '}
+                  {formatBytes(offlineStats.bytes)}
+                </span>
+              </div>
+              <Link to={`/offline/manga/${activeVariantId}`} className="btn btn--outline btn--sm">
+                <Icon name="book" size={14} />
+                Открыть офлайн
+              </Link>
+            </div>
+          ) : null}
 
           {progress && progressChapter ? (
             <div className="manga-status-note">
@@ -622,13 +759,25 @@ export default function MangaPage() {
               </button>
               <button
                 type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => void queueDeviceDownload()}
+                disabled={chapters.length === 0 || chaptersLoading || Boolean(activeDeviceJob)}
+                title="Сохранить все главы выбранного источника на это устройство. Уже скачанные страницы будут пропущены."
+              >
+                <Icon name="download" size={16} />
+                {activeDeviceJob
+                  ? `Скачиваем ${jobPercent(activeDeviceJob)}%`
+                  : 'Скачать всё на устройство'}
+              </button>
+              <button
+                type="button"
                 className="btn btn--ghost btn--sm"
                 onClick={() => warmMutation.mutate()}
                 disabled={warmMutation.isPending}
                 title="Сервер скачает все главы в свой архив; потом они читаются без источника"
               >
                 <Icon name="server" size={16} />
-                {warmMutation.isPending ? 'Готовим…' : 'Скачать всё'}
+                {warmMutation.isPending ? 'Готовим…' : 'На сервер'}
               </button>
               <button
                 type="button"
@@ -636,7 +785,11 @@ export default function MangaPage() {
                 onClick={() => void refreshMutation.mutate()}
                 disabled={refreshMutation.isPending}
               >
-                <Icon name="refresh" size={16} className={refreshMutation.isPending ? 'spin' : undefined} />
+                {refreshMutation.isPending ? (
+                  <DancingSpinner size={16} />
+                ) : (
+                  <Icon name="refresh" size={16} />
+                )}
                 Обновить
               </button>
             </div>
@@ -793,7 +946,11 @@ export default function MangaPage() {
                     onClick={() => void refreshMutation.mutate()}
                     disabled={refreshMutation.isPending}
                   >
-                    <Icon name="refresh" size={15} className={refreshMutation.isPending ? 'spin' : undefined} />
+                    {refreshMutation.isPending ? (
+                      <DancingSpinner size={15} />
+                    ) : (
+                      <Icon name="refresh" size={15} />
+                    )}
                     Загрузить главы
                   </button>
                 }

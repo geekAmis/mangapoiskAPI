@@ -18,6 +18,7 @@ import {
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
+import { DancingSpinner } from '../components/DancingLoader';
 import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
 import { AdminLogin } from '../components/admin/AdminLogin';
@@ -330,7 +331,11 @@ export default function AdminPage() {
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending}
             >
-              <Icon name="refresh" size={16} className={syncMutation.isPending ? 'spin' : undefined} />
+              {syncMutation.isPending ? (
+                <DancingSpinner size={16} />
+              ) : (
+                <Icon name="refresh" size={16} />
+              )}
               Синхронизировать маршруты
             </button>
             <button
@@ -350,7 +355,7 @@ export default function AdminPage() {
               aria-label="Обновить данные"
               title="Обновить данные"
             >
-              <Icon name="refresh" size={18} className={refreshing ? 'spin' : undefined} />
+              {refreshing ? <DancingSpinner size={18} /> : <Icon name="refresh" size={18} />}
             </button>
             <button
               type="button"
@@ -479,7 +484,11 @@ export default function AdminPage() {
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending}
             >
-              <Icon name="refresh" size={15} className={syncMutation.isPending ? 'spin' : undefined} />
+              {syncMutation.isPending ? (
+                <DancingSpinner size={15} />
+              ) : (
+                <Icon name="refresh" size={15} />
+              )}
               Синхронизировать
             </button>
           </div>
@@ -617,7 +626,7 @@ export default function AdminPage() {
             >
               {deleteMutation.isPending ? (
                 <>
-                  <Icon name="loader" size={16} className="spin" />
+                  <DancingSpinner size={16} />
                   Удаляем…
                 </>
               ) : (
@@ -654,7 +663,7 @@ export default function AdminPage() {
             >
               {failoverMutation.isPending ? (
                 <>
-                  <Icon name="loader" size={16} className="spin" />
+                  <DancingSpinner size={16} />
                   Переключаем…
                 </>
               ) : (
