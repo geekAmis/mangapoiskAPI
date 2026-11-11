@@ -108,15 +108,49 @@ class Deployer:
             job.log = "Подключение к серверу…\n"
             await session.commit()
             target, jump = await self._target(server)
-            try:
-                script = await self._build_script(server, services)
-                code, output = await asyncio.to_thread(
-                    self.ssh.run_script,
-                    target,
-                    script,
-                    jump=jump,
-                    timeout=self.settings.deploy_timeout_seconds,
+            if jump is not None:
+                job.log = (
+                    f"Подключаемся к {server.host}:{server.ssh_port} "
+                    f"через jump-сервер {jump.name or jump.host}…\n"
                 )
+                await session.commit()
+            loop = asyncio.get_running_loop()
+            line_queue: asyncio.Queue[str | None] = asyncio.Queue()
+            log_buffer = job.log
+
+            def on_line(line: str) -> None:
+                loop.call_soon_threadsafe(line_queue.put_nowait, line)
+
+            async def pump() -> None:
+                nonlocal log_buffer
+                last_commit = loop.time()
+                while True:
+                    line = await line_queue.get()
+                    if line is None:
+                        break
+                    log_buffer = (log_buffer + line + "\n")[-200_000:]
+                    now = loop.time()
+                    if now - last_commit >= 1.5:
+                        job.log = log_buffer
+                        await session.commit()
+                        last_commit = now
+                job.log = log_buffer
+
+            pump_task = asyncio.create_task(pump())
+            try:
+                try:
+                    script = await self._build_script(server, services)
+                    code, output = await asyncio.to_thread(
+                        self.ssh.run_script,
+                        target,
+                        script,
+                        jump=jump,
+                        on_line=on_line,
+                        timeout=self.settings.deploy_timeout_seconds,
+                    )
+                finally:
+                    loop.call_soon_threadsafe(line_queue.put_nowait, None)
+                    await pump_task
                 job = await get_job(session, job_id)
                 if job is None:
                     return
