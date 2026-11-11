@@ -73,7 +73,7 @@ class Settings(BaseSettings):
 
     # Admin panel / server manager.  Change these in production.
     admin_username: str = "admin"
-    admin_password: str = "developer-master-pro"
+    admin_password: str = "change-me-admin-password"
     admin_token_minutes: int = 480
     control_secret_key: str = "dev-control-secret-change-me"
     control_public_url: str = "http://localhost:8005"
@@ -121,6 +121,8 @@ class Settings(BaseSettings):
             problems.append("JWT_SECRET must be changed in production")
         if self.internal_token.startswith("dev-"):
             problems.append("INTERNAL_TOKEN must be changed in production")
+        if self.admin_password in {"developer-master-pro", "change-me-admin-password"}:
+            problems.append("ADMIN_PASSWORD must be changed in production")
         if problems:
             raise RuntimeError("; ".join(problems))
 
