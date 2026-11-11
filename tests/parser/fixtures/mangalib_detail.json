@@ -1,0 +1,43 @@
+{
+  "data": {
+    "id": 6844,
+    "name": "Temppal",
+    "rus_name": "Во всеоружии",
+    "eng_name": "Overgeared",
+    "model": "manga",
+    "slug": "temppal",
+    "slug_url": "6844--temppal",
+    "cover": {
+      "filename": "cover",
+      "thumbnail": "https://cover.imglib.info/uploads/cover/temppal/cover/cover_thumb.jpg",
+      "default": "https://cover.imglib.info/uploads/cover/temppal/cover/cover_250x350.jpg",
+      "md": "https://cover.imglib.info/uploads/cover/temppal/cover/cover_250x350.jpg"
+    },
+    "ageRestriction": {
+      "id": 3,
+      "label": "16+"
+    },
+    "site": 1,
+    "type": {
+      "id": 5,
+      "label": "Манхва"
+    },
+    "is_licensed": false,
+    "content_marking": [
+      {
+        "id": 2,
+        "label": "Содержит упоминание наркотиков",
+        "formulation": "Незаконное потребление наркотических средств, психотропных веществ, их аналогов причиняет вред здоровью, их незаконный оборот запрещен и влечет установленную законодательством ответственность"
+      }
+    ],
+    "status": {
+      "id": 5,
+      "label": "Выпуск прекращён"
+    },
+    "releaseDateString": "2018 г."
+  },
+  "meta": {
+    "country": "RU"
+  },
+  "server": "debian-files3"
+}

@@ -1,0 +1,32 @@
+# Development issues
+
+The detailed, step-by-step development log lives in GitHub Issues.  This file
+keeps a stable local index.
+
+| # | Step | Status |
+|---|---|---|
+| [#3](https://github.com/geekAmis/mangapoiskAPI/issues/3) | EPIC: MangaPoisk Reborn 1.0 | open |
+| [#4](https://github.com/geekAmis/mangapoiskAPI/issues/4) | 01. Аудит legacy-кода | done |
+| [#5](https://github.com/geekAmis/mangapoiskAPI/issues/5) | 02. Архитектура и контракты | done |
+| [#6](https://github.com/geekAmis/mangapoiskAPI/issues/6) | 03. Монорепозиторий и shared package | done |
+| [#7](https://github.com/geekAmis/mangapoiskAPI/issues/7) | 04. Catalog service | done |
+| [#8](https://github.com/geekAmis/mangapoiskAPI/issues/8) | 05. Library service | done |
+| [#9](https://github.com/geekAmis/mangapoiskAPI/issues/9) | 06. Media service | done |
+| [#10](https://github.com/geekAmis/mangapoiskAPI/issues/10) | 07. Parser core + MangaPoisk | in progress |
+| [#11](https://github.com/geekAmis/mangapoiskAPI/issues/11) | 08. Дополнительные источники | in progress |
+| [#12](https://github.com/geekAmis/mangapoiskAPI/issues/12) | 09. Gateway BFF | done |
+| [#13](https://github.com/geekAmis/mangapoiskAPI/issues/13) | 10. Scheduler + notifier | done |
+| [#14](https://github.com/geekAmis/mangapoiskAPI/issues/14) | 11. React web client | in progress |
+| [#15](https://github.com/geekAmis/mangapoiskAPI/issues/15) | 12. Design system / responsive | in progress |
+| [#16](https://github.com/geekAmis/mangapoiskAPI/issues/16) | 13. Android client | in progress |
+| [#17](https://github.com/geekAmis/mangapoiskAPI/issues/17) | 14. Docker / deployment | done |
+| [#18](https://github.com/geekAmis/mangapoiskAPI/issues/18) | 15. Tests / CI | in progress |
+| [#19](https://github.com/geekAmis/mangapoiskAPI/issues/19) | 16. Security / legal | done |
+| [#20](https://github.com/geekAmis/mangapoiskAPI/issues/20) | 17. QA / user testing | in progress |
+| [#21](https://github.com/geekAmis/mangapoiskAPI/issues/21) | 18. Documentation | done |
+| [#22](https://github.com/geekAmis/mangapoiskAPI/issues/22) | 19. Release 1.0.0 | pending |
+| [#24](https://github.com/geekAmis/mangapoiskAPI/issues/24) | 20. Admin panel + server manager | in progress |
+| [#25](https://github.com/geekAmis/mangapoiskAPI/issues/25) | 21. Cross-source variants / переводы | done |
+| [#26](https://github.com/geekAmis/mangapoiskAPI/issues/26) | 22. Persistent chapter archive | done |
+| [#27](https://github.com/geekAmis/mangapoiskAPI/issues/27) | 23. Node.js/Capacitor Android | in progress |
+| [#28](https://github.com/geekAmis/mangapoiskAPI/issues/28) | 24. Dancing loading GIFs | in progress |

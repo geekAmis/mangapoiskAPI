@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "total_items": 582,
+    "total_pages": 30,
+    "page": 2
+  },
+  "results": [
+    {
+      "id": 63130,
+      "main_name": "Император Драконов, Воинственный Бог",
+      "secondary_name": "Dragon Emperor Vakyrie",
+      "another_name": "龙皇武神 / Культиватор XXL / Dragon Emperor Martial God / Longhuang Wu Shen / Dragon Emperor Valkyrie / Lóng Huáng Wǔ Shén / Император Драконов, Боевой Бог / Dragon Emperor, Martial God manhua read",
+      "type": {
+        "id": 3,
+        "name": "Маньхуа"
+      },
+      "status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "translate_status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "dir": "dragon-emperor-vakyrie",
+      "issue_year": 2022,
+      "avg_rating": "8.2",
+      "total_votes": 216358,
+      "count_chapters": 111,
+      "is_licensed": false,
+      "cover": {
+        "low": "/media/titles/dragon-emperor-vakyrie/13e07473e59d73e0a73ae48633181d36.jpg",
+        "mid": "/media/titles/dragon-emperor-vakyrie/8f9e1388b7de5d7f084b635c8b930f26.jpg",
+        "high": "/media/titles/dragon-emperor-vakyrie/103ddfeba69f6dadce53570050bf2abd.jpg"
+      },
+      "is_erotic": false,
+      "is_yaoi": false,
+      "is_forbidden": false
+    },
+    {
+      "id": 79434,
+      "main_name": "Моя Драконья Система",
+      "secondary_name": "The dragon is reincarnated, and revenge starts at the age of five!",
+      "another_name": "恶龙转生，复仇从五岁开始！ / My Dragon System / Dragon king reborn / Reincarnated into a Human? / Перерождение дракона, да начнётся месть пятилетки!/ Elong zhuansheng, fuchou cong wusui kaishi / Перерождение короля драконов / 恶龙转生，复仇从五岁开始 / Èlóng zhuǎnshēng, fùchóu cóng wǔsuì kāishǐ / Evil Dragon Is Reincarnated! / His Revenge Started When He Was 5 / 悪竜転生 / Revenge Begins at the Age of Five! / The Evil Dragon Has Been Reborn, His Revenge Started When He Was 5 / The Evil Dragon Has Been Reborn / Evil Dragon Is Reincarnated! Revenge Begins at the Age of Five! / Моя Драконья Система",
+      "type": {
+        "id": 3,
+        "name": "Маньхуа"
+      },
+      "status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "translate_status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "dir": "the-dragon-is-reincarnated-and-revenge-starts-at-the-age-of-five",
+      "issue_year": 2023,
+      "avg_rating": "8.1",
+      "total_votes": 212489,
+      "count_chapters": 85,
+      "is_licensed": false,
+      "cover": {
+        "low": "/media/titles/the-dragon-is-reincarnated-and-revenge-starts-at-the-age-of-five/148941b0c6909027af31c6b340790c13.jpg",
+        "mid": "/media/titles/the-dragon-is-reincarnated-and-revenge-starts-at-the-age-of-five/a5ead8504d26baf21ceb900f4e6db686.jpg",
+        "high": "/media/titles/the-dragon-is-reincarnated-and-revenge-starts-at-the-age-of-five/a6ae6ce35c82c9c8abd9ebc66efb992f.jpg"
+      },
+      "is_erotic": false,
+      "is_yaoi": false,
+      "is_forbidden": false
+    }
+  ]
+}

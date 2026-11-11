@@ -1,0 +1,317 @@
+{
+  "id": 306290,
+  "tome": 1,
+  "chapter": "3",
+  "name": "",
+  "score": 37,
+  "upload_date": "2020-04-08T18:06:55.945755",
+  "is_paid": false,
+  "purchase_type": 1,
+  "title_id": 10308,
+  "volume_id": null,
+  "branch_id": 10106,
+  "price": null,
+  "pub_date": null,
+  "index": 3,
+  "delay_pub_date": null,
+  "is_published": true,
+  "server": {
+    "id": 2,
+    "name": "img",
+    "link": "https://img.reimg.org/",
+    "fallback_link": "https://img-reserve.reimg2.org/"
+  },
+  "pages": [
+    [
+      {
+        "id": 1,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/a3fd83144c57bd506c68257cdead214c.jpeg",
+        "height": 1189,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 2,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/2a81851f21998d0f7f809120f1829800.jpeg",
+        "height": 1209,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 3,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/7ec311858ca1afcdda62d9069bdf0eed.jpeg",
+        "height": 1231,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 4,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/d74e9829416f2c39eadc494da45eecba.jpeg",
+        "height": 1162,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 5,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/413132745665ee94d633535f9c470196.jpeg",
+        "height": 1176,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 6,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/3371e808fbbacbb0045c5518c487cbc9.jpeg",
+        "height": 1185,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 7,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/23a3e740e6ee73faae430c0e79242116.jpeg",
+        "height": 1199,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 8,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/cf2dc45a53fd459f26191990ea56bbca.jpeg",
+        "height": 1170,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 9,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/09fcbaa496c0d839f3c005ced7f48c48.jpeg",
+        "height": 1208,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 10,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/5d17b7dc2a09d31101d1545be3cd4594.jpeg",
+        "height": 1184,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 11,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/67721184f05fee29989e8bd72dceb623.jpeg",
+        "height": 1201,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 12,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/0cb5381efab218ff618b822578e1d65a.jpeg",
+        "height": 1155,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 13,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/799a40ab985d3821b07ac409dbe3247c.jpeg",
+        "height": 1177,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 14,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/64e8b57286a15909637a483165d6ae3c.jpeg",
+        "height": 1194,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 15,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/ba4782f4b01c1c7141c3c570a1837257.jpeg",
+        "height": 1218,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 16,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/411be2be87007c05d07041dc3f8843ae.jpeg",
+        "height": 1161,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 17,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/1bd92416be90626928e107df279844b1.jpeg",
+        "height": 1215,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 18,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/7a7e9270ad210dbfc283dc35f167f5c4.jpeg",
+        "height": 1169,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 19,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/d8792e1c3affd318aa6fbd732ac4b48e.jpeg",
+        "height": 1165,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 20,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/2e00d93cf73e94ca711af3818ab15644.jpeg",
+        "height": 1196,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 21,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/dfc6bbc2fc755031d4c1d335b40f2b7b.jpeg",
+        "height": 1196,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 22,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/05f9f33ac242b8921000c18c3c5e4705.jpeg",
+        "height": 1207,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 23,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/a2601adcbcb65971f06b54a996d7fcc7.jpeg",
+        "height": 1195,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 24,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/5c21f6bbd2a7d05902cb0fe80c1a0323.jpeg",
+        "height": 1198,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 25,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/34d72c74ad7e4bb87d6df72d5d1528e0.jpeg",
+        "height": 1193,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 26,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/9429c757d3b78bfe059c8d4a647dac37.jpeg",
+        "height": 1173,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 27,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/271f695ee7e15ad641397f81a095b680.jpeg",
+        "height": 1195,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 28,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/2db5d15c1966f106e6705ca6f717367e.jpeg",
+        "height": 1161,
+        "width": 1456,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 29,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/009b8ef858ee8eeaece514b3d86c223d.jpeg",
+        "height": 1173,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 30,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/8a4bf3e82a01194182a58324ba60d237.jpeg",
+        "height": 1168,
+        "width": 728,
+        "count_comments": 0
+      }
+    ],
+    [
+      {
+        "id": 31,
+        "link": "https://img-reserve.reimg2.org/images/10308/1-3/d349bce4ff2ec6b126eacbd08e074b8c.jpeg",
+        "height": 1165,
+        "width": 728,
+        "count_comments": 0
+      }
+    ]
+  ],
+  "publishers": [],
+  "rated": false,
+  "is_bought": false,
+  "previous": {
+    "id": 306283,
+    "tome": 1,
+    "chapter": "2",
+    "index": 2,
+    "is_paid": false
+  },
+  "next": null,
+  "content_type": "comics"
+}

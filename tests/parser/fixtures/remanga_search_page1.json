@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "total_items": 582,
+    "total_pages": 30,
+    "page": 1
+  },
+  "results": [
+    {
+      "id": 6624,
+      "main_name": "Дракон внутри меня",
+      "secondary_name": "Dragon inside me",
+      "another_name": "我身上有条龙 / I have a dragon on my body / I Have a Dragon in My Body / Wo shen shang you tiao long / 我身上有條龍 / The dragon inside me / Trên Người Ta Có Một Con Rồng / The Dragon Within Me / Dragon In My Body",
+      "type": {
+        "id": 3,
+        "name": "Маньхуа"
+      },
+      "status": {
+        "id": 3,
+        "name": "Заморожен"
+      },
+      "translate_status": {
+        "id": 3,
+        "name": "Заморожен"
+      },
+      "dir": "dragon-inside-me",
+      "issue_year": 2018,
+      "avg_rating": "7.2",
+      "total_votes": 4127544,
+      "count_chapters": 630,
+      "is_licensed": false,
+      "cover": {
+        "low": "/media/titles/dragon-inside-me/1c13abdc257b1b93ddaa8f4d7ccf550b.jpg",
+        "mid": "/media/titles/dragon-inside-me/e54ea13cb3174082e340d72d177bf8b3.jpg",
+        "high": "/media/titles/dragon-inside-me/ac90bc54115373cbbac41394ced26963.jpg"
+      },
+      "is_erotic": false,
+      "is_yaoi": false,
+      "is_forbidden": false
+    },
+    {
+      "id": 3088,
+      "main_name": "Юань Цзунь",
+      "secondary_name": "Yuan Zun",
+      "another_name": "元尊 / Yuán Zūn / Почтенный Юань / Nguyên Tôn / Драконий принц Юань / Venerable Yuan / Принц-Дракон Юань / 원존: 용의 비상 / Master of the Origin / Dragon Prince Yuan / Lord of the Basic",
+      "type": {
+        "id": 3,
+        "name": "Маньхуа"
+      },
+      "status": {
+        "id": 1,
+        "name": "Закончен"
+      },
+      "translate_status": {
+        "id": 1,
+        "name": "Закончен"
+      },
+      "dir": "yuan-zun",
+      "issue_year": 2017,
+      "avg_rating": "8.5",
+      "total_votes": 2292973,
+      "count_chapters": 952,
+      "is_licensed": false,
+      "cover": {
+        "low": "/media/titles/yuan-zun/e40bea6f142ba562c7fe32f9d115a636.jpg",
+        "mid": "/media/titles/yuan-zun/d4db2e2364ea4abf79b496cb28031000.jpg",
+        "high": "/media/titles/yuan-zun/dc0f07b56b77e87dbda6724621f322b0.jpg"
+      },
+      "is_erotic": false,
+      "is_yaoi": false,
+      "is_forbidden": false
+    }
+  ]
+}

@@ -1,53 +1,153 @@
-# MangaPoiskAPI (Military IT Tech.)
-Промывка мозгов среди мало-осведомлённого населения, зомбирование и доведения до состояния
-Dead-inside
+# MangaPoisk Reborn
 
-### Цели:
+Старый `mangapoiskAPI` был одним файлом, с захардкоженным токеном и парсингом
+прямо в роутерах. Я переписал его нормально: FastAPI-микросервисы, React-сайт,
+Android-клиент и общий API.
 
-1. Предоставление API к парсингу mangapoisk.
+![MangaPoisk Reborn](docs/screenshots/prod-home-desktop.png)
 
-2. Удобный и быстрый скриптинг с использованием fastapi
+**Живой сервер:** <http://85.192.37.58:8088>  
+**Админка:** `/admin` (доступ по `ADMIN_USERNAME` / `ADMIN_PASSWORD`).
 
-3. Изучение fastapi в рамках подготовки к разработке проекта под руководством кураторов 
-**Эво***ленты*
+## Что есть
 
-4. Попытка дописать имеющийся у mangapoisk сайт так, как нужно лично мне и предоставление
-необходимого инструментария для доработки их проекта.
+- каталог и поиск манги на русском;
+- карточка тайтла, список глав, читалка (вертикальная, webtoon, постраничная);
+- авто-скролл, горячие клавиши, сохранение прогресса;
+- аккаунт, закладки, история, настройки читалки;
+- экспорт главы в CBZ, PDF или HTML-ZIP;
+- шесть тем оформления;
+- Android-приложение на Jetpack Compose;
+- парсеры MangaPoisk, MangaLib, Remanga, ReadManga и MangaDex
+  (у каждого честно указано, что он умеет).
 
+## Запуск
 
-### Требование к проекту:
+```bash
+git clone https://github.com/geekAmis/mangapoiskAPI.git
+cd mangapoiskAPI
+cp .env.example .env
+```
 
-1. Разработка простого парсера mangapoiskAPI 
-2. Разработка привычной для меня системы templates в Flask, но с дополнением в виде mlx
-config.
-3. Доработка mlx до вида "html code 2000 len" => "mlx code 200 len" + config.
-4. Оптимизация их кривого до жути "Нового" интерфейса от которого мой ноутбук компании 
-irbis просто молит его убить.
-5. Предоставление возможности закачивать требуемую мангу в формате .pdf или в виде 
-html для чтения манги без доступа к сети. (соответственно, картинки будут либо у пользов.
-на устройстве, либо представленными в виде svg и тому подобных медиа расширений)
-6. Возможность  использовать MangaPoiskAPI как зеркало для сокрытия реального устройства
-пользователя от Yandex метрики.
-7. Благодаря игнору меня на почте так-же добавляется пунктик: Отсутствие рекламы на сайте
-и возможность установить туда свою для каждого разработчика читающего этот код.
-8. Возможность удобно листать и АВТО пролистывать мангу на страничке чтения
-9. Возможность постить посты в группе телеграм о новинках у mangapoisk.
+Сгенерируйте два секрета и вставьте их в `.env`:
 
-### Системы 
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
 
-1. Привычная мне закачка template из flask обеспечивается ```frontend/mlxDecoder.py```
-2. Парсинг mangapoisk обеспечивается ```api/parser/mangapoisk.py```
-3. Сохранение прогресса пользователя на сайте происходит через ```В разработке```
-4. Сохранение на устройсво пользователя оффлайн версии главы манги происходит через
-```В разработке```
-5. Поиск интересующей пользователя манги происходит через ```Скоро. В след. Обновлении```
-6. Отображение сайта происходит через app.py при помощи ```uvicorn app:app --reload```
-7. mlx to html | html to mlx ```В разработке```
-### Требования к БД
+Потом:
 
-1. MySQL для хранения cookies пользователя и его ip для последующей связи ip -> cookies
-ради подгрузи данных зашедшему пользователю. (Соответственно: Добавление, Хранение)
+```bash
+docker compose up -d --build
+```
 
-2. mlxDB (Ещё не существует впринципе) - для хранения страничек html в виде цепочки блоков,
-после добавления которой - пользователю будет удобнее загружать странички манги прямо из 
-базы данных. (Планируется публичный к ней доступ на чтение)
+- сайт — http://localhost:8080
+- API и Swagger — http://localhost:8000/docs
+  (`docker compose --profile dev up -d gateway-public`)
+- проверка — http://localhost:8080/api/v1/health
+
+Первая манга:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/manga/import \
+  -H "Content-Type: application/json" \
+  -d '{"source":"mangapoisk","url":"https://mangapoisk.me/manga/zombie-slasher"}'
+```
+
+## Без Docker
+
+Нужны Python 3.12+, Node 20+ и желание запустить 5 терминалов.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e packages/manga_common
+pip install -r services/parser/requirements.txt
+# и так далее для catalog, library, media, gateway
+```
+
+Подробности — в [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Как устроено
+
+```
+React / Android
+      │
+      ▼
+   gateway ──► catalog ──► parser ──► сайты манги
+      │           │
+      ├──► library (аккаунты, закладки, прогресс)
+      └──► media   (кэш картинок, CBZ/PDF/HTML)
+```
+
+- `gateway` — публичный `/api/v1`;
+- `parser` — адаптеры источников;
+- `catalog` — PostgreSQL-каталог;
+- `library` — пользователи и библиотека;
+- `media` — картинки и экспорт;
+- `scheduler` и `notifier` — обновления и Telegram.
+
+Подробнее: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Контракт API: [docs/API.md](docs/API.md).
+
+## Пара примеров API
+
+```http
+GET /api/v1/manga/search?q=магия&live=true
+GET /api/v1/manga/{id}
+GET /api/v1/chapters/{id}
+GET /api/v1/chapters/{id}/images/1
+POST /api/v1/chapters/{id}/exports?format=cbz
+```
+
+## Админка и серверы
+
+Панель управления — `/admin` (прямая ссылка, в меню её нет). Логин и пароль
+берутся из `ADMIN_USERNAME` / `ADMIN_PASSWORD` в `.env`. Оттуда можно добавить
+сервер по IP/логину/паролю, выбрать микросервисы и порты, поставить их через
+SSH (напрямую или через 83 как jump-host), посмотреть логи деплоя и переключить
+трафик на здоровый сервер. Пароли серверов шифруются, наружу не отдаются.
+
+## Android
+
+Есть два клиента:
+
+- **Kotlin / Jetpack Compose** — `apps/android`, нативное приложение;
+- **Node.js / Capacitor** — `apps/mobile`, та же React-сборка в APK.
+  В нём поиск, каталог, выбор перевода и кэш на телефоне.
+
+```bash
+# Kotlin
+cd apps/android && ./gradlew assembleDebug
+
+# Node.js / Capacitor
+cd apps/mobile && npm install && npm run sync
+npx cap add android   # один раз
+npm run apk
+```
+
+Для эмулятора Kotlin-клиента базовый URL — `http://10.0.2.2:8000/api/v1/`.
+Для телефона — адрес сервера. Инструкции: [docs/ANDROID.md](docs/ANDROID.md)
+и [apps/mobile/README.md](apps/mobile/README.md).
+
+## Тесты
+
+```bash
+pytest
+ruff check .
+cd apps/web && npm run typecheck && npm run build
+```
+
+## Источники и право
+
+Проект не хранит мангу у себя: он показывает каталог и проксирует картинки с
+источников. Парсим только публичные страницы, с лимитами и кэшем, без обхода
+защит и paywall. Если вы правообладатель — откройте issue, разберёмся.
+
+Подробнее: [docs/SOURCES.md](docs/SOURCES.md) и [docs/LEGAL.md](docs/LEGAL.md).
+
+## Статус
+
+Работа идёт по шагам в [issues](https://github.com/geekAmis/mangapoiskAPI/issues).
+Главный эпик — [#3](https://github.com/geekAmis/mangapoiskAPI/issues/3).
+Код под MIT.

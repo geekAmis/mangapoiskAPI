@@ -1,0 +1,46 @@
+# Secrets and local state
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.sqlite3
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+
+# Frontend
+apps/web/dist/
+apps/web/.vite/
+apps/web/coverage/
+apps/mobile/www/
+apps/mobile/node_modules/
+apps/mobile/android/.gradle/
+apps/mobile/android/.idea/
+apps/mobile/android/local.properties
+apps/mobile/android/app/build/
+apps/mobile/android/app/src/main/assets/public/
+apps/mobile/android/app/src/main/assets/capacitor.config.json
+apps/android/.gradle/
+apps/android/.kotlin/
+apps/android/local.properties
+apps/android/**/build/
+*.apk
+*.aab
+
+# Credentials must never be committed
+data.txt
+*.pem
+*.key

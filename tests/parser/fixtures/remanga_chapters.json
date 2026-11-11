@@ -1,0 +1,78 @@
+{
+  "next": 2,
+  "previous": null,
+  "results": [
+    {
+      "id": 2162890,
+      "is_bought": false,
+      "is_free_today": null,
+      "publishers": [
+        {
+          "id": 15406,
+          "name": "Litres MS",
+          "dir": "litres-ms"
+        }
+      ],
+      "index": 313,
+      "purchase_type": 1,
+      "tome": 1,
+      "chapter": "312",
+      "name": "",
+      "price": "10.00",
+      "score": 192,
+      "upload_date": "2026-09-07T20:13:12.657701",
+      "pub_date": null,
+      "delay_pub_date": "2026-09-07T20:13:12.657701",
+      "is_published": true,
+      "is_paid": true
+    },
+    {
+      "id": 2162889,
+      "is_bought": false,
+      "is_free_today": null,
+      "publishers": [
+        {
+          "id": 15406,
+          "name": "Litres MS",
+          "dir": "litres-ms"
+        }
+      ],
+      "index": 312,
+      "purchase_type": 1,
+      "tome": 1,
+      "chapter": "311",
+      "name": "",
+      "price": "10.00",
+      "score": 127,
+      "upload_date": "2026-09-07T00:25:03.806414",
+      "pub_date": null,
+      "delay_pub_date": "2026-09-07T00:25:03.806414",
+      "is_published": true,
+      "is_paid": true
+    },
+    {
+      "id": 2162888,
+      "is_bought": false,
+      "is_free_today": null,
+      "publishers": [
+        {
+          "id": 15406,
+          "name": "Litres MS",
+          "dir": "litres-ms"
+        }
+      ],
+      "index": 311,
+      "purchase_type": 1,
+      "tome": 1,
+      "chapter": "310",
+      "name": "",
+      "price": "10.00",
+      "score": 110,
+      "upload_date": "2026-09-07T00:25:03.806414",
+      "pub_date": null,
+      "delay_pub_date": "2026-09-07T00:25:03.806414",
+      "is_published": true,
+      "is_paid": true
+    }
+  ]
+}

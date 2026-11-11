@@ -1,0 +1,54 @@
+{
+  "next": 3,
+  "previous": 1,
+  "results": [
+    {
+      "id": 1885850,
+      "is_bought": false,
+      "is_free_today": null,
+      "publishers": [
+        {
+          "id": 15406,
+          "name": "Litres MS",
+          "dir": "litres-ms"
+        }
+      ],
+      "index": 283,
+      "purchase_type": 1,
+      "tome": 1,
+      "chapter": "282",
+      "name": "",
+      "price": "10.00",
+      "score": 233,
+      "upload_date": "2025-12-11T03:38:32.546083",
+      "pub_date": null,
+      "delay_pub_date": "2025-12-11T03:38:32.546083",
+      "is_published": true,
+      "is_paid": true
+    },
+    {
+      "id": 1885849,
+      "is_bought": false,
+      "is_free_today": null,
+      "publishers": [
+        {
+          "id": 15406,
+          "name": "Litres MS",
+          "dir": "litres-ms"
+        }
+      ],
+      "index": 282,
+      "purchase_type": 1,
+      "tome": 1,
+      "chapter": "281",
+      "name": "",
+      "price": "10.00",
+      "score": 221,
+      "upload_date": "2025-12-11T03:38:32.546083",
+      "pub_date": null,
+      "delay_pub_date": "2025-12-11T03:38:32.546083",
+      "is_published": true,
+      "is_paid": true
+    }
+  ]
+}
