@@ -37,7 +37,13 @@ from manga_common.schemas import (
     TokenPair,
     UserOut,
 )
-from manga_common.security import UserClaims, admin_auth_version, require_admin, require_user
+from manga_common.security import (
+    UserClaims,
+    admin_auth_version,
+    require_admin,
+    require_internal_token,
+    require_user,
+)
 from manga_common.source_models import MangaSummary, SourceSearchResult
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
@@ -135,6 +141,13 @@ def _schedule_archive(request: Request, detail: ChapterDetailOut) -> None:
 # ---------------------------------------------------------------------------
 # System
 # ---------------------------------------------------------------------------
+
+
+@router.get("/registry", dependencies=[Depends(require_internal_token)])
+async def internal_registry(request: Request) -> dict[str, Any]:
+    """Registry feed for replica nodes; internal token only."""
+
+    return await control(request).registry()
 
 
 @router.get("/health")
@@ -767,6 +780,9 @@ def control(request: Request) -> ControlClient:
 
 async def _apply_registry(target: Any, registry: dict[str, Any]) -> dict[str, str]:
     state = target.app.state if hasattr(target, "app") else target.state
+    pool = getattr(state, "pool", None)
+    if pool is not None:
+        pool.update(registry)
     mapping: dict[str, Any] = {
         "parser": state.parser,
         "catalog": state.catalog,

@@ -56,6 +56,7 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
   const [showPassword, setShowPassword] = useState(false);
   const [jumpServerId, setJumpServerId] = useState('');
   const [bindHost, setBindHost] = useState('0.0.0.0');
+  const [priority, setPriority] = useState('100');
   const [isFallback, setIsFallback] = useState(false);
   const [isJump, setIsJump] = useState(false);
   const [notes, setNotes] = useState('');
@@ -73,6 +74,7 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
     setShowPassword(false);
     setJumpServerId(server?.jump_server_id ?? '');
     setBindHost(server?.bind_host ?? '0.0.0.0');
+    setPriority(String(server?.priority ?? 100));
     setIsFallback(server?.is_fallback ?? false);
     setIsJump(server?.is_jump ?? false);
     setNotes(server?.notes ?? '');
@@ -133,12 +135,16 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
     const trimmedUser = username.trim();
     const trimmedBind = bindHost.trim();
     const port = Number(sshPort);
+    const priorityValue = Number(priority);
 
     if (!trimmedName) return setError('Укажите имя сервера.');
     if (!trimmedHost) return setError('Укажите хост или IP-адрес.');
     if (!Number.isInteger(port) || port < 1 || port > 65535) return setError('SSH-порт должен быть от 1 до 65535.');
     if (!trimmedUser) return setError('Укажите SSH-пользователя.');
     if (!trimmedBind) return setError('Укажите bind host.');
+    if (!Number.isInteger(priorityValue) || priorityValue < 0 || priorityValue > 10000) {
+      return setError('Приоритет должен быть целым числом от 0 до 10000.');
+    }
     if (!server && !password) return setError('Для нового сервера нужен SSH-пароль.');
 
     const services = ADMIN_SERVICES.filter((service) => serviceRows[service.code].selected).map((service) => {
@@ -164,6 +170,7 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
       username: trimmedUser,
       jump_server_id: jumpServerId || null,
       bind_host: trimmedBind,
+      priority: priorityValue,
       is_fallback: isFallback,
       is_jump: isJump,
       notes: notes.trim() || null,
@@ -335,6 +342,24 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
               <span className="field__hint">
                 <strong>0.0.0.0</strong> — сервисы доступны другим серверам (нужно для отдельного
                 узла). <strong>127.0.0.1</strong> — только через nginx на этом же сервере.
+              </span>
+            </div>
+            <div className="field">
+              <label className="field__label" htmlFor="admin-server-priority">
+                Приоритет
+              </label>
+              <input
+                id="admin-server-priority"
+                className="input"
+                type="number"
+                min={0}
+                max={10000}
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
+              />
+              <span className="field__hint">
+                Меньше — важнее. Клиенты сначала идут на сервер с меньшим приоритетом, при сбое —
+                на следующий.
               </span>
             </div>
             <div className="field">

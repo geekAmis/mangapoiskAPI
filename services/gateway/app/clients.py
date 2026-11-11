@@ -31,13 +31,66 @@ from manga_common.schemas import (
 )
 from manga_common.source_models import MangaSummary, SourceInfo
 
+from .routing import Endpoint, EndpointPool, current_client_key
+
 
 class InternalClient:
-    def __init__(self, settings: Settings, base_url: str) -> None:
+    service_code = ""
+
+    def __init__(
+        self,
+        settings: Settings,
+        base_url: str,
+        *,
+        pool: EndpointPool | None = None,
+    ) -> None:
         self.config = settings
         self.client = build_client(settings, base_url=base_url.rstrip("/"))
         self.client.headers["X-Internal-Token"] = settings.internal_token
         self.client.headers["Accept"] = "application/json"
+        self.pool = pool
+
+    def _candidates(self, method: str) -> list[Endpoint]:
+        if self.pool is not None:
+            chosen = self.pool.choose(self.service_code, current_client_key(), method)
+            if chosen:
+                return chosen
+        return [
+            Endpoint(
+                server_id="static",
+                server_name="static",
+                url=str(self.client.base_url).rstrip("/"),
+                healthy=True,
+            )
+        ]
+
+    def _raise_for_response(self, response: httpx.Response) -> None:
+        if response.status_code < 400:
+            return
+        code = "upstream_error"
+        message = "Internal service returned an error"
+        details: Any = {"status": response.status_code, "body": response.text[:500]}
+        try:
+            payload = response.json()
+            error = payload.get("error", {})
+            code = error.get("code") or code
+            message = error.get("message") or message
+            details = error.get("details") or details
+        except ValueError:
+            pass
+        mapping = {
+            400: ValidationError,
+            401: UnauthorizedError,
+            403: ForbiddenError,
+            404: NotFoundError,
+            409: ConflictError,
+            422: ValidationError,
+            429: RateLimitError,
+        }
+        error_cls = mapping.get(response.status_code)
+        if error_cls is not None:
+            raise error_cls(message, code=code, details=details)
+        raise UpstreamError(message, details=details)
 
     async def request(
         self,
@@ -49,40 +102,36 @@ class InternalClient:
         headers: dict[str, str] | None = None,
         timeout: float = 60.0,
     ) -> Any:
-        try:
-            response = await self.client.request(
-                method, path, params=params, json=json, headers=headers, timeout=timeout
-            )
-        except httpx.HTTPError as exc:
-            raise UpstreamError("Service is unavailable", details=str(exc)) from exc
-        if response.status_code >= 400:
-            code = "upstream_error"
-            message = "Internal service returned an error"
-            details: Any = {"status": response.status_code, "body": response.text[:500]}
+        candidates = self._candidates(method)
+        last_error: Exception | None = None
+        for index, endpoint in enumerate(candidates):
             try:
-                payload = response.json()
-                error = payload.get("error", {})
-                code = error.get("code") or code
-                message = error.get("message") or message
-                details = error.get("details") or details
-            except ValueError:
-                pass
-            mapping = {
-                400: ValidationError,
-                401: UnauthorizedError,
-                403: ForbiddenError,
-                404: NotFoundError,
-                409: ConflictError,
-                422: ValidationError,
-                429: RateLimitError,
-            }
-            error_cls = mapping.get(response.status_code)
-            if error_cls is not None:
-                raise error_cls(message, code=code, details=details)
-            raise UpstreamError(message, details=details)
-        if response.status_code == 204 or not response.content:
-            return None
-        return response.json()
+                response = await self.client.request(
+                    method,
+                    f"{endpoint.url}{path}",
+                    params=params,
+                    json=json,
+                    headers=headers,
+                    timeout=timeout,
+                )
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if self.pool is not None:
+                    self.pool.mark_down(self.service_code, endpoint.server_id)
+                continue
+            if response.status_code >= 500 and index < len(candidates) - 1:
+                last_error = UpstreamError(
+                    "Service is unavailable",
+                    details=f"{endpoint.url}: HTTP {response.status_code}",
+                )
+                if self.pool is not None:
+                    self.pool.mark_down(self.service_code, endpoint.server_id)
+                continue
+            self._raise_for_response(response)
+            if response.status_code == 204 or not response.content:
+                return None
+            return response.json()
+        raise UpstreamError("Service is unavailable", details=str(last_error))
 
     def set_base_url(self, base_url: str) -> None:
         self.client.base_url = httpx.URL(base_url.rstrip("/"))
@@ -94,17 +143,37 @@ class InternalClient:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        request = self.client.build_request("GET", path, params=params, headers=headers)
-        try:
-            return await self.client.send(request, stream=True)
-        except httpx.HTTPError as exc:
-            raise UpstreamError("Media service is unavailable", details=str(exc)) from exc
+        candidates = self._candidates("GET")
+        last_error: Exception | None = None
+        for index, endpoint in enumerate(candidates):
+            request = self.client.build_request(
+                "GET", f"{endpoint.url}{path}", params=params, headers=headers
+            )
+            try:
+                response = await self.client.send(request, stream=True)
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if self.pool is not None:
+                    self.pool.mark_down(self.service_code, endpoint.server_id)
+                continue
+            if response.status_code >= 500 and index < len(candidates) - 1:
+                await response.aclose()
+                last_error = UpstreamError(
+                    "Media service is unavailable",
+                    details=f"{endpoint.url}: HTTP {response.status_code}",
+                )
+                if self.pool is not None:
+                    self.pool.mark_down(self.service_code, endpoint.server_id)
+                continue
+            return response
+        raise UpstreamError("Media service is unavailable", details=str(last_error))
 
     async def close(self) -> None:
         await self.client.aclose()
 
 
 class CatalogClient(InternalClient):
+    service_code = "catalog"
     async def sources(self) -> list[SourceOut]:
         data = await self.request("GET", "/internal/sources")
         return [SourceOut.model_validate(item) for item in data]
@@ -169,6 +238,7 @@ class CatalogClient(InternalClient):
 
 
 class ParserClient(InternalClient):
+    service_code = "parser"
     async def sources(self) -> list[SourceInfo]:
         data = await self.request("GET", "/internal/sources")
         return [SourceInfo.model_validate(item) for item in data]
@@ -198,6 +268,7 @@ class ParserClient(InternalClient):
 
 
 class LibraryClient(InternalClient):
+    service_code = "library"
     async def _auth(
         self, method: str, path: str, authorization: str | None, **kwargs: Any
     ) -> Any:
@@ -279,6 +350,7 @@ class LibraryClient(InternalClient):
 
 
 class ControlClient(InternalClient):
+    service_code = "control"
     async def servers(self) -> list[dict[str, Any]]:
         return await self.request("GET", "/internal/servers")
 
@@ -318,6 +390,7 @@ class ControlClient(InternalClient):
 
 
 class MediaClient(InternalClient):
+    service_code = "media"
     async def archive_chapter(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("POST", "/internal/archives/chapters", json=payload, timeout=30.0)
 

@@ -7,9 +7,9 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 ServiceCode = Literal[
-    "parser", "catalog", "library", "media", "control", "gateway", "notifier", "scheduler"
+    "parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica", "scheduler"
 ]
-HTTP_SERVICES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier"}
+HTTP_SERVICES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica"}
 
 
 class ServiceSpec(BaseModel):
@@ -26,6 +26,7 @@ class ServerCreate(BaseModel):
     password: str = Field(min_length=1, max_length=512)
     jump_server_id: UUID | None = None
     bind_host: str = Field(default="0.0.0.0", max_length=64)
+    priority: int = Field(default=100, ge=0, le=10000)
     is_fallback: bool = False
     is_jump: bool = False
     notes: str | None = Field(default=None, max_length=2000)
@@ -41,6 +42,7 @@ class ServerUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=1, max_length=512)
     jump_server_id: UUID | None = None
     bind_host: str | None = Field(default=None, max_length=64)
+    priority: int | None = Field(default=None, ge=0, le=10000)
     is_fallback: bool | None = None
     is_jump: bool | None = None
     enabled: bool | None = None
@@ -66,6 +68,7 @@ class ServerOut(BaseModel):
     jump_server_id: UUID | None = None
     jump_server_name: str | None = None
     bind_host: str
+    priority: int = 100
     is_fallback: bool
     is_jump: bool
     enabled: bool
@@ -104,6 +107,8 @@ class RegistryEndpoint(BaseModel):
     url: str
     healthy: bool
     is_fallback: bool
+    priority: int = 100
+    is_jump: bool = False
     checked_at: datetime | None = None
     last_error: str | None = None
 

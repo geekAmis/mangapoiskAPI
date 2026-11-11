@@ -15,7 +15,7 @@ from .ssh import SSHRunner, SSHTarget
 
 logger = logging.getLogger(__name__)
 
-HTTP_SERVICE_CODES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier"}
+HTTP_SERVICE_CODES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica"}
 ALL_SERVICE_CODES = HTTP_SERVICE_CODES | {"scheduler"}
 DEFAULT_PORTS = {
     "parser": 8101,
@@ -25,6 +25,7 @@ DEFAULT_PORTS = {
     "control": 8005,
     "gateway": 8100,
     "notifier": 8106,
+    "replica": 8108,
 }
 
 
@@ -281,6 +282,11 @@ fi
             f"LIBRARY_DATABASE_URL=sqlite+aiosqlite:///{root}/data/library.db",
             f"CONTROL_DATABASE_URL=sqlite+aiosqlite:///{root}/data/control.db",
             f"MEDIA_CACHE_DIR={root}/data/media-cache",
+            f"REPLICA_DIR={root}/data/replica",
+            f"REPLICA_DATA_ROOT={root}/data",
+            f"REGISTRY_URL={self.settings.public_api_url.rstrip('/')}/api/v1/registry",
+            f"REPLICA_SELF_URL=http://{public_host}:8108",
+            "REPLICA_SYNC_SECONDS=10",
             f"EXPORT_DIR={root}/data/exports",
             "EXPORT_TTL_HOURS=48",
             "REDIS_URL=",
@@ -295,7 +301,7 @@ fi
             f"TELEGRAM_BOT_TOKEN={self.settings.telegram_bot_token or ''}",
             f"TELEGRAM_CHAT_ID={self.settings.telegram_chat_id or ''}",
         ]
-        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control"):
+        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica"):
             if code in urls:
                 lines.append(f"{code.upper()}_URL={urls[code]}")
         return "\n".join(lines) + "\n"
