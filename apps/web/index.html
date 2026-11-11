@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru" data-theme="midnight">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>MangaPoisk Reborn — читалка манги и манхвы</title>
+    <meta
+      name="description"
+      content="MangaPoisk Reborn — русский каталог манги и манхвы: поиск по источникам, удобная читалка, закладки, история чтения и офлайн-экспорт глав."
+    />
+    <meta name="theme-color" content="#060b12" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="application-name" content="MangaPoisk Reborn" />
+    <meta name="apple-mobile-web-app-title" content="MangaPoisk" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ru_RU" />
+    <meta property="og:site_name" content="MangaPoisk Reborn" />
+    <meta property="og:title" content="MangaPoisk Reborn — читалка манги" />
+    <meta
+      property="og:description"
+      content="Каталог манги и манхвы, удобная читалка и офлайн-экспорт глав. Шесть атмосферных тем на выбор."
+    />
+
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/icons/favicon.svg" color="#5ec8ff" />
+
+    <script>
+      (function () {
+        try {
+          var raw =
+            localStorage.getItem('mp-theme') ||
+            localStorage.getItem('mp:theme');
+          var stored = raw ? JSON.parse(raw) : null;
+          var theme = stored && stored.state && stored.state.theme;
+          var valid = ['midnight', 'noir', 'oni', 'crimson', 'sunset', 'paper'];
+          if (valid.indexOf(theme) === -1) {
+            theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'midnight';
+          }
+          if (!localStorage.getItem('mp-theme') && raw) {
+            localStorage.setItem('mp-theme', raw);
+          }
+          document.documentElement.setAttribute('data-theme', theme);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          var colors = {
+            midnight: '#060b12',
+            noir: '#08080a',
+            oni: '#100b0b',
+            crimson: '#0a090c',
+            sunset: '#160f1d',
+            paper: '#f1ece2'
+          };
+          if (meta && colors[theme]) meta.setAttribute('content', colors[theme]);
+        } catch (e) {
+          /* localStorage может быть недоступен — остаётся тема по умолчанию */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="max-width: 640px; margin: 80px auto; padding: 24px; font-family: sans-serif">
+        <h1 style="font-size: 24px">MangaPoisk Reborn</h1>
+        <p>Для работы каталога и читалки включите JavaScript в настройках браузера.</p>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "appId": "ru.mangapoisk.reborn",
+  "appName": "MangaPoisk",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "backgroundColor": "#060b12",
+      "showSpinner": false
+    }
+  }
+}

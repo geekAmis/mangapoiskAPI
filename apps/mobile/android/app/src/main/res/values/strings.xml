@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MangaPoisk</string>
+    <string name="title_activity_main">MangaPoisk</string>
+    <string name="package_name">ru.mangapoisk.reborn</string>
+    <string name="custom_url_scheme">ru.mangapoisk.reborn</string>
+</resources>
