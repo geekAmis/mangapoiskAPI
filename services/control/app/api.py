@@ -13,6 +13,8 @@ from .schemas import (
     DeployResponse,
     JobOut,
     RegistryOut,
+    ReplicaActionOut,
+    ReplicaBootstrapRequest,
     SelectRequest,
     SelectResponse,
     ServerCreate,
@@ -72,6 +74,22 @@ async def server_health(
     server_id: uuid.UUID, service: ControlService = Depends(get_service)
 ) -> ServerHealthOut:
     return await service.server_health(server_id)
+
+
+@router.post("/servers/{server_id}/replica/promote", response_model=ReplicaActionOut)
+async def promote_replica(
+    server_id: uuid.UUID, service: ControlService = Depends(get_service)
+) -> ReplicaActionOut:
+    return await service.promote_replica(server_id)
+
+
+@router.post("/servers/{server_id}/replica/bootstrap", response_model=ReplicaActionOut)
+async def bootstrap_replica(
+    server_id: uuid.UUID,
+    payload: ReplicaBootstrapRequest,
+    service: ControlService = Depends(get_service),
+) -> ReplicaActionOut:
+    return await service.bootstrap_replica(server_id, payload.source_server_id)
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

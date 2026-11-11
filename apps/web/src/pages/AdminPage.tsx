@@ -91,6 +91,7 @@ export default function AdminPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<AdminServer | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminServer | null>(null);
+  const [promoteTarget, setPromoteTarget] = useState<AdminServer | null>(null);
   const [deployTarget, setDeployTarget] = useState<AdminServer | null>(null);
   const [failoverOpen, setFailoverOpen] = useState(false);
 
@@ -224,6 +225,21 @@ export default function AdminPage() {
     onError: (error: unknown) => toast.error(adminErrorMessage(error, 'Health-check не удался.')),
   });
 
+  const promoteMutation = useMutation({
+    mutationFn: (server: AdminServer) => adminApi.promoteReplica(server.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'servers'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'registry'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'audit'] });
+      toast.success('Данные восстановлены из последней реплики');
+      setPromoteTarget(null);
+    },
+    onError: (error: unknown) => {
+      toast.error(adminErrorMessage(error, 'Не удалось восстановить данные из реплики.'));
+      setPromoteTarget(null);
+    },
+  });
+
   const refreshAll = () => {
     void serversQuery.refetch();
     void registryQuery.refetch();
@@ -268,7 +284,10 @@ export default function AdminPage() {
         code,
         label: SERVICE_LABELS[code] ?? code,
         endpoints: [...(registry.services[code] ?? [])].sort(
-          (a, b) => Number(a.is_fallback) - Number(b.is_fallback) || Number(b.healthy) - Number(a.healthy),
+          (a, b) =>
+            Number(a.is_fallback) - Number(b.is_fallback) ||
+            Number(b.healthy) - Number(a.healthy) ||
+            (a.priority ?? 100) - (b.priority ?? 100),
         ),
       }))
       .filter((group) => group.endpoints.length > 0);
@@ -458,6 +477,7 @@ export default function AdminPage() {
                     setFormOpen(true);
                   }}
                   onDeploy={setDeployTarget}
+                  onPromote={setPromoteTarget}
                   onDelete={setDeleteTarget}
                   onToggleEnabled={(target) =>
                     updateMutation.mutate({ server: target, patch: { enabled: !target.enabled } })
@@ -607,6 +627,49 @@ export default function AdminPage() {
         }}
       />
       <DeployModal open={Boolean(deployTarget)} server={deployTarget} onClose={() => setDeployTarget(null)} />
+
+      <Modal
+        open={Boolean(promoteTarget)}
+        onClose={() => (promoteMutation.isPending ? undefined : setPromoteTarget(null))}
+        title="Восстановить данные из реплики?"
+        size="sm"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setPromoteTarget(null)}
+              disabled={promoteMutation.isPending}
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => promoteTarget && promoteMutation.mutate(promoteTarget)}
+              disabled={promoteMutation.isPending}
+            >
+              {promoteMutation.isPending ? (
+                <>
+                  <DancingSpinner size={16} />
+                  Восстанавливаем…
+                </>
+              ) : (
+                <>
+                  <Icon name="refresh" size={16} />
+                  Восстановить
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        <p className="field__hint">
+          Control остановит <code>catalog</code>, <code>library</code> и <code>media</code> на сервере{' '}
+          <strong>{promoteTarget?.name}</strong>, скопирует последнюю реплику баз в рабочие файлы и
+          запустит сервисы снова. Операция занимает несколько секунд; сессия админки не прерывается.
+        </p>
+      </Modal>
 
       <Modal
         open={Boolean(deleteTarget)}

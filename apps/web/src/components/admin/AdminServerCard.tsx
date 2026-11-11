@@ -10,6 +10,7 @@ interface AdminServerCardProps {
   healthPending: boolean;
   onEdit: (server: AdminServer) => void;
   onDeploy: (server: AdminServer) => void;
+  onPromote: (server: AdminServer) => void;
   onDelete: (server: AdminServer) => void;
   onToggleEnabled: (server: AdminServer) => void;
   onToggleFallback: (server: AdminServer) => void;
@@ -26,6 +27,7 @@ export function AdminServerCard({
   healthPending,
   onEdit,
   onDeploy,
+  onPromote,
   onDelete,
   onToggleEnabled,
   onToggleFallback,
@@ -127,9 +129,22 @@ export function AdminServerCard({
           <Icon name="download" size={15} />
           Развернуть
         </button>
-        <button type="button" className="btn btn--outline btn--sm" onClick={() => onEdit(server)}>
+        <button
+          type="button"
+          className="btn btn--outline btn--sm"
+          onClick={() => onEdit(server)}
+        >
           <Icon name="edit" size={15} />
           Изменить
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() => onPromote(server)}
+          title="Скопировать последнюю реплику БД в рабочие файлы и перезапустить сервисы"
+        >
+          <Icon name="refresh" size={15} />
+          Восстановить
         </button>
         <button
           type="button"

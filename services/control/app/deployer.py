@@ -285,7 +285,7 @@ fi
             f"REPLICA_DIR={root}/data/replica",
             f"REPLICA_DATA_ROOT={root}/data",
             f"REGISTRY_URL={self.settings.public_api_url.rstrip('/')}/api/v1/registry",
-            f"REPLICA_SELF_URL=http://{public_host}:8108",
+            f"REPLICA_SELF_URL=http://{'127.0.0.1' if server.bind_host in {'127.0.0.1', 'localhost'} else public_host}:8108",
             "REPLICA_SYNC_SECONDS=10",
             f"EXPORT_DIR={root}/data/exports",
             "EXPORT_TTL_HOURS=48",

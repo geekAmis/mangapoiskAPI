@@ -141,6 +141,8 @@ export interface AdminRegistryEndpoint {
   url: string;
   healthy: boolean;
   is_fallback: boolean;
+  priority?: number;
+  is_jump?: boolean;
   checked_at: string | null;
   last_error: string | null;
 }
@@ -312,6 +314,17 @@ export const adminApi = {
 
   getServerHealth: (id: string, signal?: AbortSignal) =>
     adminRequest<AdminServerHealth>(`/servers/${encodeURIComponent(id)}/health`, { signal }),
+
+  promoteReplica: (id: string) =>
+    adminRequest<{ ok: boolean; log: string }>(`/servers/${encodeURIComponent(id)}/replica/promote`, {
+      method: 'POST',
+    }),
+
+  bootstrapReplica: (id: string, sourceServerId: string) =>
+    adminRequest<{ ok: boolean; log: string }>(`/servers/${encodeURIComponent(id)}/replica/bootstrap`, {
+      method: 'POST',
+      body: { source_server_id: sourceServerId },
+    }),
 
   getRegistry: (signal?: AbortSignal) => adminRequest<AdminRegistry>('/registry', { signal }),
 
