@@ -168,10 +168,30 @@ class Deployer:
             f'"$ROOT/venv/bin/pip" install -r "$ROOT/src/services/{code}/requirements.txt"'
             for code, _ in services
         )
-        enable = "\n".join(
-            f'systemctl enable --now "mangapoisk-{code}.service"; systemctl restart "mangapoisk-{code}.service"'
-            for code, _ in services
-        )
+        enable_lines: list[str] = []
+        for code, _ in services:
+            if code == "control":
+                # Restarting control from inside its own deploy job kills the job
+                # runner before it can persist the result.  Enable it now and
+                # schedule the restart after the job has been recorded.
+                enable_lines.append('systemctl enable "mangapoisk-control.service"')
+            else:
+                enable_lines.append(
+                    f'systemctl enable --now "mangapoisk-{code}.service"; '
+                    f'systemctl restart "mangapoisk-{code}.service"'
+                )
+        enable = "\n".join(enable_lines)
+        deferred = ""
+        if any(code == "control" for code, _ in services):
+            deferred = """
+echo "== control restart =="
+if command -v systemd-run >/dev/null 2>&1; then
+  systemd-run --quiet --on-active=5 --unit="mangapoisk-control-restart-$RANDOM" \
+    systemctl restart mangapoisk-control.service
+else
+  (sleep 5; systemctl restart mangapoisk-control.service) >/dev/null 2>&1 &
+fi
+"""
         health_checks = "\n".join(
             self._health_block(code, port) for code, port in services if code in HTTP_SERVICE_CODES
         )
@@ -186,6 +206,7 @@ class Deployer:
             "@@INSTALLS@@": installs,
             "@@ENABLE@@": enable,
             "@@HEALTH@@": health_checks,
+            "@@AFTER@@": deferred,
         }
         for key, value in replacements.items():
             script = script.replace(key, value)
@@ -326,5 +347,7 @@ systemctl daemon-reload
 
 echo "== health =="
 @@HEALTH@@
+
+@@AFTER@@
 echo "DEPLOY_OK"
 """
