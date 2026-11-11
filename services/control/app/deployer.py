@@ -368,13 +368,31 @@ chown root:"$USER_NAME" "$ROOT/.env" || true
 
 echo "== venv =="
 if [ ! -x "$ROOT/venv/bin/python" ]; then
-  python3 -m venv "$ROOT/venv"
+  if ! python3 -m venv "$ROOT/venv" 2>/tmp/mangapoisk-venv.err; then
+    cat /tmp/mangapoisk-venv.err
+    if command -v apt-get >/dev/null 2>&1; then
+      echo "Installing python3-venv…"
+      apt-get update -qq && apt-get install -y -qq python3-venv python3-pip
+      python3 -m venv "$ROOT/venv"
+    else
+      echo "python3 -m venv failed and apt-get is unavailable"
+      exit 1
+    fi
+  fi
 fi
 if [ ! -x "$ROOT/venv/bin/pip" ]; then
-  "$ROOT/venv/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || {
-    echo "Python venv without pip. Install python3-venv (or python3-pip) and retry."
-    exit 1
-  }
+  "$ROOT/venv/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || true
+fi
+if [ ! -x "$ROOT/venv/bin/pip" ]; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq python3-venv python3-pip
+    python3 -m venv --upgrade "$ROOT/venv" 2>/dev/null || python3 -m venv "$ROOT/venv"
+    "$ROOT/venv/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  fi
+fi
+if [ ! -x "$ROOT/venv/bin/pip" ]; then
+  echo "Python venv without pip. Install python3-venv (or python3-pip) and retry."
+  exit 1
 fi
 "$ROOT/venv/bin/pip" install --upgrade pip >/dev/null
 "$ROOT/venv/bin/pip" install -e "$ROOT/src/packages/manga_common"
