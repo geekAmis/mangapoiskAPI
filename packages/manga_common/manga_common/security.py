@@ -1,16 +1,31 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .auth import decode_access_token
+from .auth import constant_time_compare, decode_access_token
 from .config import Settings, get_settings
 from .errors import ForbiddenError, UnauthorizedError
 
 _bearer = HTTPBearer(auto_error=False)
+
+
+def admin_auth_version(settings: Settings) -> str:
+    """Fingerprint of the current admin credentials.
+
+    Admin JWTs carry it in the ``av`` claim.  Rotating ADMIN_USERNAME or
+    ADMIN_PASSWORD changes the fingerprint, so tokens issued under the old
+    credentials stop working immediately (instead of living until ``exp``).
+    HMAC keeps the value non-reversible without the JWT secret.
+    """
+
+    message = f"{settings.admin_username}\0{settings.admin_password}".encode()
+    return hmac.new(settings.jwt_secret.encode(), message, hashlib.sha256).hexdigest()[:16]
 
 
 @dataclass(slots=True)
@@ -46,9 +61,17 @@ async def optional_user(
         return None
 
 
-async def require_admin(user: Annotated[UserClaims, Depends(require_user)]) -> UserClaims:
+async def require_admin(
+    user: Annotated[UserClaims, Depends(require_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> UserClaims:
     if user.role not in {"admin", "owner"}:
         raise ForbiddenError("Administrator access required", code="admin_required")
+    if not constant_time_compare(str(user.raw.get("av", "")), admin_auth_version(settings)):
+        raise UnauthorizedError(
+            "Сессия администратора устарела. Войдите заново.",
+            code="admin_session_expired",
+        )
     return user
 
 

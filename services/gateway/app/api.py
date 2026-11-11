@@ -37,7 +37,7 @@ from manga_common.schemas import (
     TokenPair,
     UserOut,
 )
-from manga_common.security import UserClaims, require_admin, require_user
+from manga_common.security import UserClaims, admin_auth_version, require_admin, require_user
 from manga_common.source_models import MangaSummary, SourceSearchResult
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
@@ -802,7 +802,7 @@ async def admin_login(request: Request, payload: AdminLoginRequest) -> AdminToke
         settings,
         subject="admin",
         role="admin",
-        extra={"username": payload.username},
+        extra={"username": payload.username, "av": admin_auth_version(settings)},
         expires_minutes=settings.admin_token_minutes,
     )
     return AdminToken(
