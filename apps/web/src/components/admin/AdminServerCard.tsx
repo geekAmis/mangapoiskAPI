@@ -2,6 +2,7 @@ import type { AdminServer } from '../../api/admin';
 import { ADMIN_SERVICES, healthErrorText } from '../../api/admin';
 import { formatRelative } from '../../lib/format';
 import { Icon } from '../Icon';
+import { DancingSpinner } from '../DancingLoader';
 
 interface AdminServerCardProps {
   server: AdminServer;
@@ -114,7 +115,17 @@ export function AdminServerCard({
       </div>
 
       <div className="admin-server-card__actions">
-        <button type="button" className="btn btn--primary btn--sm" onClick={() => onDeploy(server)}>
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          onClick={() => onDeploy(server)}
+          disabled={server.is_jump}
+          title={
+            server.is_jump
+              ? 'Jump-сервер используется только для SSH-доступа и не запускает микросервисы'
+              : 'Установить выбранные сервисы через SSH'
+          }
+        >
           <Icon name="download" size={15} />
           Развернуть
         </button>
@@ -129,7 +140,7 @@ export function AdminServerCard({
           disabled={healthPending}
           title="Запросить health-check"
         >
-          <Icon name="shield" size={15} className={healthPending ? 'spin' : undefined} />
+          {healthPending ? <DancingSpinner size={15} /> : <Icon name="shield" size={15} />}
           Проверить
         </button>
         <button

@@ -370,6 +370,12 @@ echo "== venv =="
 if [ ! -x "$ROOT/venv/bin/python" ]; then
   python3 -m venv "$ROOT/venv"
 fi
+if [ ! -x "$ROOT/venv/bin/pip" ]; then
+  "$ROOT/venv/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || {
+    echo "Python venv without pip. Install python3-venv (or python3-pip) and retry."
+    exit 1
+  }
+fi
 "$ROOT/venv/bin/pip" install --upgrade pip >/dev/null
 "$ROOT/venv/bin/pip" install -e "$ROOT/src/packages/manga_common"
 @@INSTALLS@@
