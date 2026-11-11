@@ -1,0 +1,17 @@
+# Parser service runtime dependencies.
+#
+# The shared monorepo package is installed explicitly:
+#   pip install -e packages/manga_common    # from the repository root
+# The Dockerfile runs:
+#   pip install /app/packages/manga_common
+# Keeping that out of this file makes `pip install -r` work from any directory.
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+httpx>=0.28,<1
+pydantic>=2.9,<3
+pydantic-settings>=2.6,<3
+beautifulsoup4>=4.12,<5
+lxml>=5.3,<7
+redis>=5.2,<6
+orjson>=3.10,<4

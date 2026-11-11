@@ -1,0 +1,228 @@
+{
+  "meta": {
+    "is_subscribed_cards": false,
+    "can_upload_chapters": false,
+    "can_update": false,
+    "can_pin_comment": false,
+    "promo_offer": null,
+    "admin_link": null,
+    "is_forbidden_by_country": false
+  },
+  "id": 10106,
+  "secondary_name": "Overgeared (Пак Сэналь)",
+  "main_name": "Во всеоружии",
+  "another_name": "템빨 / 装备我最强 / テムパル〜アイテムの力〜 / Во всеоружии: Сила артефактов",
+  "type": {
+    "id": 2,
+    "name": "Манхва"
+  },
+  "age_limit": {
+    "id": 1,
+    "name": "16+"
+  },
+  "status": {
+    "id": 6,
+    "name": "Лицензировано"
+  },
+  "translate_status": {
+    "id": 2,
+    "name": "Продолжается"
+  },
+  "dir": "overgeared--",
+  "description": "<p>Добро пожаловать в лучшую в мире игру виртуальной реальности SATISFY. Игра настолько реалистична, что люди даже стали называть ее «вторым миром». Здесь «живет и Грид» – неудачник по жизни, тратящий все деньги на игры и забивший на социализацию. Однажды в рамках задания он находит легендарный артефакт, продав который мог бы закрыть все свои долги и распрощаться с жизнью затворника. Только изначальный квест вдруг сменяется на новый, а из игры выйти не получается…</p>",
+  "issue_year": 2020,
+  "avg_rating": "8.8",
+  "cover": {
+    "low": "/media/titles/overgeared--/cover_90b509a1f4a04d06.webp",
+    "mid": "/media/titles/overgeared--/cover_cb03dd26a8654ee7.webp",
+    "high": "/media/titles/overgeared--/cover_a60be800bb454e60.webp"
+  },
+  "wallpaper": {},
+  "creators": [],
+  "genres": [
+    {
+      "id": 2,
+      "name": "Экшен",
+      "dir": "ekshen"
+    },
+    {
+      "id": 16,
+      "name": "Элементы юмора",
+      "dir": "elementjumora"
+    },
+    {
+      "id": 21,
+      "name": "Повседневность",
+      "dir": "povsednevnost"
+    },
+    {
+      "id": 23,
+      "name": "Приключения",
+      "dir": "prikljuchenija"
+    },
+    {
+      "id": 30,
+      "name": "Сёнэн",
+      "dir": "senen"
+    },
+    {
+      "id": 38,
+      "name": "Фэнтези",
+      "dir": "fentezi"
+    },
+    {
+      "id": 50,
+      "name": "Комедия",
+      "dir": "komedija"
+    }
+  ],
+  "categories": [
+    {
+      "id": 5,
+      "name": "Веб",
+      "dir": "veb"
+    },
+    {
+      "id": 6,
+      "name": "В цвете",
+      "dir": "vtsvete"
+    },
+    {
+      "id": 25,
+      "name": "Средневековье",
+      "dir": "srednevekove"
+    },
+    {
+      "id": 52,
+      "name": "Артефакты",
+      "dir": "artefakt"
+    },
+    {
+      "id": 61,
+      "name": "Геймеры",
+      "dir": "geimer"
+    },
+    {
+      "id": 62,
+      "name": "Гильдии",
+      "dir": "gildii"
+    },
+    {
+      "id": 64,
+      "name": "ГГ мужчина",
+      "dir": "ggmuzhchina"
+    },
+    {
+      "id": 109,
+      "name": "Тупой ГГ",
+      "dir": "tupoigg"
+    }
+  ],
+  "is_licensed": true,
+  "uploaded": 1,
+  "can_post_comments": false,
+  "is_yaoi": false,
+  "is_erotic": false,
+  "has_voiceover": false,
+  "new_season_date": null,
+  "kodik_imdb_id": "",
+  "total_votes": 1768035,
+  "total_views": 9854654,
+  "count_rating": 7257,
+  "count_bookmarks": 99597,
+  "count_comments": 13342,
+  "count_cards": 76,
+  "count_characters": 14,
+  "count_posts": 0,
+  "count_chapters": 313,
+  "count_collections": 6,
+  "count_moments": 9,
+  "fresh_rating": "5.87",
+  "first_chapter": {
+    "id": 301795,
+    "tome": 1,
+    "chapter": "0"
+  },
+  "bookmark_type": null,
+  "branches": [
+    {
+      "id": 9902,
+      "img": {},
+      "subscribed": false,
+      "total_votes": 1771142,
+      "count_chapters": 313,
+      "publishers": [
+        {
+          "id": 15406,
+          "name": "Litres MS",
+          "cover": {},
+          "dir": "litres-ms",
+          "tagline": "",
+          "type": {
+            "id": 2,
+            "name": "Издатель"
+          }
+        }
+      ],
+      "new_chapter_date": null
+    }
+  ],
+  "continue_reading": null,
+  "current_reading": null,
+  "start_reading": {
+    "id": 301795,
+    "tome": 1,
+    "chapter": "0"
+  },
+  "adaptation": null,
+  "has_anime": false,
+  "note": "",
+  "stats": {
+    "bookmarks": [
+      {
+        "name": "Отложено",
+        "count": 6405
+      },
+      {
+        "name": "Читаю",
+        "count": 62773
+      },
+      {
+        "name": "Не интересно",
+        "count": 2378
+      },
+      {
+        "name": "Буду читать",
+        "count": 16601
+      },
+      {
+        "name": "Брошено",
+        "count": 5502
+      },
+      {
+        "name": "Любимое",
+        "count": 416
+      },
+      {
+        "name": "Прочитано",
+        "count": 3275
+      },
+      {
+        "name": "Другое",
+        "count": 2243
+      }
+    ],
+    "ratings": {
+      "1": 355,
+      "2": 39,
+      "3": 88,
+      "4": 72,
+      "5": 91,
+      "6": 117,
+      "7": 270,
+      "8": 464,
+      "9": 1284,
+      "10": 4477
+    }
+  }
+}

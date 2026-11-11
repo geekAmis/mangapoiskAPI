@@ -1,0 +1,840 @@
+{
+  "data": [
+    {
+      "id": 192778,
+      "index": 1,
+      "item_number": 1,
+      "volume": "1",
+      "number": "1",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 192778,
+          "branch_id": null,
+          "created_at": "2018-10-04T16:28:19.000000Z",
+          "teams": [
+            {
+              "id": 2229,
+              "slug": "hexe",
+              "slug_url": "2229--hexe",
+              "model": "team",
+              "name": "﻿Hexe",
+              "cover": {
+                "filename": null,
+                "thumbnail": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
+                "default": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
+                "md": "https://cover.imglib.info/static/images/placeholders/user_avatar.png"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Dart-Vaider",
+            "id": 36228
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 204124,
+      "index": 2,
+      "item_number": 2,
+      "volume": "1",
+      "number": "2",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 204124,
+          "branch_id": null,
+          "created_at": "2018-10-28T17:05:47.000000Z",
+          "teams": [
+            {
+              "id": 2229,
+              "slug": "hexe",
+              "slug_url": "2229--hexe",
+              "model": "team",
+              "name": "﻿Hexe",
+              "cover": {
+                "filename": null,
+                "thumbnail": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
+                "default": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
+                "md": "https://cover.imglib.info/static/images/placeholders/user_avatar.png"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Dart-Vaider",
+            "id": 36228
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 251314,
+      "index": 3,
+      "item_number": 3,
+      "volume": "1",
+      "number": "3",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 251314,
+          "branch_id": null,
+          "created_at": "2019-02-21T10:57:20.000000Z",
+          "teams": [
+            {
+              "id": 2229,
+              "slug": "hexe",
+              "slug_url": "2229--hexe",
+              "model": "team",
+              "name": "﻿Hexe",
+              "cover": {
+                "filename": null,
+                "thumbnail": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
+                "default": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
+                "md": "https://cover.imglib.info/static/images/placeholders/user_avatar.png"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Курлык Курлык",
+            "id": 30462
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 259519,
+      "index": 4,
+      "item_number": 4,
+      "volume": "1",
+      "number": "4",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 259519,
+          "branch_id": null,
+          "created_at": "2019-03-13T06:57:17.000000Z",
+          "teams": [
+            {
+              "id": 1520,
+              "slug": "niubi",
+              "slug_url": "1520--niubi",
+              "model": "team",
+              "name": "Ньюби",
+              "cover": {
+                "filename": "tIy3Y8FLlziP",
+                "thumbnail": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Badimm🐕🐕",
+            "id": 146191
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 265917,
+      "index": 5,
+      "item_number": 5,
+      "volume": "1",
+      "number": "5",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 265917,
+          "branch_id": null,
+          "created_at": "2019-04-01T12:04:05.000000Z",
+          "teams": [
+            {
+              "id": 1520,
+              "slug": "niubi",
+              "slug_url": "1520--niubi",
+              "model": "team",
+              "name": "Ньюби",
+              "cover": {
+                "filename": "tIy3Y8FLlziP",
+                "thumbnail": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "haglpaf-veneno",
+            "id": 75449
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 285702,
+      "index": 6,
+      "item_number": 6,
+      "volume": "1",
+      "number": "6",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 285702,
+          "branch_id": null,
+          "created_at": "2019-05-22T16:15:16.000000Z",
+          "teams": [
+            {
+              "id": 1520,
+              "slug": "niubi",
+              "slug_url": "1520--niubi",
+              "model": "team",
+              "name": "Ньюби",
+              "cover": {
+                "filename": "tIy3Y8FLlziP",
+                "thumbnail": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Delirium",
+            "id": 225179
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 302276,
+      "index": 7,
+      "item_number": 7,
+      "volume": "1",
+      "number": "7",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 302276,
+          "branch_id": null,
+          "created_at": "2019-07-13T12:35:46.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Artica",
+            "id": 70978
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 307464,
+      "index": 8,
+      "item_number": 8,
+      "volume": "1",
+      "number": "8",
+      "number_secondary": "1",
+      "name": null,
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 307464,
+          "branch_id": null,
+          "created_at": "2019-07-24T12:26:42.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Crushemon 🍒",
+            "id": 147116
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 310692,
+      "index": 9,
+      "item_number": 9,
+      "volume": "1",
+      "number": "9",
+      "number_secondary": "1",
+      "name": null,
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 310692,
+          "branch_id": null,
+          "created_at": "2019-08-01T08:51:40.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Artica",
+            "id": 70978
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 319450,
+      "index": 10,
+      "item_number": 10,
+      "volume": "1",
+      "number": "10",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 319450,
+          "branch_id": null,
+          "created_at": "2019-08-14T08:32:57.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Artica",
+            "id": 70978
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 361197,
+      "index": 11,
+      "item_number": 11,
+      "volume": "1",
+      "number": "11",
+      "number_secondary": "1",
+      "name": null,
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 361197,
+          "branch_id": null,
+          "created_at": "2019-09-23T11:14:24.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Artica",
+            "id": 70978
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 371189,
+      "index": 12,
+      "item_number": 12,
+      "volume": "1",
+      "number": "12",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 371189,
+          "branch_id": null,
+          "created_at": "2019-10-05T13:49:24.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "«Фиксатор Очепяток»",
+            "id": 335527
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 415846,
+      "index": 13,
+      "item_number": 13,
+      "volume": "1",
+      "number": "13",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 415846,
+          "branch_id": null,
+          "created_at": "2019-11-23T19:15:47.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "«Фиксатор Очепяток»",
+            "id": 335527
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 417953,
+      "index": 14,
+      "item_number": 14,
+      "volume": "1",
+      "number": "14",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 417953,
+          "branch_id": null,
+          "created_at": "2019-11-26T04:49:37.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "«Фиксатор Очепяток»",
+            "id": 335527
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 418992,
+      "index": 15,
+      "item_number": 15,
+      "volume": "1",
+      "number": "15",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 418992,
+          "branch_id": null,
+          "created_at": "2019-11-27T05:36:39.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "«Фиксатор Очепяток»",
+            "id": 335527
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 420601,
+      "index": 16,
+      "item_number": 16,
+      "volume": "1",
+      "number": "16",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 420601,
+          "branch_id": null,
+          "created_at": "2019-11-29T10:41:13.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "«Фиксатор Очепяток»",
+            "id": 335527
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 435262,
+      "index": 17,
+      "item_number": 17,
+      "volume": "1",
+      "number": "17",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 435262,
+          "branch_id": null,
+          "created_at": "2019-12-20T04:40:26.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "daniel2",
+            "id": 90340
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 435263,
+      "index": 18,
+      "item_number": 18,
+      "volume": "1",
+      "number": "18",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 435263,
+          "branch_id": null,
+          "created_at": "2019-12-20T04:41:44.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "daniel2",
+            "id": 90340
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 435264,
+      "index": 19,
+      "item_number": 19,
+      "volume": "1",
+      "number": "19",
+      "number_secondary": "1",
+      "name": "",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 435264,
+          "branch_id": null,
+          "created_at": "2019-12-20T04:43:06.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "daniel2",
+            "id": 90340
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 490261,
+      "index": 20,
+      "item_number": 20,
+      "volume": "1",
+      "number": "20",
+      "number_secondary": "1",
+      "name": null,
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 490261,
+          "branch_id": null,
+          "created_at": "2020-02-13T06:23:44.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Artica",
+            "id": 70978
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 490262,
+      "index": 21,
+      "item_number": 21,
+      "volume": "1",
+      "number": "21",
+      "number_secondary": "1",
+      "name": null,
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 490262,
+          "branch_id": null,
+          "created_at": "2020-02-13T06:23:55.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Artica",
+            "id": 70978
+          }
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 490263,
+      "index": 22,
+      "item_number": 22,
+      "volume": "1",
+      "number": "22",
+      "number_secondary": "1",
+      "name": null,
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 490263,
+          "branch_id": null,
+          "created_at": "2020-02-13T06:24:09.000000Z",
+          "teams": [
+            {
+              "id": 2128,
+              "slug": "artika",
+              "slug_url": "2128--artika",
+              "model": "team",
+              "name": "ArticaProject",
+              "cover": {
+                "filename": "sskyj8sEFYza",
+                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+              }
+            }
+          ],
+          "expired_type": 0,
+          "user": {
+            "username": "Artica",
+            "id": 70978
+          }
+        }
+      ],
+      "bundle_id": null
+    }
+  ]
+}

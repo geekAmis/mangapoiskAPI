@@ -1,0 +1,58 @@
+{
+  "component": "Chapter/Show",
+  "props": {
+    "chapter": {
+      "data": {
+        "id": 1105896,
+        "link": "/manga/overgeared-abs3nSd/chapter/1-312",
+        "name": "",
+        "volume": "1",
+        "number": "312",
+        "extra": false,
+        "ago": "1 месяц назад",
+        "formattedDate": "25 сентября 2026",
+        "recent": false,
+        "title": "312 Том 1",
+        "pages": [],
+        "comments_count": 0,
+        "is_horizontal": false,
+        "auto_is_horizontal": false,
+        "needsWebpPolyfill": false,
+        "indexes_to_display_ads": [],
+        "upcoming": false,
+        "upcoming_date": "25 сентября"
+      }
+    },
+    "manga": {
+      "data": {
+        "id": 6788,
+        "name": "Во всеоружии (перезапуск)",
+        "slug": "overgeared-abs3nSd",
+        "link": "/manga/overgeared-abs3nSd",
+        "title": "Во всеоружии (перезапуск)",
+        "new": null,
+        "adult": 0,
+        "abuse": false,
+        "upcoming_text": "",
+        "upcomingChapter": {
+          "id": 1105896,
+          "link": "/manga/overgeared-abs3nSd/chapter/1-313",
+          "name": "",
+          "volume": "1",
+          "number": 313,
+          "extra": false,
+          "ago": "1 месяц назад",
+          "formattedDate": "25 сентября 2026",
+          "recent": false,
+          "title": "313 Том 1"
+        },
+        "is_regular": true,
+        "is_external_link": false
+      }
+    }
+  },
+  "url": "/manga/overgeared-abs3nSd/chapter/1-312",
+  "version": "86bb586fd1ab563788fc8a932d42d5e4",
+  "clearHistory": false,
+  "encryptHistory": false
+}

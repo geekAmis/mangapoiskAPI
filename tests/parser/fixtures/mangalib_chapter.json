@@ -1,0 +1,166 @@
+{
+  "data": {
+    "id": 490263,
+    "model": "chapter",
+    "volume": "1",
+    "number": "22",
+    "number_secondary": "1",
+    "name": null,
+    "slug": "490263",
+    "branch_id": null,
+    "manga_id": 6844,
+    "created_at": "2020-02-13T06:24:09.000000Z",
+    "expired_at": null,
+    "moderated": {
+      "id": 1,
+      "label": "Принято модерацией"
+    },
+    "likes_count": 473,
+    "is_liked": false,
+    "is_viewed": false,
+    "is_viewed_last_at": null,
+    "expired_type": 0,
+    "teams": [
+      {
+        "id": 2128,
+        "slug": "artika",
+        "slug_url": "2128--artika",
+        "model": "team",
+        "name": "ArticaProject",
+        "cover": {
+          "filename": "sskyj8sEFYza",
+          "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
+          "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
+          "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
+        },
+        "vk": "https://vk.com/articaproject",
+        "discord": null,
+        "donate_enabled": false,
+        "open_chapter_with_content_key_enabled": true
+      }
+    ],
+    "bundle_id": null,
+    "bundle": null,
+    "publish_at": null,
+    "translation_quality_rating": {
+      "average": "7",
+      "averageFormated": "7",
+      "votes": 1,
+      "rated_chapters": 1,
+      "can_rate": true,
+      "categories": {
+        "translation_accuracy": "10",
+        "readability_adaptation": "10",
+        "editing_formatting": "10"
+      },
+      "user": {
+        "average": "0",
+        "averageFormated": "0",
+        "translation_accuracy": 0,
+        "readability_adaptation": 0,
+        "editing_formatting": 0
+      }
+    },
+    "type": "chapter",
+    "pages": [
+      {
+        "id": 7278479,
+        "image": "001_F4tO.png",
+        "slug": 1,
+        "external": 0,
+        "chunks": 0,
+        "chapter_id": 490263,
+        "created_at": "2020-02-13T06:24:10.000000Z",
+        "updated_at": "2024-03-13T19:44:20.000000Z",
+        "height": 7686,
+        "width": 720,
+        "url": "//manga/temppal/chapters/490263/001_F4tO.png",
+        "ratio": "0.0937"
+      },
+      {
+        "id": 7278480,
+        "image": "002_vMvc.png",
+        "slug": 2,
+        "external": 0,
+        "chunks": 0,
+        "chapter_id": 490263,
+        "created_at": "2020-02-13T06:24:10.000000Z",
+        "updated_at": "2024-03-13T19:44:20.000000Z",
+        "height": 4392,
+        "width": 720,
+        "url": "//manga/temppal/chapters/490263/002_vMvc.png",
+        "ratio": "0.1639"
+      },
+      {
+        "id": 7278481,
+        "image": "003_V50o.png",
+        "slug": 3,
+        "external": 0,
+        "chunks": 0,
+        "chapter_id": 490263,
+        "created_at": "2020-02-13T06:24:10.000000Z",
+        "updated_at": "2024-03-13T19:44:20.000000Z",
+        "height": 12078,
+        "width": 720,
+        "url": "//manga/temppal/chapters/490263/003_V50o.png",
+        "ratio": "0.0596"
+      },
+      {
+        "id": 7278482,
+        "image": "004_0sSN.png",
+        "slug": 4,
+        "external": 0,
+        "chunks": 0,
+        "chapter_id": 490263,
+        "created_at": "2020-02-13T06:24:10.000000Z",
+        "updated_at": "2024-03-13T19:44:20.000000Z",
+        "height": 13176,
+        "width": 720,
+        "url": "//manga/temppal/chapters/490263/004_0sSN.png",
+        "ratio": "0.0546"
+      },
+      {
+        "id": 7278483,
+        "image": "005_eS5H.png",
+        "slug": 5,
+        "external": 0,
+        "chunks": 0,
+        "chapter_id": 490263,
+        "created_at": "2020-02-13T06:24:10.000000Z",
+        "updated_at": "2024-03-13T19:44:20.000000Z",
+        "height": 7686,
+        "width": 720,
+        "url": "//manga/temppal/chapters/490263/005_eS5H.png",
+        "ratio": "0.0937"
+      },
+      {
+        "id": 7278484,
+        "image": "006_ANa5.png",
+        "slug": 6,
+        "external": 0,
+        "chunks": 0,
+        "chapter_id": 490263,
+        "created_at": "2020-02-13T06:24:10.000000Z",
+        "updated_at": "2024-03-13T19:44:20.000000Z",
+        "height": 7686,
+        "width": 720,
+        "url": "//manga/temppal/chapters/490263/006_ANa5.png",
+        "ratio": "0.0937"
+      },
+      {
+        "id": 7278485,
+        "image": "007_F38U.png",
+        "slug": 7,
+        "external": 0,
+        "chunks": 0,
+        "chapter_id": 490263,
+        "created_at": "2020-02-13T06:24:10.000000Z",
+        "updated_at": "2024-03-13T19:44:20.000000Z",
+        "height": 8294,
+        "width": 720,
+        "url": "//manga/temppal/chapters/490263/007_F38U.png",
+        "ratio": "0.0868"
+      }
+    ]
+  }
+}
