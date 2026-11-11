@@ -33,6 +33,7 @@ jobs:
           pip install -r services/gateway/requirements.txt
           pip install -r services/scheduler/requirements.txt
           pip install -r services/notifier/requirements.txt
+          pip install -r services/replica/requirements.txt
           pip install pytest pytest-asyncio pytest-cov respx ruff
       - name: Lint
         run: ruff check .

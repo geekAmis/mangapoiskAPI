@@ -22,6 +22,7 @@ install:
 	.venv/bin/pip install -r services/gateway/requirements.txt
 	.venv/bin/pip install -r services/scheduler/requirements.txt
 	.venv/bin/pip install -r services/notifier/requirements.txt
+.venv/bin/pip install -r services/replica/requirements.txt
 	.venv/bin/pip install pytest pytest-asyncio pytest-cov respx ruff
 
 test:

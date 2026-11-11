@@ -285,7 +285,7 @@ fi
             f"REPLICA_DIR={root}/data/replica",
             f"REPLICA_DATA_ROOT={root}/data",
             f"REGISTRY_URL={self.settings.public_api_url.rstrip('/')}/api/v1/registry",
-            f"REPLICA_SELF_URL=http://{'127.0.0.1' if server.bind_host in {'127.0.0.1', 'localhost'} else public_host}:8108",
+            f"REPLICA_SELF_URL=http://{public_host}:8108",
             "REPLICA_SYNC_SECONDS=10",
             f"EXPORT_DIR={root}/data/exports",
             "EXPORT_TTL_HOURS=48",
@@ -312,7 +312,8 @@ fi
         if code == "scheduler":
             command = f"{python} -m app.main"
         else:
-            command = f"{root}/venv/bin/uvicorn app.main:app --host {bind_host} --port {port} --proxy-headers"
+            listen_host = "0.0.0.0" if code == "replica" else bind_host
+            command = f"{root}/venv/bin/uvicorn app.main:app --host {listen_host} --port {port} --proxy-headers"
         return f"""
 cat > /etc/systemd/system/mangapoisk-{code}.service <<'UNITEOF'
 [Unit]
