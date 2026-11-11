@@ -28,6 +28,20 @@ DEFAULT_PORTS = {
 }
 
 
+def merge_deployed_services(
+    existing: list[tuple[str, int]], deployed: list[tuple[str, int]]
+) -> list[tuple[str, int]]:
+    """Keep the inventory of services that were not part of this deploy.
+
+    A partial deploy (e.g. only gateway) must not erase parser/catalog/library
+    from the server card or from the gateway registry.
+    """
+
+    merged = dict(existing)
+    merged.update(dict(deployed))
+    return list(merged.items())
+
+
 class Deployer:
     def __init__(
         self,
@@ -160,10 +174,13 @@ class Deployer:
                     job.error = f"Скрипт завершился с кодом {code}"
                 else:
                     job.status = "done"
+                    inventory = merge_deployed_services(
+                        [(item.code, item.port) for item in server.services], services
+                    )
                     await update_server(
                         session,
                         server,
-                        {"services": services},
+                        {"services": inventory},
                     )
                     await audit(
                         session,
