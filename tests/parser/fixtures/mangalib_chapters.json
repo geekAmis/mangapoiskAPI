@@ -14,26 +14,7 @@
           "id": 192778,
           "branch_id": null,
           "created_at": "2018-10-04T16:28:19.000000Z",
-          "teams": [
-            {
-              "id": 2229,
-              "slug": "hexe",
-              "slug_url": "2229--hexe",
-              "model": "team",
-              "name": "﻿Hexe",
-              "cover": {
-                "filename": null,
-                "thumbnail": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
-                "default": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
-                "md": "https://cover.imglib.info/static/images/placeholders/user_avatar.png"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Dart-Vaider",
-            "id": 36228
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -52,26 +33,7 @@
           "id": 204124,
           "branch_id": null,
           "created_at": "2018-10-28T17:05:47.000000Z",
-          "teams": [
-            {
-              "id": 2229,
-              "slug": "hexe",
-              "slug_url": "2229--hexe",
-              "model": "team",
-              "name": "﻿Hexe",
-              "cover": {
-                "filename": null,
-                "thumbnail": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
-                "default": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
-                "md": "https://cover.imglib.info/static/images/placeholders/user_avatar.png"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Dart-Vaider",
-            "id": 36228
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -90,26 +52,7 @@
           "id": 251314,
           "branch_id": null,
           "created_at": "2019-02-21T10:57:20.000000Z",
-          "teams": [
-            {
-              "id": 2229,
-              "slug": "hexe",
-              "slug_url": "2229--hexe",
-              "model": "team",
-              "name": "﻿Hexe",
-              "cover": {
-                "filename": null,
-                "thumbnail": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
-                "default": "https://cover.imglib.info/static/images/placeholders/user_avatar.png",
-                "md": "https://cover.imglib.info/static/images/placeholders/user_avatar.png"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Курлык Курлык",
-            "id": 30462
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -128,26 +71,7 @@
           "id": 259519,
           "branch_id": null,
           "created_at": "2019-03-13T06:57:17.000000Z",
-          "teams": [
-            {
-              "id": 1520,
-              "slug": "niubi",
-              "slug_url": "1520--niubi",
-              "model": "team",
-              "name": "Ньюби",
-              "cover": {
-                "filename": "tIy3Y8FLlziP",
-                "thumbnail": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Badimm🐕🐕",
-            "id": 146191
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -166,26 +90,7 @@
           "id": 265917,
           "branch_id": null,
           "created_at": "2019-04-01T12:04:05.000000Z",
-          "teams": [
-            {
-              "id": 1520,
-              "slug": "niubi",
-              "slug_url": "1520--niubi",
-              "model": "team",
-              "name": "Ньюби",
-              "cover": {
-                "filename": "tIy3Y8FLlziP",
-                "thumbnail": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "haglpaf-veneno",
-            "id": 75449
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -204,26 +109,7 @@
           "id": 285702,
           "branch_id": null,
           "created_at": "2019-05-22T16:15:16.000000Z",
-          "teams": [
-            {
-              "id": 1520,
-              "slug": "niubi",
-              "slug_url": "1520--niubi",
-              "model": "team",
-              "name": "Ньюби",
-              "cover": {
-                "filename": "tIy3Y8FLlziP",
-                "thumbnail": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/niubi/cover/tIy3Y8FLlziP_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Delirium",
-            "id": 225179
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -242,26 +128,7 @@
           "id": 302276,
           "branch_id": null,
           "created_at": "2019-07-13T12:35:46.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Artica",
-            "id": 70978
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -280,26 +147,7 @@
           "id": 307464,
           "branch_id": null,
           "created_at": "2019-07-24T12:26:42.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Crushemon 🍒",
-            "id": 147116
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -318,26 +166,7 @@
           "id": 310692,
           "branch_id": null,
           "created_at": "2019-08-01T08:51:40.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Artica",
-            "id": 70978
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -356,26 +185,7 @@
           "id": 319450,
           "branch_id": null,
           "created_at": "2019-08-14T08:32:57.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Artica",
-            "id": 70978
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -394,26 +204,7 @@
           "id": 361197,
           "branch_id": null,
           "created_at": "2019-09-23T11:14:24.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Artica",
-            "id": 70978
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -432,26 +223,7 @@
           "id": 371189,
           "branch_id": null,
           "created_at": "2019-10-05T13:49:24.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "«Фиксатор Очепяток»",
-            "id": 335527
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -470,26 +242,7 @@
           "id": 415846,
           "branch_id": null,
           "created_at": "2019-11-23T19:15:47.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "«Фиксатор Очепяток»",
-            "id": 335527
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -508,26 +261,7 @@
           "id": 417953,
           "branch_id": null,
           "created_at": "2019-11-26T04:49:37.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "«Фиксатор Очепяток»",
-            "id": 335527
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -546,26 +280,7 @@
           "id": 418992,
           "branch_id": null,
           "created_at": "2019-11-27T05:36:39.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "«Фиксатор Очепяток»",
-            "id": 335527
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -584,26 +299,7 @@
           "id": 420601,
           "branch_id": null,
           "created_at": "2019-11-29T10:41:13.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "«Фиксатор Очепяток»",
-            "id": 335527
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -622,26 +318,7 @@
           "id": 435262,
           "branch_id": null,
           "created_at": "2019-12-20T04:40:26.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "daniel2",
-            "id": 90340
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -660,26 +337,7 @@
           "id": 435263,
           "branch_id": null,
           "created_at": "2019-12-20T04:41:44.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "daniel2",
-            "id": 90340
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -698,26 +356,7 @@
           "id": 435264,
           "branch_id": null,
           "created_at": "2019-12-20T04:43:06.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "daniel2",
-            "id": 90340
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -736,26 +375,7 @@
           "id": 490261,
           "branch_id": null,
           "created_at": "2020-02-13T06:23:44.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Artica",
-            "id": 70978
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -774,26 +394,7 @@
           "id": 490262,
           "branch_id": null,
           "created_at": "2020-02-13T06:23:55.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Artica",
-            "id": 70978
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null
@@ -812,26 +413,7 @@
           "id": 490263,
           "branch_id": null,
           "created_at": "2020-02-13T06:24:09.000000Z",
-          "teams": [
-            {
-              "id": 2128,
-              "slug": "artika",
-              "slug_url": "2128--artika",
-              "model": "team",
-              "name": "ArticaProject",
-              "cover": {
-                "filename": "sskyj8sEFYza",
-                "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-                "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-                "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-              }
-            }
-          ],
-          "expired_type": 0,
-          "user": {
-            "username": "Artica",
-            "id": 70978
-          }
+          "expired_type": 0
         }
       ],
       "bundle_id": null

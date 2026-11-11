@@ -25,6 +25,11 @@ Thumbs.db
 apps/web/dist/
 apps/web/.vite/
 apps/web/coverage/
+apps/mobile/www/
+apps/mobile/node_modules/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/android/app/build/
 apps/android/.gradle/
 apps/android/.kotlin/
 apps/android/local.properties

@@ -90,6 +90,12 @@ class MediaCache:
 
     async def get(self, url: str, *, referer: str | None = None) -> MediaFile:
         self._validate_url(url)
+        if referer is None:
+            from urllib.parse import urlparse
+
+            host = (urlparse(url).hostname or "").lower()
+            if host.endswith("cdnlibs.org") or host.endswith("imglib.info"):
+                referer = "https://mangalib.me/"
         base, meta_path, digest = self._base(url)
         cached = self._from_disk(base, meta_path, digest)
         if cached:

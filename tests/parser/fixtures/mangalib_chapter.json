@@ -11,56 +11,14 @@
     "manga_id": 6844,
     "created_at": "2020-02-13T06:24:09.000000Z",
     "expired_at": null,
-    "moderated": {
-      "id": 1,
-      "label": "Принято модерацией"
-    },
     "likes_count": 473,
     "is_liked": false,
     "is_viewed": false,
     "is_viewed_last_at": null,
     "expired_type": 0,
-    "teams": [
-      {
-        "id": 2128,
-        "slug": "artika",
-        "slug_url": "2128--artika",
-        "model": "team",
-        "name": "ArticaProject",
-        "cover": {
-          "filename": "sskyj8sEFYza",
-          "thumbnail": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_thumb.jpg",
-          "default": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg",
-          "md": "https://cover.imglib.info/uploads/team/artika/cover/sskyj8sEFYza_250x350.jpg"
-        },
-        "vk": "https://vk.com/articaproject",
-        "discord": null,
-        "donate_enabled": false,
-        "open_chapter_with_content_key_enabled": true
-      }
-    ],
     "bundle_id": null,
     "bundle": null,
     "publish_at": null,
-    "translation_quality_rating": {
-      "average": "7",
-      "averageFormated": "7",
-      "votes": 1,
-      "rated_chapters": 1,
-      "can_rate": true,
-      "categories": {
-        "translation_accuracy": "10",
-        "readability_adaptation": "10",
-        "editing_formatting": "10"
-      },
-      "user": {
-        "average": "0",
-        "averageFormated": "0",
-        "translation_accuracy": 0,
-        "readability_adaptation": 0,
-        "editing_formatting": 0
-      }
-    },
     "type": "chapter",
     "pages": [
       {

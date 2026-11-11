@@ -1,20 +1,24 @@
-﻿"""MangaLib adapter (api.lib.social).
+﻿"""MangaLib adapter (api.imglib.info, with api.lib.social as an alias).
 
-Search, catalogue, chapter lists and reader pages are verified against the
-public JSON API.  The documented manga detail endpoint returns 404, so a detail
-response is derived from a search hit and enriched with the chapter list.
+Search, catalogue, manga detail, chapter lists and reader pages are verified
+against the public JSON API.  The detail endpoint works when ``Site-Id: 1`` is
+sent; without that header it returns 404, so the adapter keeps a search-result
+fallback for resilience.
 
 Reader pages come from
 ``GET /api/manga/{slug_url}/chapter?volume={volume}&number={number}``.  The
 response contains protocol-relative image paths such as
-``//manga/{slug}/chapters/{chapter_id}/{image}``; they are normalised to
-``https://img2.imglib.info/...`` (``img3`` returns 403).
+``//manga/{slug}/chapters/{chapter_id}/{image}``.  Browser HARs show the
+``compress`` server at ``https://img3.cdnlibs.org``; the adapter normalises to
+that host.  ``img2.imglib.info`` is the ``main`` server but returns 403 unless a
+``Referer: https://mangalib.me/`` header accompanies the image request.
 """
 
 from __future__ import annotations
 
 import re
 from typing import Any, ClassVar
+from urllib.parse import urlparse
 
 from manga_common.errors import (
     NotFoundError,
@@ -49,9 +53,9 @@ from .parsing import (
     path_segments,
 )
 
-_API_BASE = "https://api.lib.social"
+_API_BASE = "https://api.imglib.info"
 _SITE_BASE = "https://mangalib.me"
-_IMAGE_BASE = "https://img2.imglib.info"
+_IMAGE_BASE = "https://img3.cdnlibs.org"
 _MANGA_PATH = "manga"
 _VOLUME_SEGMENT_RE = re.compile(r"^v(?P<value>\d+(?:\.\d+)?)$", re.IGNORECASE)
 _NUMBER_SEGMENT_RE = re.compile(r"^c(?P<value>\d+(?:\.\d+)?)$", re.IGNORECASE)
@@ -93,16 +97,25 @@ class MangaLibAdapter(BaseAdapter):
             latest=True,
         ),
         notes=(
-            "Public API supports search/catalogue/chapters and reader pages; "
-            "page images are served from img2.imglib.info."
+            "Public API supports search/catalogue/detail/chapters and reader pages. "
+            "Detail requires Site-Id; page images use img3.cdnlibs.org."
         ),
     )
-    allowed_hosts = frozenset({"mangalib.me", "www.mangalib.me", "api.lib.social"})
+    allowed_hosts = frozenset(
+        {
+            "mangalib.me",
+            "www.mangalib.me",
+            "api.lib.social",
+            "api.imglib.info",
+        }
+    )
     max_concurrency = 2
     default_headers: ClassVar[dict[str, str]] = {
         "Accept": "application/json",
         "Origin": _SITE_BASE,
         "Referer": f"{_SITE_BASE}/",
+        "Site-Id": "1",
+        "Client-Time-Zone": "Europe/Moscow",
     }
 
     def __init__(self, client, settings, cache) -> None:  # type: ignore[no-untyped-def]
@@ -268,11 +281,22 @@ class MangaLibAdapter(BaseAdapter):
         if not text:
             return None
         if text.startswith(("http://", "https://")):
+            parsed = urlparse(text)
+            if parsed.netloc.lower() in {
+                "img2.imglib.info",
+                "img3.imglib.info",
+                "img3.cdnlibs.org",
+            }:
+                path = parsed.path.lstrip("/")
+                if path:
+                    suffix = f"?{parsed.query}" if parsed.query else ""
+                    return f"{_IMAGE_BASE}/{path}{suffix}"
             return text
         path = text.lstrip("/")
         if not path:
             return None
-        # img2 serves the paths returned by the API; img3 currently returns 403.
+        # img3 is the HAR-observed "compress" server; img2 ("main") needs a
+        # Referer header and is prone to 403s in server-to-server fetching.
         return f"{_IMAGE_BASE}/{path}"
 
     def _reader_pages(self, slug_url: str, data: dict[str, Any]) -> list[Page]:

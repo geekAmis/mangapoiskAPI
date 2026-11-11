@@ -9,8 +9,9 @@ from manga_common.errors import UpstreamError
 from parser_helpers import json_response, load_json
 from services.parser.app.adapters.mangalib import MangaLibAdapter
 
-API = "https://api.lib.social"
+API = "https://api.imglib.info"
 SEARCH = load_json("mangalib_search.json")
+DETAIL = load_json("mangalib_detail.json")
 CHAPTERS = load_json("mangalib_chapters.json")
 CHAPTER = load_json("mangalib_chapter.json")
 MANGA_ID = "6844--temppal"
@@ -46,6 +47,29 @@ async def test_search(settings, cache, client) -> None:
         cached = await adapter.search("overgeared")
         assert cached.items[0].source_id == MANGA_ID
         assert route.call_count == 1
+
+
+async def test_manga_uses_detail_endpoint_and_rus_name(settings, cache, client) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        detail_route = router.get(f"{API}/api/manga/{MANGA_ID}").mock(
+            return_value=json_response(DETAIL)
+        )
+        chapters_route = router.get(f"{API}/api/manga/{MANGA_ID}/chapters").mock(
+            return_value=json_response(CHAPTERS)
+        )
+        adapter = MangaLibAdapter(client, settings, cache)
+
+        detail = await adapter.get_manga(MANGA_ID, chapters_limit=2)
+
+        assert detail.source_id == MANGA_ID
+        assert detail.title == "Во всеоружии"
+        assert detail.title_en == "Overgeared"
+        assert detail.latest_chapter is not None
+        assert detail.latest_chapter.number == "22"
+        assert [chapter.number for chapter in detail.chapters] == ["22", "21"]
+        assert detail_route.call_count == 1
+        assert chapters_route.call_count == 1
+        assert detail_route.calls[0].request.headers["site-id"] == "1"
 
 
 async def test_manga_falls_back_to_search_and_chapters(settings, cache, client) -> None:
@@ -118,12 +142,12 @@ async def test_get_chapter_pages_from_url(settings, cache, client) -> None:
         first = detail.pages[0]
         assert first.number == 1
         assert first.url == (
-            "https://img2.imglib.info/manga/temppal/chapters/490263/001_F4tO.png"
+            "https://img3.cdnlibs.org/manga/temppal/chapters/490263/001_F4tO.png"
         )
         assert first.width == 720
         assert first.height == 7686
         assert detail.pages[1].url == (
-            "https://img2.imglib.info/manga/temppal/chapters/490263/002_vMvc.png"
+            "https://img3.cdnlibs.org/manga/temppal/chapters/490263/002_vMvc.png"
         )
         assert detail.pages[1].height == 4392
         request = route.calls[0].request
@@ -131,10 +155,21 @@ async def test_get_chapter_pages_from_url(settings, cache, client) -> None:
         assert request.url.params["number"] == "22"
         assert request.headers["origin"] == "https://mangalib.me"
         assert request.headers["referer"] == "https://mangalib.me/"
+        assert request.headers["site-id"] == "1"
 
         cached = await adapter.get_chapter(url=CHAPTER_URL)
         assert len(cached.pages) == 7
         assert route.call_count == 1
+
+
+def test_page_url_rewrites_old_img2_host(settings, cache, client) -> None:
+    adapter = MangaLibAdapter(client, settings, cache)
+    assert adapter._page_url(
+        "https://img2.imglib.info/manga/example/chapters/1/page.png"
+    ) == "https://img3.cdnlibs.org/manga/example/chapters/1/page.png"
+    assert adapter._page_url(
+        "//manga/example/chapters/1/page.png"
+    ) == "https://img3.cdnlibs.org/manga/example/chapters/1/page.png"
 
 
 async def test_get_chapter_accepts_composite_source_id(settings, cache, client) -> None:

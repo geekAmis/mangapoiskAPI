@@ -49,7 +49,7 @@ timeouts `504`, and robots.txt denials `403`.
 | Code | Status | Search | Manga | Chapters | Pages | Notes |
 |---|---|---|---|---|---|---|
 | `mangapoisk` | enabled | yes | yes | yes | yes | Full Inertia.js support; some chapters legitimately have zero pages |
-| `mangalib` | enabled | yes | yes* | yes | yes | Detail API 404s; summary derived from search + chapter list. Reader pages via the public API, images from `img2.imglib.info` |
+| `mangalib` | enabled | yes | yes | yes | yes | Detail via `/api/manga/{slug_url}` with `Site-Id: 1` (`rus_name` preferred); reader pages via `volume`/`number`; images from `img3.cdnlibs.org` |
 | `remanga` | **disabled** | yes | yes | yes | yes | `robots.txt` disallows `/api`; enable only with permission |
 | `readmanga` | **disabled** | yes | yes | yes | yes | HTML selectors fixture-tested only; network reset from the dev host |
 | `mangadex` | **disabled** | yes | yes | yes | yes | Russian `translatedLanguage` filter; network blocked from the dev host |
@@ -151,16 +151,33 @@ have their own keys. Cookies are never part of cache values.
 6. Add fixtures and tests in `tests/parser/fixtures` and `tests/parser`.
 7. Register the adapter in `app/registry.py` and update `docs/SOURCES.md`.
 
+## Image proxy notes
+
+The parser returns page-image URLs; the media service performs the download.
+Verified header requirements for the current CDNs:
+
+- **MangaLib / `img3.cdnlibs.org`:** send a normal browser `User-Agent` and
+  `Referer: https://mangalib.me/`. `Accept: image/*` is optional. The HAR also
+  carries DDoS-Guard `__ddg*` cookies, but they were not required in our probes;
+  never hardcode user cookies.
+- **MangaLib / `img2.imglib.info`:** works only with
+  `Referer: https://mangalib.me/`; without it the CDN returns 403 (the
+  production symptom). Prefer the `img3.cdnlibs.org` URLs returned by the parser.
+- **MangaPoisk / `static2.mangapoisk.me`:** normal browser `User-Agent` is
+  sufficient in our probes; `Referer` is accepted but not required.
+
 ## Known limitations
 
 - **MangaPoisk:** chapter pages can legitimately be empty for licensed or
   upcoming chapters; the adapter returns `pages: []` rather than an error.
   Previous-chapter links are not present in the payload, so `prev_url` is null.
-- **MangaLib:** the documented `/api/manga/{slug}` detail endpoint returns 404.
-  Detail is composed from a search hit and `/chapters`. Reader pages are fetched
-  from `/api/manga/{slug_url}/chapter?volume=&number=` and served through
-  `img2.imglib.info`; numeric chapter ids alone cannot be resolved, so pass the
-  full chapter URL (catalog does). Previous/next links are not in the response.
+- **MangaLib:** the manga detail endpoint is `/api/manga/{slug_url}` and requires
+  `Site-Id: 1`; the adapter falls back to a search hit if it fails. The detail
+  response provides `rus_name` (preferred title), `eng_name`, cover, status,
+  type and year, but not rating/description. Reader pages come from
+  `/api/manga/{slug_url}/chapter?volume=&number=`; numeric chapter ids alone
+  cannot be resolved, so pass the full chapter URL (catalog does). Previous/next
+  links are not in the verified response.
 - **Remanga:** implemented and probe-verified, but disabled because robots.txt
   disallows `/api`. Paid chapters are rejected rather than bypassed.
 - **ReadManga:** selectors are conservative and fixture-tested; the live site was

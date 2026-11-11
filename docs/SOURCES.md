@@ -41,6 +41,12 @@ contains JSON with `component`, `props`, `url`, `version`.
   exception.
 - There is no `previousChapter` field in the chapter payload; `prev_url` stays
   null unless a future upstream adds it.
+- Chapter pages are embedded in `props.chapter.data.pages`; the adapter reads them
+  directly from the Inertia payload, and no separate page XHR was observed in our
+  live probes.
+- Page images on `static2.mangapoisk.me` load with a normal browser
+  `User-Agent`; `Referer` is optional in our probes. No signed URL/query token is
+  required.
 - `GET /search?q=<query>` → `{"message":"ok","results":[{link,label,value,year,updated,image}]}`
   (plain JSON). Content negotiation matters: send
   `Accept: application/json, text/plain, */*`; a browser-style HTML `Accept`
@@ -65,31 +71,46 @@ Mapping:
 | chapter `link` final segment `vol-num` | `volume`, `number` |
 | chapter `pages[].link/width/height` | `Page` |
 
-### MangaLib (`mangalib.me`, API `api.lib.social`) — search/catalogue/chapters/pages
+### MangaLib (`mangalib.me`, API `api.imglib.info` / `api.lib.social`) — search/catalogue/detail/chapters/pages
 
-- `GET https://api.lib.social/api/manga?q=<query>&site_id[]=1&page=1&limit=20`
+- `GET https://api.imglib.info/api/manga?q=<query>&site_id[]=1&page=1&limit=20`
   → `data[]` with `id, name, rus_name, eng_name, slug, slug_url, cover,
-  ageRestriction, type, rating, status, releaseDateString`. `limit` must be
-  between 10 and 60.
+  ageRestriction, type, rating, status, releaseDateString`. `api.lib.social`
+  accepts the same requests. HARs use `fields[]`/`site_id[0]` and `per_page=60`;
+  the documented `limit` range is 10–60.
 - An empty `q` returns the catalogue. `sort_by=last_chapter_at` gives the
   "latest updates" ordering used by `/internal/home`.
-- `GET https://api.lib.social/api/manga/{slug}/chapters` and the equivalent
-  `/{slug_url}/chapters` → `data[]` with `id, volume, number, name, branches[]`
-  (branch timestamps are the chapter publication dates).
-- Reader pages: `GET https://api.lib.social/api/manga/{slug_url}/chapter?volume={volume}&number={number}`
-  → `data.pages[]` with `image, width, height, url`. `url` is protocol-relative,
-  e.g. `//manga/{slug}/chapters/{chapter_id}/{image}`. The parser normalises it
-  to `https://img2.imglib.info/...` (`img3.imglib.info` returns 403). Bring
-  `Origin: https://mangalib.me` and `Referer: https://mangalib.me/`.
-  `capabilities.pages=true`.
+- `GET https://api.imglib.info/api/manga/{slug_url}` requires `Site-Id: 1`
+  (without it the API returns 404). The public response includes `rus_name`,
+  `eng_name`, `slug_url`, `cover`, `ageRestriction`, `type`, `status` and
+  `releaseDateString`; the parser prefers `rus_name` as `title`. The HAR also
+  shows authenticated fields such as `items_count`, `scanlateStatus` and
+  `metadata`, which are optional.
+- `GET https://api.imglib.info/api/manga/{slug}/chapters` returns the full
+  chapter list in one response (249 chapters observed; no pagination envelope).
+  `GET /api/manga/{slug_url}/chapters/players` exists but was empty in the HARs
+  and is not needed for our contract.
+- Reader pages: `GET https://api.imglib.info/api/manga/{slug_url}/chapter?volume={volume}&number={number}`
+  → `data.pages[]` with `image, width, height, url`, all pages in one response.
+  `url` is protocol-relative, e.g.
+  `//manga/{slug}/chapters/{chapter_id}/{image}`. HAR image requests go to
+  `https://img3.cdnlibs.org` (the `compress` server; no URL signature/query
+  token). `/api/constants` lists `img2.imglib.info` as `main` and
+  `img3.cdnlibs.org` as `compress`; `img2` returns 403 without
+  `Referer: https://mangalib.me/`, while `img3` works. The parser emits
+  `https://img3.cdnlibs.org/...` and `capabilities.pages=true`.
+- API headers observed in the HARs: `Origin: https://mangalib.me`,
+  `Referer: https://mangalib.me/`, `Site-Id: 1`, `Client-Time-Zone`, and an
+  `Authorization` header. Public probes succeeded without `Authorization`; the
+  detail endpoint specifically needs `Site-Id: 1`. API requests did not need
+  cookies; image requests carried DDoS-Guard `__ddg*` cookies, which were not
+  required for `img3` in our probes and must never be hardcoded.
 - Chapter payloads do not expose previous/next links in the verified response,
   so `prev_url`/`next_url` are null unless a future response adds them. A numeric
   chapter id alone cannot be resolved to a reader URL: callers must pass the full
   chapter URL or a `<slug_url>/<volume>-<number>` source_id.
-- The manga detail endpoint `/api/manga/{slug}` still returned 404 in all
-  probes; summary is derived from search + chapter list.
-- Requires `Origin: https://mangalib.me` and `Referer` headers.  Site is behind
-  DDoS-Guard; keep concurrency at 1–2 and cache hard.
+- The API advertises `x-ratelimit-limit: 100` in the HARs (no 403/429 observed).
+  The adapter keeps the conservative 30 req/min default and concurrency at 1–2.
 
 ### Remanga (`remanga.org`, API `api.remanga.org`) — search/detail/chapters/pages (opt-in)
 
