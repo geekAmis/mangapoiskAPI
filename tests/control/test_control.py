@@ -7,6 +7,7 @@ from manga_common.db import create_all, create_engine, create_session_factory
 from manga_common.errors import ConflictError
 from services.control.app.config import ControlSettings
 from services.control.app.crypto import SecretBox
+from services.control.app.deployer import merge_deployed_services
 from services.control.app.schemas import ServerCreate, ServerUpdate, ServiceSpec
 from services.control.app.service import ControlService
 
@@ -16,6 +17,15 @@ def test_secret_box_roundtrip() -> None:
     encrypted = box.encrypt("super-secret-password")
     assert encrypted != "super-secret-password"
     assert box.decrypt(encrypted) == "super-secret-password"
+
+
+def test_partial_deploy_merges_inventory() -> None:
+    assert merge_deployed_services(
+        [("parser", 8101), ("catalog", 8102)], [("gateway", 8100)]
+    ) == [("parser", 8101), ("catalog", 8102), ("gateway", 8100)]
+    assert merge_deployed_services(
+        [("parser", 8101), ("catalog", 8102)], [("parser", 8201)]
+    ) == [("parser", 8201), ("catalog", 8102)]
 
 
 @pytest.mark.asyncio
