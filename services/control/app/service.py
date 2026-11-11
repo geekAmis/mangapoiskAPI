@@ -302,7 +302,12 @@ class ControlService:
 
     def _endpoint(self, server: Server, service) -> RegistryEndpoint:  # type: ignore[no-untyped-def]
         public_host = (server.public_host or server.host or "").strip()
-        if server.host in self._local_hosts():
+        if service.code == "replica":
+            # Replicas are pulled by peers, so the registry must advertise an
+            # address that is reachable from other nodes even when the primary
+            # app services themselves bind to loopback.
+            host = public_host or server.host
+        elif server.host in self._local_hosts():
             # The control plane runs on this machine; loopback is the shortest path.
             host = "127.0.0.1" if server.bind_host in {"127.0.0.1", "localhost"} else public_host
         else:
