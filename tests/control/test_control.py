@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from manga_common.db import create_all, create_engine, create_session_factory
-from manga_common.errors import ConflictError
+from manga_common.errors import ConflictError, ValidationError
 from services.control.app.config import ControlSettings
 from services.control.app.crypto import SecretBox
 from services.control.app.schemas import ServerCreate, ServerUpdate, ServiceSpec
@@ -77,6 +77,7 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
     assert 'systemctl enable "mangapoisk-control.service"' in control_script
     assert "systemd-run" in control_script
     assert 'systemctl restart "mangapoisk-control.service"' not in control_script
+    assert "ensurepip" in control_script
 
     with pytest.raises(ConflictError) as duplicate:
         await service.create(
@@ -106,6 +107,20 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
         item for item in registry.services["parser"] if item.server_id == remote.id
     )
     assert edge_endpoint.url == "http://edge.example:8301"
+
+    jump = await service.create(
+        ServerCreate(
+            name="jump-only",
+            host="203.0.113.11",
+            username="root",
+            password="secret",
+            is_jump=True,
+        )
+    )
+    with pytest.raises(ValidationError) as jump_deploy:
+        await service.deploy(jump.id, None)
+    assert jump_deploy.value.code == "jump_server_deploy_forbidden"
+    await service.delete(jump.id)
 
     await service.delete(created.id)
     await service.delete(remote.id)

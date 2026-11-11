@@ -202,12 +202,20 @@ class ControlService:
                 raise NotFoundError("Сервер не найден")
             if not row.enabled:
                 raise ValidationError("Сервер отключён", code="server_disabled")
+            if row.is_jump:
+                raise ValidationError(
+                    "Jump-сервер используется только для SSH-доступа и не запускает микросервисы.",
+                    code="jump_server_deploy_forbidden",
+                )
             specs = services or [
                 ServiceSpec(code=item.code, port=item.port)  # type: ignore[arg-type]
                 for item in row.services
             ]
             if not specs:
-                raise ValidationError("Выберите хотя бы один микросервис")
+                raise ValidationError(
+                    "Выберите хотя бы один микросервис для развёртывания",
+                    code="no_services",
+                )
             validated = await self._validate_services(session, specs)
             job = await self.deployer.start(row, validated, update=update)
             await audit(
