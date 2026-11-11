@@ -22,6 +22,7 @@ from manga_common.schemas import (
     MangaDetailOut,
     MangaListResponse,
     MangaOut,
+    MangaVariantsOut,
     ProgressOut,
     ReaderSettings,
     SourceOut,
@@ -124,6 +125,10 @@ class CatalogClient(InternalClient):
     async def manga(self, manga_id: str) -> MangaDetailOut:
         data = await self.request("GET", f"/internal/manga/{manga_id}")
         return MangaDetailOut.model_validate(data)
+
+    async def variants(self, manga_id: str) -> MangaVariantsOut:
+        data = await self.request("GET", f"/internal/manga/{manga_id}/variants")
+        return MangaVariantsOut.model_validate(data)
 
     async def chapters(
         self, manga_id: str, *, page: int = 1, limit: int = 200, query: str | None = None
@@ -313,6 +318,12 @@ class ControlClient(InternalClient):
 
 
 class MediaClient(InternalClient):
+    async def archive_chapter(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.request("POST", "/internal/archives/chapters", json=payload, timeout=30.0)
+
+    async def archived_page(self, chapter_id: str, number: int) -> httpx.Response:
+        return await self.stream(f"/internal/archives/chapters/{chapter_id}/pages/{number}")
+
     async def create_export(self, payload: dict[str, Any]) -> ExportJobOut:
         data = await self.request("POST", "/internal/exports", json=payload, timeout=30.0)
         return ExportJobOut.model_validate(data)

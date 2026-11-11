@@ -111,6 +111,27 @@ just an SSH route; it is not used for application traffic.
 chapters, and returns a summary.  Scheduler forwards new-chapter events to
 `notifier` (Telegram), if configured.
 
+### Persistent chapter archive
+
+When a reader opens a chapter, `gateway` sends the resolved page URLs to
+`media` in the background.  `media` downloads the images through the same
+polite cache and rate limiter as normal image proxying, then stores the result
+once for every future reader.  The archive row is keyed by chapter and records
+the source and translator it was fetched with.
+
+- Chapters up to `ARCHIVE_DB_THRESHOLD_BYTES` (default 1 MiB) are stored as
+  page BLOBs in SQLite (`ARCHIVE_DB`, default `data/archives.db`).  This gives
+  fast random page access without a file per image.
+- Larger chapters are packed into `ARCHIVE_DIR/{chapter_id}.zip` with
+  `{number:04d}.{ext}` entries plus `manifest.json` (source, translator, page
+  count, dimensions).
+
+Archive creation never blocks the reader.  `gateway
+/api/v1/chapters/{id}/images/{n}` tries the archive first and only falls back
+to the original source URL when the page is not archived yet.  On startup,
+unfinished jobs are marked failed and temporary files are removed.  Readiness
+reports the archive database and directory separately from the image cache.
+
 ## Security
 
 - Internal routes require `X-Internal-Token`.

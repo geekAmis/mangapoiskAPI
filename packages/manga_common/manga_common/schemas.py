@@ -36,6 +36,7 @@ class ChapterOut(ORMModel):
     volume: str | None = None
     number: str
     title: str = ""
+    translator: str | None = None
     published_at: datetime | None = None
     page_count: int = 0
     url: str | None = None
@@ -106,6 +107,27 @@ class SearchResponse(BaseModel):
     limit: int
     has_next: bool
     live: bool = False
+
+
+class TranslatorOut(BaseModel):
+    name: str
+    count: int
+
+
+class MangaVariantOut(BaseModel):
+    id: UUID
+    title: str
+    source: str
+    source_id: str
+    poster_url: str | None = None
+    rating: float | None = None
+    chapters_count: int = 0
+    translators: list[TranslatorOut] = Field(default_factory=list)
+
+
+class MangaVariantsOut(BaseModel):
+    primary_id: UUID
+    items: list[MangaVariantOut] = Field(default_factory=list)
 
 
 class ImportMangaRequest(BaseModel):

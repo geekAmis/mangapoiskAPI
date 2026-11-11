@@ -50,7 +50,7 @@ timeouts `504`, and robots.txt denials `403`.
 |---|---|---|---|---|---|---|
 | `mangapoisk` | enabled | yes | yes | yes | yes | Full Inertia.js support; some chapters legitimately have zero pages |
 | `mangalib` | enabled | yes | yes | yes | yes | Detail via `/api/manga/{slug_url}` with `Site-Id: 1` (`rus_name` preferred); reader pages via `volume`/`number`; images from `img3.cdnlibs.org` |
-| `remanga` | **disabled** | yes | yes | yes | yes | `robots.txt` disallows `/api`; enable only with permission |
+| `remanga` | **disabled** | yes | yes | yes | yes | Verified JSON API; pages on `img3.reimg2.org` / `img-reserve.reimg2.org`; `robots.txt` disallows `/api`; enable only with permission |
 | `readmanga` | **disabled** | yes | yes | yes | yes | HTML selectors fixture-tested only; network reset from the dev host |
 | `mangadex` | **disabled** | yes | yes | yes | yes | Russian `translatedLanguage` filter; network blocked from the dev host |
 

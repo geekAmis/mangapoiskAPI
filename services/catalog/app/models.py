@@ -41,6 +41,7 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         UniqueConstraint("source", "source_id", name="uq_manga_source_source_id"),
         Index("ix_manga_source_slug", "source", "slug"),
         Index("ix_manga_title", "title"),
+        Index("ix_manga_group_key", "group_key"),
         Index("ix_manga_rating", "rating"),
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
     )
@@ -63,6 +64,7 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     adult: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     genres: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    group_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -90,6 +92,7 @@ class Chapter(Base, UUIDPrimaryKey, TimestampMixin):
     volume: Mapped[str | None] = mapped_column(String(64), nullable=True)
     number: Mapped[str] = mapped_column(String(64), nullable=False, default="0")
     title: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    translator: Mapped[str | None] = mapped_column(String(255), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pages: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONType, nullable=True)

@@ -69,6 +69,21 @@ def _clean(value: Any) -> Any:
     return value.strip() if isinstance(value, str) else value
 
 
+def compute_group_key(title: str | None) -> str:
+    from manga_common.text import slugify
+
+    text = title or ""
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = re.sub(
+        r"\b(перезапуск|reborn|reboot|new|новый|новая|продолжение|second season)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"[^\w\s-]", " ", text, flags=re.UNICODE)
+    return slugify(re.sub(r"\s+", " ", text).strip())[:180]
+
+
 def _weak_title(value: str | None) -> bool:
     """Detect slug-derived titles such as ``gwihwanjaui mabeobeun ...``.
 
@@ -125,6 +140,7 @@ async def upsert_manga_detail(
     manga.adult = bool(detail.adult)
     manga.genres = list(detail.genres or [])
     manga.url = detail.url or manga.url
+    manga.group_key = compute_group_key(manga.title)
     manga.last_synced_at = datetime.now(UTC)
     await session.flush()
 
@@ -150,6 +166,7 @@ async def upsert_manga_detail(
         chapter.volume = summary.volume
         chapter.number = summary.number or chapter.number
         chapter.title = summary.title or chapter.title
+        chapter.translator = summary.translator or chapter.translator
         chapter.published_at = summary.published_at or chapter.published_at
         chapter.page_count = summary.page_count or chapter.page_count
         chapter.url = summary.url or chapter.url
@@ -206,6 +223,7 @@ async def upsert_manga_summary(
     manga.adult = bool(summary.adult)
     manga.genres = list(summary.genres or [])
     manga.url = summary.url or manga.url
+    manga.group_key = compute_group_key(manga.title)
     manga.last_synced_at = None if created else manga.last_synced_at
     await session.flush()
     return manga, created
@@ -347,6 +365,63 @@ async def list_manga(
         ).all()
     )
     return items, total
+
+
+async def backfill_group_keys(session: AsyncSession) -> int:
+    rows = list(
+        (
+            await session.scalars(
+                select(Manga).where((Manga.group_key.is_(None)) | (Manga.group_key == ""))
+            )
+        ).all()
+    )
+    for manga in rows:
+        manga.group_key = compute_group_key(manga.title)
+    await session.flush()
+    return len(rows)
+
+
+async def manga_variants(session: AsyncSession, manga: Manga) -> list[dict[str, Any]]:
+    if not manga.group_key:
+        manga.group_key = compute_group_key(manga.title)
+        await session.flush()
+    rows = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(Manga.group_key == manga.group_key)
+                .order_by(desc(Manga.chapters_count), Manga.title.asc())
+            )
+        ).all()
+    )
+    if manga not in rows:
+        rows.insert(0, manga)
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        translator_rows = (
+            await session.execute(
+                select(Chapter.translator, func.count(Chapter.id))
+                .where(Chapter.manga_id == row.id)
+                .group_by(Chapter.translator)
+                .order_by(desc(func.count(Chapter.id)))
+            )
+        ).all()
+        result.append(
+            {
+                "id": row.id,
+                "title": row.title,
+                "source": row.source,
+                "source_id": row.source_id,
+                "poster_url": row.poster_url,
+                "rating": row.rating,
+                "chapters_count": row.chapters_count,
+                "translators": [
+                    {"name": name or "Без перевода", "count": int(count)}
+                    for name, count in translator_rows
+                ],
+            }
+        )
+    return result
 
 
 async def stale_manga(

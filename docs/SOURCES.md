@@ -114,22 +114,64 @@ Mapping:
 
 ### Remanga (`remanga.org`, API `api.remanga.org`) — search/detail/chapters/pages (opt-in)
 
-- `GET https://api.remanga.org/api/v2/search/?query=<q>` → `results[]` with
-  `id, main_name, secondary_name, type, status, issue_year, avg_rating,
-  total_votes, cover{low,mid,high}, dir, count_chapters`.
-- `GET /api/v2/titles/?query=` also works but returns a different envelope.
-- Implementation probes found the detail/chapter endpoints reachable after all:
-  - `GET /api/v2/titles/{dir}/` → title detail, genres, branches, counts.
-  - `GET /api/v2/titles/chapters/?branch_id={branches[0].id}&page=N` → newest
-    chapters first, 30 per page, `next` for pagination.
-  - `GET /api/v2/titles/chapters/{chapter_id}/` → chapter metadata plus `pages`
-    as nested arrays of `{id, link, width, height}`; also `previous`/`next`.
-  - Paid chapters (`is_paid: true`) must not be bypassed; the adapter returns a
-    typed `chapter_paid` error when the chapter is not bought.
-- Robots disallows `/api`; this adapter is therefore **disabled by default**
-  and only enabled by an explicit operator flag (`PARSER_ENABLED_SOURCES`),
-  with a warning in the UI/docs. Enabling it without permission would violate
-  the site's robots policy.
+- Search: `GET https://api.remanga.org/api/v2/search/?query=<q>&page=<n>` →
+  `{"meta": {"total_items", "total_pages", "page"}, "results": [...]}`. The API
+  returns 20 results per page. Each result has `id, main_name, secondary_name,
+  another_name, type, status, translate_status, issue_year, avg_rating,
+  total_votes, count_chapters, cover{low,mid,high}, dir, is_erotic, is_yaoi,
+  is_forbidden`. `dir` is the stable title identifier.
+- Detail: `GET /api/v2/titles/{dir}/` requires the `dir` slug; a numeric title
+  id returns 404 (verified), so the adapter rejects bare numeric title ids with
+  a typed validation error. The response includes `main_name`, `secondary_name`,
+  `another_name`, HTML `description`, `genres[]`, `categories[]`, `issue_year`,
+  `status`, `translate_status`, `age_limit`, `avg_rating`, `total_votes`,
+  `cover`, `count_chapters` and `branches[]`. The branch with the most
+  `count_chapters` is used for the chapter list; `branches[].publishers[]`
+  contains team/publisher metadata, which the normalised chapter contract does
+  not expose separately.
+- Chapters: `GET /api/v2/titles/chapters/?branch_id=<branch_id>&page=<n>&ordering=-index`
+  → `{"next", "previous", "results": [...]}`. Chapters are newest first, 30 per
+  page, and `next` is the next page number (integer) or null. A result provides
+  `id, tome, chapter, name, upload_date, pub_date, is_paid, is_bought,
+  publishers[]`. The list does not include page counts, so `page_count` is 0
+  until the reader endpoint is opened.
+- Reader: `GET /api/v2/titles/chapters/{chapter_id}/` works anonymously for free
+  chapters and returns chapter metadata plus `pages` as nested arrays of
+  `{id, link, width, height}`; the adapter flattens them in document order.
+  `previous`/`next` objects contain the neighbouring chapter ids. The actual
+  site reader URL is `https://remanga.org/manga/{dir}/{chapter_id}`; the legacy
+  `/manga/{dir}/chapter/{id}` form is accepted only as an input alias.
+  Free pages are public, so `capabilities.pages=true` and
+  `requires_auth_for_pages=false`; no cookies are required.
+- Paid/locked chapters: the API returns HTTP 200 with `is_paid: true`,
+  `is_bought: false` and `pages: []`. The adapter raises a typed `UpstreamError`
+  with code `chapter_paid` (including title id and price) instead of bypassing
+  the paywall. A non-paid chapter with no pages raises `pages_unavailable`.
+  `count_chapters` is read for branch selection; the parser contract has no
+  standalone count field, and catalog derives `chapters_count` from the imported
+  chapter list.
+- Images: `pages[].link` is absolute. Verified hosts:
+  `img3.reimg2.org` works with a normal browser/project `User-Agent` and needs
+  no `Referer`; `img-reserve.reimg2.org` returns 403 unless
+  `Referer: https://remanga.org/` is sent (UA alone is not enough).
+  `img3.reimg.org` and `img.reimg.org` are the `server.link` primary hosts in
+  the API payload but returned 403 from our network; page links already use the
+  `.reimg2.org` mirrors. Covers use `remanga.org/media/...` and load with a
+  normal UA. A media allowlist should include `remanga.org`,
+  `img3.reimg2.org` and `img-reserve.reimg2.org` (optionally the primary
+  `.reimg.org` hosts), and the media fetcher must be able to send
+  `Referer: https://remanga.org/` for `img-reserve.reimg2.org`. No signed query
+  token or cookie is required.
+- Headers/rate: HAR API requests send `Origin: https://remanga.org`,
+  `Referer: https://remanga.org/`, `Accept: */*` and (because the HAR was
+  logged in) an `Authorization` header. Anonymous probes succeeded without
+  `Authorization` or cookies; the adapter sends `Accept: application/json`.
+  Responses are served behind `server: ddos-guard`; no `x-ratelimit-*` headers
+  were observed. Keep the shared 30 req/min default and concurrency 1.
+- Robots: `robots.txt` disallows `/api`, `/search`, `/manga?*` and `/manga/*?`.
+  This adapter is **disabled by default** and is only enabled by an explicit
+  operator flag (`PARSER_ENABLED_SOURCES=remanga`) after permission from the
+  site. Enabling it without permission would violate the robots policy.
 
 ## Best-effort / unverified in the dev network
 

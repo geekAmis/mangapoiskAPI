@@ -10,7 +10,9 @@ from manga_common.service import add_ready_check, create_service_app
 
 from .api import router
 from .config import CatalogSettings
+from .migrations import ensure_runtime_schema
 from .parser_client import ParserClient
+from .repository import backfill_group_keys
 from .service import CatalogService
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,10 @@ async def lifespan(app: FastAPI):
     engine = create_engine(settings.catalog_dsn, echo=settings.debug)
     session_factory = create_session_factory(engine)
     await create_all(engine)
+    await ensure_runtime_schema(engine)
+    async with session_factory() as session:
+        await backfill_group_keys(session)
+        await session.commit()
     parser = ParserClient(settings)
     service = CatalogService(settings, session_factory, parser)
     app.state.engine = engine

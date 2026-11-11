@@ -41,6 +41,7 @@ class ChapterSummary(BaseModel):
     volume: str | None = None
     number: str
     title: str = ""
+    translator: str | None = None
     published_at: datetime | None = None
     page_count: int = 0
     url: str | None = None

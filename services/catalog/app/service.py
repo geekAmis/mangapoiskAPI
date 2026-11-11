@@ -10,7 +10,10 @@ from manga_common.schemas import (
     MangaDetailOut,
     MangaListResponse,
     MangaOut,
+    MangaVariantOut,
+    MangaVariantsOut,
     PageOut,
+    TranslatorOut,
 )
 from manga_common.source_models import MangaDetail, SourceInfo
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -99,6 +102,34 @@ class CatalogService:
             if chapter is None:
                 raise NotFoundError("Chapter not found")
             return _chapter_out(chapter)
+
+    async def variants(self, manga_id: uuid.UUID) -> MangaVariantsOut:
+        from .repository import manga_variants
+
+        async with self.session_factory() as session:
+            manga = await find_manga(session, manga_id)
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            rows = await manga_variants(session, manga)
+            return MangaVariantsOut(
+                primary_id=manga.id,
+                items=[
+                    MangaVariantOut(
+                        id=row["id"],
+                        title=row["title"],
+                        source=row["source"],
+                        source_id=row["source_id"],
+                        poster_url=row["poster_url"],
+                        rating=row["rating"],
+                        chapters_count=row["chapters_count"],
+                        translators=[
+                            TranslatorOut(name=item["name"], count=item["count"])
+                            for item in row["translators"]
+                        ],
+                    )
+                    for row in rows
+                ],
+            )
 
     async def manga_detail(self, manga_id: uuid.UUID) -> MangaDetailOut:
         async with self.session_factory() as session:

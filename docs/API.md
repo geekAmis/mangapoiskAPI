@@ -95,6 +95,36 @@ The `url` in pages is always a gateway URL, never a third-party URL.
 `POST /api/v1/chapters/{id}/exports?format=cbz|pdf|html` → `ExportJobOut` with
 `status` (`queued|running|done|failed`), `progress`, `total`, `download_url`.
 
+### Server-side chapter archive (internal)
+
+Clients do not call these routes directly.  When a chapter is opened, the
+gateway asks `media` to archive its pages in the background.  Internal routes
+require `X-Internal-Token`.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/internal/archives/chapters` | queue an archive (idempotent) |
+| GET | `/internal/archives/chapters/{chapter_id}` | archive metadata/status |
+| GET | `/internal/archives/chapters/{chapter_id}/pages/{number}` | archived image bytes |
+| DELETE | `/internal/archives/chapters/{chapter_id}` | remove an archive |
+
+POST body:
+
+```json
+{
+  "chapter_id": "uuid", "source": "mangapoisk", "translator": null,
+  "pages": [{"number": 1, "url": "https://...", "width": 690, "height": 1730}]
+}
+```
+
+The response contains `status` (`queued|running|done|failed`), `mode`
+(`db|zip|null`), `page_count`, `total_bytes`, `sha256`, `error` and timestamps.
+A new job returns `202`; a repeat call returns the existing state (`200`).
+Small chapters are stored as SQLite page blobs; larger chapters become a ZIP
+of `{number:04d}.{ext}` files plus `manifest.json`.  `GET
+/api/v1/chapters/{id}/images/{n}` serves from the archive first and falls back
+to the source URL only when the page is not archived.
+
 ## Auth
 
 | Method | Path | Body |

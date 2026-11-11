@@ -1,16 +1,16 @@
 {
-  "next": null,
+  "next": 2,
   "previous": null,
   "results": [
     {
       "id": 2162890,
       "is_bought": false,
+      "is_free_today": null,
       "publishers": [
         {
           "id": 15406,
           "name": "Litres MS",
-          "dir": "litres-ms",
-          "cover": {}
+          "dir": "litres-ms"
         }
       ],
       "index": 313,
@@ -29,12 +29,12 @@
     {
       "id": 2162889,
       "is_bought": false,
+      "is_free_today": null,
       "publishers": [
         {
           "id": 15406,
           "name": "Litres MS",
-          "dir": "litres-ms",
-          "cover": {}
+          "dir": "litres-ms"
         }
       ],
       "index": 312,
@@ -53,12 +53,12 @@
     {
       "id": 2162888,
       "is_bought": false,
+      "is_free_today": null,
       "publishers": [
         {
           "id": 15406,
           "name": "Litres MS",
-          "dir": "litres-ms",
-          "cover": {}
+          "dir": "litres-ms"
         }
       ],
       "index": 311,

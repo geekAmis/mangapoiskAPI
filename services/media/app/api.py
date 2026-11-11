@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
+from manga_common.errors import NotFoundError
 from manga_common.schemas import ExportJobOut, OkResponse
 from manga_common.security import require_internal_token
 
+from .archive import ArchiveManager, ArchiveRequest, ArchiveState
 from .cache import MediaCache
 from .exporter import ExportManager, ExportRequest
 
@@ -19,6 +21,10 @@ def get_cache(request: Request) -> MediaCache:
 
 def get_exports(request: Request) -> ExportManager:
     return request.app.state.exports
+
+
+def get_archives(request: Request) -> ArchiveManager:
+    return request.app.state.archives
 
 
 @router.get("/image")
@@ -37,6 +43,57 @@ async def image(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.post("/archives/chapters", response_model=ArchiveState)
+async def archive_chapter(
+    payload: ArchiveRequest,
+    response: Response,
+    archives: ArchiveManager = Depends(get_archives),
+) -> ArchiveState:
+    state, created = await archives.create(payload)
+    response.status_code = 202 if created else 200
+    return state
+
+
+@router.get("/archives/chapters/{chapter_id}", response_model=ArchiveState)
+async def archive_status(
+    chapter_id: uuid.UUID,
+    archives: ArchiveManager = Depends(get_archives),
+) -> ArchiveState:
+    state = await archives.metadata(chapter_id)
+    if state is None:
+        raise NotFoundError("Архив главы не найден")
+    return state
+
+
+@router.get("/archives/chapters/{chapter_id}/pages/{number}")
+async def archive_page(
+    chapter_id: uuid.UUID,
+    number: int,
+    archives: ArchiveManager = Depends(get_archives),
+) -> Response:
+    page = await archives.page(chapter_id, number)
+    if page is None:
+        raise NotFoundError("Страница не найдена в архиве")
+    return Response(
+        content=page.data,
+        media_type=page.content_type,
+        headers={
+            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete("/archives/chapters/{chapter_id}", response_model=OkResponse)
+async def delete_archive(
+    chapter_id: uuid.UUID,
+    archives: ArchiveManager = Depends(get_archives),
+) -> OkResponse:
+    if not await archives.delete(chapter_id):
+        raise NotFoundError("Архив главы не найден")
+    return OkResponse(message="Архив главы удалён")
 
 
 @router.post("/exports", response_model=ExportJobOut)

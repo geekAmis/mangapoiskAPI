@@ -3,7 +3,13 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
-from manga_common.schemas import ChapterOut, MangaListResponse, MangaOut, SourceOut
+from manga_common.schemas import (
+    ChapterOut,
+    MangaListResponse,
+    MangaOut,
+    MangaVariantsOut,
+    SourceOut,
+)
 from manga_common.security import require_internal_token
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
 
@@ -100,6 +106,14 @@ async def manga_by_source(
 ) -> dict:
     detail = await service.manga_by_source(source, source_id)
     return detail.model_dump(mode="json")
+
+
+@router.get("/manga/{manga_id}/variants", response_model=MangaVariantsOut)
+async def manga_variants(
+    manga_id: uuid.UUID,
+    service: CatalogService = Depends(get_service),
+) -> MangaVariantsOut:
+    return await service.variants(manga_id)
 
 
 @router.get("/manga/{manga_id}")

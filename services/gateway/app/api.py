@@ -23,6 +23,7 @@ from manga_common.schemas import (
     MangaDetailOut,
     MangaListResponse,
     MangaOut,
+    MangaVariantsOut,
     OkResponse,
     PageOut,
     Paginated,
@@ -84,6 +85,50 @@ def _chapter_label(chapter: ChapterOut) -> str:
     if chapter.title:
         parts.append(chapter.title)
     return ", ".join(parts)
+
+
+# Chapter ids already posted to the media archive in this process.  The media
+# endpoint is idempotent, this simply avoids one request per reader page view.
+_archive_posted: set[str] = set()
+_archive_tasks: set[asyncio.Task] = set()
+
+
+async def _post_archive(media: MediaClient, payload: dict[str, Any], key: str) -> None:
+    try:
+        result = await media.archive_chapter(payload)
+        if isinstance(result, dict) and result.get("status") == "failed":
+            _archive_posted.discard(key)
+    except Exception as exc:
+        _archive_posted.discard(key)
+        logger.debug("chapter archive request failed for %s: %s", key, exc)
+
+
+def _schedule_archive(request: Request, detail: ChapterDetailOut) -> None:
+    if not detail.pages:
+        return
+    key = str(detail.id)
+    if key in _archive_posted:
+        return
+    if len(_archive_posted) >= 5000:
+        _archive_posted.clear()
+    _archive_posted.add(key)
+    payload = {
+        "chapter_id": key,
+        "source": detail.source,
+        "translator": getattr(detail, "translator", None),
+        "pages": [
+            {
+                "number": page.number,
+                "url": page.url,
+                "width": page.width,
+                "height": page.height,
+            }
+            for page in detail.pages
+        ],
+    }
+    task = asyncio.create_task(_post_archive(request.app.state.media, payload, key))
+    _archive_tasks.add(task)
+    task.add_done_callback(_archive_tasks.discard)
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +338,12 @@ async def import_manga(request: Request, payload: ImportMangaRequest) -> ImportM
     )
 
 
+@router.get("/manga/{manga_id}/variants", response_model=MangaVariantsOut)
+async def manga_variants(request: Request, manga_id: uuid.UUID) -> MangaVariantsOut:
+    catalog, _, _, _ = clients(request)
+    return await catalog.variants(str(manga_id))
+
+
 @router.get("/manga/{manga_id}", response_model=MangaDetailOut)
 async def manga_detail(request: Request, manga_id: uuid.UUID) -> MangaDetailOut:
     catalog, _, _, _ = clients(request)
@@ -342,6 +393,7 @@ async def chapter_detail(
 ) -> ChapterDetailOut:
     catalog, _, _, _ = clients(request)
     detail = await catalog.chapter(str(chapter_id), refresh=refresh)
+    _schedule_archive(request, detail)
     return _public_chapter(detail)
 
 
@@ -357,11 +409,24 @@ async def chapter_image(
     request: Request, chapter_id: uuid.UUID, number: int
 ) -> StreamingResponse:
     catalog, _, _, media = clients(request)
-    detail = await catalog.chapter(str(chapter_id))
-    page = next((item for item in detail.pages if item.number == number), None)
-    if page is None:
-        raise NotFoundError("Страница не найдена")
-    response = await media.image(page.url)
+    # Prefer the server-side archive: a chapter fetched by any user once is
+    # served from media without touching the original source again.
+    response = await media.archived_page(str(chapter_id), number)
+    if response.status_code != 200:
+        if response.status_code != 404:
+            logger.debug(
+                "archive page lookup failed for %s/%s: %s",
+                chapter_id,
+                number,
+                response.status_code,
+            )
+        await response.aread()
+        await response.aclose()
+        detail = await catalog.chapter(str(chapter_id))
+        page = next((item for item in detail.pages if item.number == number), None)
+        if page is None:
+            raise NotFoundError("Страница не найдена")
+        response = await media.image(page.url)
     if response.status_code >= 400:
         body = await response.aread()
         await response.aclose()

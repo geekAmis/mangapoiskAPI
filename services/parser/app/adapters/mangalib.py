@@ -180,6 +180,11 @@ class MangaLibAdapter(BaseAdapter):
             return None
         branches = [branch for branch in _as_list(item.get("branches")) if isinstance(branch, dict)]
         branch_id = parse_int(branches[0].get("id")) if branches else chapter_id
+        translator = None
+        if branches:
+            teams = [team for team in _as_list(branches[0].get("teams")) if isinstance(team, dict)]
+            if teams:
+                translator = first_text(teams[0].get("name")) or None
         published_at = (
             parse_iso_datetime(branches[0].get("created_at")) if branches else None
         ) or parse_iso_datetime(item.get("created_at"))
@@ -194,6 +199,7 @@ class MangaLibAdapter(BaseAdapter):
             volume=volume,
             number=number,
             title=first_text(item.get("name"), f"Глава {number}"),
+            translator=translator,
             published_at=published_at,
             page_count=0,
             url=url,
