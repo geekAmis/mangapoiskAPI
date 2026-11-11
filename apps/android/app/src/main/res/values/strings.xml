@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name" translatable="false">MangaPoisk</string>
+    <string name="app_name_reborn" translatable="false">MangaPoisk Reborn</string>
+
+    <!-- Navigation and common actions -->
+    <string name="nav_home">Главная</string>
+    <string name="nav_catalog">Каталог</string>
+    <string name="nav_library">Библиотека</string>
+    <string name="nav_profile">Профиль</string>
+    <string name="action_retry">Повторить</string>
+    <string name="action_cancel">Отмена</string>
+    <string name="action_close">Закрыть</string>
+    <string name="action_back">Назад</string>
+    <string name="action_refresh">Обновить</string>
+    <string name="action_search">Поиск</string>
+    <string name="action_delete">Удалить</string>
+    <string name="action_save">Сохранить</string>
+    <string name="action_reset">Сбросить</string>
+    <string name="action_apply">Применить</string>
+    <string name="action_see_all">Все</string>
+    <string name="action_details">Подробнее</string>
+    <string name="action_read">Читать</string>
+    <string name="action_continue">Продолжить</string>
+    <string name="action_ok">ОК</string>
+
+    <!-- States -->
+    <string name="state_loading">Загрузка…</string>
+    <string name="state_empty">Пусто</string>
+    <string name="error_title">Что-то пошло не так</string>
+    <string name="error_generic">Не удалось загрузить данные.</string>
+    <string name="error_network">Нет соединения с сервером. Проверьте адрес API и сеть.</string>
+    <string name="error_offline">Нет подключения к интернету.</string>
+    <string name="error_timeout">Сервер не ответил вовремя.</string>
+    <string name="error_unauthorized">Требуется вход в аккаунт.</string>
+    <string name="error_not_found">Манга не найдена.</string>
+    <string name="error_rate_limited">Слишком много запросов. Попробуйте позже.</string>
+    <string name="error_server">Сервер временно недоступен.</string>
+    <string name="error_invalid_response">Некорректный ответ сервера.</string>
+    <string name="saved_locally">Сохранено на устройстве</string>
+    <string name="adult_badge">18+</string>
+    <string name="rating_format">★ %1$.1f</string>
+    <string name="unknown_value">—</string>
+    <string name="untitled">Без названия</string>
+    <string name="content_type_manga">Манга</string>
+    <string name="content_type_manhwa">Манхва</string>
+    <string name="content_type_comic">Комикс</string>
+
+    <plurals name="chapters_count">
+        <item quantity="one">%d глава</item>
+        <item quantity="few">%d главы</item>
+        <item quantity="many">%d глав</item>
+        <item quantity="other">%d главы</item>
+    </plurals>
+    <plurals name="pages_count">
+        <item quantity="one">%d страница</item>
+        <item quantity="few">%d страницы</item>
+        <item quantity="many">%d страниц</item>
+        <item quantity="other">%d страницы</item>
+    </plurals>
+    <plurals name="results_count">
+        <item quantity="one">%d результат</item>
+        <item quantity="few">%d результата</item>
+        <item quantity="many">%d результатов</item>
+        <item quantity="other">%d результата</item>
+    </plurals>
+    <plurals name="downloads_count">
+        <item quantity="one">%d загрузка</item>
+        <item quantity="few">%d загрузки</item>
+        <item quantity="many">%d загрузок</item>
+        <item quantity="other">%d загрузки</item>
+    </plurals>
+
+    <!-- Home -->
+    <string name="home_title" translatable="false">MangaPoisk</string>
+    <string name="home_reborn" translatable="false">Reborn</string>
+    <string name="home_continue">Продолжить чтение</string>
+    <string name="home_popular">Популярное</string>
+    <string name="home_latest">Обновления</string>
+    <string name="home_sources">Источники</string>
+    <string name="home_hero_tag">В центре внимания</string>
+    <string name="home_continue_page">Глава %1$s · стр. %2$d</string>
+    <string name="home_updated_at">Обновлено %1$s</string>
+    <string name="home_continue_chapter">Глава %1$s</string>
+    <string name="home_legal">MangaPoisk не хранит изображения. Материалы принадлежат их правообладателям.</string>
+    <string name="home_empty">Каталог пока пуст. Загляните позже или выберите другой источник.</string>
+    <string name="home_greeting">Ваша манга, ваш ритм</string>
+    <string name="home_subtitle">Читайте любимые истории без лишнего шума.</string>
+    <string name="home_featured_meta">%1$s · %2$s</string>
+
+    <!-- Catalogue -->
+    <string name="catalog_title">Каталог</string>
+    <string name="catalog_search_hint">Название манги…</string>
+    <string name="catalog_source_label">Источник</string>
+    <string name="catalog_sort_label">Сортировка</string>
+    <string name="catalog_sort_popular">Популярное</string>
+    <string name="catalog_sort_rating">По рейтингу</string>
+    <string name="catalog_sort_updated">По обновлению</string>
+    <string name="catalog_sort_title">По названию</string>
+    <string name="catalog_empty_title">Ничего не найдено</string>
+    <string name="catalog_empty_text">Попробуйте изменить запрос, источник или сортировку.</string>
+    <string name="catalog_loading_more">Загружаем ещё…</string>
+    <string name="catalog_all_loaded">Это все результаты</string>
+    <string name="catalog_source_all">Все источники</string>
+    <string name="catalog_search_clear">Очистить запрос</string>
+    <string name="catalog_results_count">Найдено: %1$d</string>
+    <string name="catalog_reset_filters">Сбросить фильтры</string>
+
+    <!-- Manga detail -->
+    <string name="detail_title">Манга</string>
+    <string name="detail_read">Читать</string>
+    <string name="detail_continue">Продолжить</string>
+    <string name="detail_read_from_start">С начала</string>
+    <string name="detail_bookmark_add">В библиотеку</string>
+    <string name="detail_bookmark_remove">Из библиотеки</string>
+    <string name="detail_bookmarked">В библиотеке</string>
+    <string name="detail_chapters">Главы</string>
+    <string name="detail_description">Описание</string>
+    <string name="detail_expand">Показать полностью</string>
+    <string name="detail_collapse">Свернуть</string>
+    <string name="detail_genres">Жанры</string>
+    <string name="detail_year">Год</string>
+    <string name="detail_status">Статус</string>
+    <string name="detail_rating">Рейтинг</string>
+    <string name="detail_chapters_count">Глав</string>
+    <string name="detail_export_title">Офлайн-экспорт</string>
+    <string name="detail_export_text">Экспорт в CBZ, PDF или HTML доступен через веб-версию и публичный API. Скачанные главы читаются в приложении без сети.</string>
+    <string name="detail_download">Скачать главу</string>
+    <string name="detail_download_queued">Загрузка поставлена в очередь</string>
+    <string name="detail_chapter_downloaded">Скачано</string>
+    <string name="detail_chapter_downloading">Загрузка %1$d из %2$d</string>
+    <string name="detail_chapter_queued">В очереди</string>
+    <string name="detail_chapter_failed">Ошибка загрузки</string>
+    <string name="detail_continue_at">Глава %1$s · стр. %2$d</string>
+    <string name="detail_status_ongoing">Выходит</string>
+    <string name="detail_status_completed">Завершён</string>
+    <string name="detail_status_hiatus">Приостановлен</string>
+    <string name="detail_status_unknown">Неизвестно</string>
+    <string name="detail_volume">Том %1$s</string>
+    <string name="detail_chapter">Глава %1$s</string>
+    <string name="detail_no_chapters">Глав пока нет</string>
+    <string name="detail_no_description">Описание отсутствует.</string>
+    <string name="detail_bookmark_error">Не удалось обновить закладку</string>
+    <string name="detail_download_started">Загрузка началась</string>
+    <string name="detail_download_failed">Не удалось начать загрузку</string>
+    <string name="detail_no_pages">В главе нет страниц</string>
+    <string name="detail_alt_title">Альтернативные названия</string>
+    <string name="detail_source">Источник: %1$s</string>
+    <string name="chapters_count_short">%1$d гл.</string>
+
+    <!-- Reader -->
+    <string name="reader_title">Читалка</string>
+    <string name="reader_page_of">Стр. %1$d из %2$d</string>
+    <string name="reader_page_short">%1$d / %2$d</string>
+    <string name="reader_prev_chapter">Предыдущая глава</string>
+    <string name="reader_next_chapter">Следующая глава</string>
+    <string name="reader_settings">Настройки чтения</string>
+    <string name="reader_mode">Режим</string>
+    <string name="reader_mode_vertical">Непрерывный</string>
+    <string name="reader_mode_horizontal">Постраничный</string>
+    <string name="reader_fit">Масштаб</string>
+    <string name="reader_fit_width">По ширине</string>
+    <string name="reader_fit_height">По высоте</string>
+    <string name="reader_fit_screen">Экран</string>
+    <string name="reader_auto_scroll">Автопрокрутка</string>
+    <string name="reader_auto_scroll_speed">Скорость прокрутки</string>
+    <string name="reader_keep_screen_on">Не гасить экран</string>
+    <string name="reader_fullscreen">Полный экран</string>
+    <string name="reader_exit_fullscreen">Выйти из полного экрана</string>
+    <string name="reader_toggle_ui">Скрыть или показать интерфейс</string>
+    <string name="reader_page_content_description">Страница %1$d</string>
+    <string name="reader_error">Не удалось загрузить главу</string>
+    <string name="reader_offline_note">Офлайн-глава</string>
+    <string name="reader_end">Конец главы</string>
+    <string name="reader_no_prev">Предыдущей главы нет</string>
+    <string name="reader_no_next">Следующей главы нет</string>
+    <string name="reader_seek">Перейти к странице</string>
+    <string name="reader_chapter_progress">%1$s · %2$s</string>
+    <string name="reader_local_badge">Офлайн</string>
+    <string name="reader_download_hint">Глава доступна без сети</string>
+    <string name="reader_progress_restored">Продолжаем со страницы %1$d</string>
+    <string name="reader_zoom_hint">Двойное касание — масштаб, затем перетаскивание</string>
+    <string name="reader_gap">Отступ между страницами</string>
+    <string name="reader_gap_value">%1$d dp</string>
+    <string name="reader_theme">Тема</string>
+    <string name="reader_resume_title">Вы остановились на странице %1$d</string>
+    <string name="reader_resume_continue">Продолжить</string>
+    <string name="reader_resume_start">С начала</string>
+    <string name="reader_no_pages">В этой главе нет страниц</string>
+
+    <!-- Library -->
+    <string name="library_title">Библиотека</string>
+    <string name="library_tab_continue">Продолжить</string>
+    <string name="library_tab_bookmarks">Закладки</string>
+    <string name="library_tab_history">История</string>
+    <string name="library_tab_downloads">Загрузки</string>
+    <string name="library_bookmarks_empty">Закладок пока нет</string>
+    <string name="library_bookmarks_empty_text">Добавляйте мангу в библиотеку, чтобы вернуться к ней позже.</string>
+    <string name="library_history_empty">Истории пока нет</string>
+    <string name="library_history_empty_text">Начните читать — прогресс появится здесь.</string>
+    <string name="library_downloads_empty">Загрузок нет</string>
+    <string name="library_downloads_empty_text">Скачайте главу на странице манги, чтобы читать без сети.</string>
+    <string name="library_go_catalog">Перейти в каталог</string>
+    <string name="library_remove_history">Убрать из истории</string>
+    <string name="library_continue">Продолжить</string>
+    <string name="library_download_status_queued">В очереди</string>
+    <string name="library_download_status_running">Загрузка %1$d из %2$d</string>
+    <string name="library_download_status_done">Скачано</string>
+    <string name="library_download_status_failed">Ошибка</string>
+    <string name="library_download_delete">Удалить загрузку</string>
+    <string name="library_download_cancel">Отменить загрузку</string>
+    <string name="library_download_open">Читать офлайн</string>
+    <string name="library_download_retry">Повторить загрузку</string>
+    <string name="library_sync_error">Не удалось синхронизировать библиотеку</string>
+    <string name="library_history_progress">Глава %1$s · стр. %2$d из %3$d</string>
+    <string name="library_download_chapter">Глава %1$s</string>
+    <string name="library_downloads_header">Скачанные главы</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Профиль и настройки</string>
+    <string name="settings_guest">Гость</string>
+    <string name="settings_guest_text">Войдите, чтобы синхронизировать закладки и прогресс между устройствами.</string>
+    <string name="settings_login">Войти</string>
+    <string name="settings_register">Регистрация</string>
+    <string name="settings_logout">Выйти</string>
+    <string name="settings_logout_confirm">Выйти из аккаунта?</string>
+    <string name="settings_logout_confirm_text">Локальные закладки и загрузки останутся на устройстве.</string>
+    <string name="settings_account">Аккаунт</string>
+    <string name="settings_theme">Оформление</string>
+    <string name="settings_theme_hint">Тема меняет палитру и атмосферный фон приложения.</string>
+    <string name="settings_api">Сервер API</string>
+    <string name="settings_api_label">Базовый URL</string>
+    <string name="settings_api_hint">http://127.0.0.1:8000/api/v1/</string>
+    <string name="settings_api_save">Сохранить адрес</string>
+    <string name="settings_api_reset">Сбросить на стандартный</string>
+    <string name="settings_api_invalid">Введите корректный http(s) URL, оканчивающийся на /</string>
+    <string name="settings_api_saved">Адрес API сохранён</string>
+    <string name="settings_api_changed_logout">Адрес изменён — выполнен выход из аккаунта</string>
+    <string name="settings_api_release_https">В release-сборке разрешён только HTTPS. HTTP работает только в debug.</string>
+    <string name="settings_reader">Чтение по умолчанию</string>
+    <string name="settings_reader_mode">Режим</string>
+    <string name="settings_reader_fit">Масштаб страницы</string>
+    <string name="settings_keep_screen_on">Не гасить экран в читалке</string>
+    <string name="settings_auto_scroll_speed">Скорость автопрокрутки</string>
+    <string name="settings_auto_scroll_speed_value">Скорость автопрокрутки: %1$d</string>
+    <string name="settings_reader_saved">Изменения сохраняются автоматически</string>
+    <string name="settings_cache">Кэш и данные</string>
+    <string name="settings_clear_cache">Очистить кэш изображений</string>
+    <string name="settings_clear_cache_done">Кэш изображений очищен</string>
+    <string name="settings_clear_downloads">Удалить все загрузки</string>
+    <string name="settings_clear_downloads_confirm">Удалить все скачанные главы?</string>
+    <string name="settings_clear_downloads_done">Загрузки удалены</string>
+    <string name="settings_clear_history">Очистить историю чтения</string>
+    <string name="settings_clear_history_confirm">Очистить историю чтения?</string>
+    <string name="settings_clear_history_done">История очищена</string>
+    <string name="settings_about">О приложении</string>
+    <string name="settings_version">Версия %1$s</string>
+    <string name="settings_legal">MangaPoisk Reborn — открытый клиент для каталога манги. Приложение не размещает и не распространяет изображения: метаданные и страницы поступают через публичный API, права принадлежат правообладателям.</string>
+    <string name="settings_about_api">API: %1$s</string>
+    <string name="settings_theme_midnight">Полночь</string>
+    <string name="settings_theme_noir">Нуар</string>
+    <string name="settings_theme_oni">Они</string>
+    <string name="settings_theme_crimson">Багровый</string>
+    <string name="settings_theme_sunset">Закат</string>
+    <string name="settings_theme_paper">Бумага</string>
+    <string name="settings_sign_out_title">Вы вышли из аккаунта</string>
+    <string name="settings_account_section">Профиль</string>
+    <string name="settings_session">Сессия</string>
+
+    <!-- Sources -->
+    <string name="sources_title">Источники</string>
+    <string name="sources_legal">Источники подключаются по правилам каждой платформы. MangaPoisk не хранит чужие изображения и не обходит платный доступ.</string>
+    <string name="sources_empty_title">Источники недоступны</string>
+    <string name="sources_empty_text">Список источников не загрузился. Проверьте соединение и повторите.</string>
+    <string name="source_language">Язык: %1$s</string>
+    <string name="source_status_enabled">Доступен</string>
+    <string name="source_status_disabled">Недоступен</string>
+    <string name="source_capability_search">Поиск</string>
+    <string name="source_capability_catalog">Каталог</string>
+    <string name="source_capability_latest">Обновления</string>
+    <string name="source_capability_pages">Страницы</string>
+    <string name="source_capability_chapters">Главы</string>
+    <string name="source_requires_cookies">Источник требует cookies для части функций.</string>
+    <string name="language_russian">Русский</string>
+    <string name="language_english">Английский</string>
+    <string name="settings_sources">Источники</string>
+    <string name="settings_sources_text">Доступность, язык и возможности подключённых источников.</string>
+
+    <!-- Auth -->
+    <string name="auth_title">Вход</string>
+    <string name="auth_register_title">Регистрация</string>
+    <string name="auth_login_tab">Вход</string>
+    <string name="auth_register_tab">Регистрация</string>
+    <string name="auth_email">Email</string>
+    <string name="auth_password">Пароль</string>
+    <string name="auth_display_name">Имя</string>
+    <string name="auth_display_name_hint">Как вас показывать</string>
+    <string name="auth_login_button">Войти</string>
+    <string name="auth_register_button">Создать аккаунт</string>
+    <string name="auth_email_invalid">Введите корректный email</string>
+    <string name="auth_password_short">Пароль должен быть не короче 8 символов</string>
+    <string name="auth_name_short">Введите имя</string>
+    <string name="auth_error_login">Не удалось войти. Проверьте email и пароль.</string>
+    <string name="auth_error_register">Не удалось зарегистрироваться. Возможно, email уже занят.</string>
+    <string name="auth_legal">Продолжая, вы соглашаетесь с условиями использования и политикой конфиденциальности.</string>
+    <string name="auth_password_show">Показать пароль</string>
+    <string name="auth_password_hide">Скрыть пароль</string>
+    <string name="auth_welcome">С возвращением</string>
+    <string name="auth_welcome_register">Создайте аккаунт, чтобы синхронизировать библиотеку.</string>
+    <string name="auth_later">Продолжить без аккаунта</string>
+    <string name="auth_switch_to_register">Нет аккаунта? Зарегистрируйтесь</string>
+    <string name="auth_switch_to_login">Уже есть аккаунт? Войдите</string>
+    <string name="auth_quote">Истории, которые остаются с тобой после последней страницы.</string>
+    <string name="auth_quote_author">MangaPoisk Reborn · шесть настроений</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_back">Назад</string>
+    <string name="cd_search">Поиск</string>
+    <string name="cd_settings">Настройки</string>
+    <string name="cd_open_manga">Открыть %1$s</string>
+    <string name="cd_cover">Обложка %1$s</string>
+    <string name="cd_download_chapter">Скачать главу %1$s</string>
+    <string name="cd_delete_download">Удалить загрузку</string>
+    <string name="cd_refresh">Обновить</string>
+    <string name="cd_more">Ещё</string>
+    <string name="cd_theme">Выбрать тему %1$s</string>
+    <string name="cd_reader_settings">Настройки чтения</string>
+    <string name="cd_toggle_mode">Переключить режим чтения</string>
+    <string name="cd_add_bookmark">Добавить в библиотеку</string>
+    <string name="cd_remove_bookmark">Удалить из библиотеки</string>
+    <string name="cd_download">Скачать</string>
+    <string name="cd_cancel_download">Отменить загрузку</string>
+    <string name="cd_prev_chapter">Предыдущая глава</string>
+    <string name="cd_next_chapter">Следующая глава</string>
+    <string name="cd_menu">Меню</string>
+    <string name="cd_logo">Логотип MangaPoisk</string>
+    <string name="cd_auto_scroll">Автопрокрутка</string>
+    <string name="cd_reader_back">Выйти из читалки</string>
+
+</resources>
