@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450" role="img" aria-label="Обложка недоступна">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#142235"/>
+      <stop offset="1" stop-color="#080e17"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="450" fill="url(#g)"/>
+  <circle cx="150" cy="196" r="58" fill="none" stroke="#5ec8ff" stroke-opacity=".28" stroke-width="1.5"/>
+  <path d="M112 174c13-5 26-3 38 6v57c-12-8-25-10-38-6v-57Zm76 0c-13-5-26-3-38 6v57c12-8 25-10 38-6v-57Z" fill="none" stroke="#5ec8ff" stroke-opacity=".75" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M150 180v57" stroke="#eaf2fb" stroke-opacity=".7" stroke-width="2.2"/>
+  <text x="150" y="300" text-anchor="middle" fill="#9fb2c8" font-family="system-ui, sans-serif" font-size="13">Обложка недоступна</text>
+</svg>
