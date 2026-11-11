@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
 import pytest
-
 from manga_common.db import create_all, create_engine, create_session_factory
 from services.control.app.config import ControlSettings
 from services.control.app.crypto import SecretBox

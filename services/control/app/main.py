@@ -5,7 +5,6 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-
 from manga_common.db import create_all, create_engine, create_session_factory, ping
 from manga_common.service import add_ready_check, create_service_app
 

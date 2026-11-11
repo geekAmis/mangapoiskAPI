@@ -33,8 +33,6 @@ apps/android/**/build/
 *.aab
 
 # Credentials must never be committed
-# IMPORTANT CHANGES: DON"T TOUCH!!!!
 data.txt
 *.pem
 *.key
-/docs/*

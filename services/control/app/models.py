@@ -4,12 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from manga_common.db import Base, TimestampMixin, UUIDPrimaryKey
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
-
-from manga_common.db import Base, TimestampMixin, UUIDPrimaryKey
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
 
@@ -33,10 +32,10 @@ class Server(Base, UUIDPrimaryKey, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    services: Mapped[list["ServerService"]] = relationship(
+    services: Mapped[list[ServerService]] = relationship(
         back_populates="server", cascade="all, delete-orphan", passive_deletes=True
     )
-    jobs: Mapped[list["DeploymentJob"]] = relationship(
+    jobs: Mapped[list[DeploymentJob]] = relationship(
         back_populates="server", cascade="all, delete-orphan", passive_deletes=True
     )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -68,6 +69,24 @@ def _clean(value: Any) -> Any:
     return value.strip() if isinstance(value, str) else value
 
 
+def _weak_title(value: str | None) -> bool:
+    """Detect slug-derived titles such as ``gwihwanjaui mabeobeun ...``.
+
+    MangaLib's detail endpoint is not public, so its fallback can produce a
+    lowercase romanised slug.  A real Russian/English title from search should
+    win over that placeholder.
+    """
+
+    text = (value or "").strip()
+    if not text:
+        return True
+    if re.search(r"[А-Яа-яЁё]", text):
+        return False
+    if any(char.isupper() for char in text):
+        return False
+    return bool(re.fullmatch(r"[a-z0-9 .'’\-]+", text))
+
+
 async def upsert_manga_detail(
     session: AsyncSession, detail: MangaDetail
 ) -> tuple[Manga, bool, list[Chapter]]:
@@ -90,7 +109,8 @@ async def upsert_manga_detail(
         session.add(manga)
 
     manga.slug = detail.slug or manga.slug
-    manga.title = detail.title or manga.title
+    if detail.title and (not _weak_title(detail.title) or _weak_title(manga.title)):
+        manga.title = detail.title
     manga.title_en = detail.title_en or manga.title_en
     manga.title_alt = detail.title_alt or manga.title_alt
     manga.description = detail.description or manga.description
@@ -170,7 +190,8 @@ async def upsert_manga_summary(
         )
         session.add(manga)
     manga.slug = summary.slug or manga.slug
-    manga.title = summary.title or manga.title
+    if summary.title and (not _weak_title(summary.title) or _weak_title(manga.title)):
+        manga.title = summary.title
     manga.title_en = summary.title_en or manga.title_en
     manga.title_alt = summary.title_alt or manga.title_alt
     manga.description = summary.description or manga.description

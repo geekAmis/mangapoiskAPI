@@ -1,6 +1,30 @@
 # Deployment
 
-## Docker Compose (single VPS)
+## Option A — systemd on Ubuntu (no Docker)
+
+The production server for this project does not run Docker.  The control
+service can install the backend on any SSH-accessible Ubuntu host (directly or
+through a jump host) with the admin panel, or you can do it manually:
+
+1. Create `/opt/mangapoisk-reborn` and a system user `mangapoisk`.
+2. Copy the repo to `/opt/mangapoisk-reborn/src`.
+3. Create a venv and install `packages/manga_common`, then the requirements of
+   the services you want.
+4. Put a `.env` at `/opt/mangapoisk-reborn/.env` with SQLite URLs:
+   `sqlite+aiosqlite:////opt/mangapoisk-reborn/data/catalog.db` and the same for
+   `library.db`/`control.db`.
+5. Add systemd units (`mangapoisk-parser`, `-catalog`, `-library`, `-media`,
+   `-control`, `-gateway`, `-notifier`, `-scheduler`) running
+   `venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 81xx` with
+   `EnvironmentFile=/opt/mangapoisk-reborn/.env`.
+6. Run a private nginx instance on `:8088` with root
+   `/opt/mangapoisk-reborn/web` and `/api` proxied to the gateway on 8100.
+7. Upload the built `apps/web/dist` to `/opt/mangapoisk-reborn/web`.
+
+Do not touch existing nginx/systemd units; use a separate config and ports.
+The admin panel can do the same steps automatically for new servers.
+
+## Option B — Docker Compose (single VPS)
 
 1. Install Docker Engine + Compose plugin.
 2. Clone the repository.

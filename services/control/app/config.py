@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pydantic_settings import SettingsConfigDict
-
 from manga_common.config import Settings
+from pydantic_settings import SettingsConfigDict
 
 
 class ControlSettings(Settings):

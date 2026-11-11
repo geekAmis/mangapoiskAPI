@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
-
 from manga_common.errors import NotFoundError
 from manga_common.security import require_internal_token
 

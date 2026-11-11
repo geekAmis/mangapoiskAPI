@@ -8,8 +8,6 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-
 from manga_common.auth import constant_time_compare, create_access_token
 from manga_common.errors import NotFoundError, UnauthorizedError, UpstreamError, ValidationError
 from manga_common.schemas import (
@@ -40,6 +38,7 @@ from manga_common.schemas import (
 )
 from manga_common.security import UserClaims, require_admin, require_user
 from manga_common.source_models import MangaSummary, SourceSearchResult
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from .clients import CatalogClient, ControlClient, LibraryClient, MediaClient, ParserClient

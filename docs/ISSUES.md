@@ -25,3 +25,4 @@ keeps a stable local index.
 | [#20](https://github.com/geekAmis/mangapoiskAPI/issues/20) | 17. QA / user testing | in progress |
 | [#21](https://github.com/geekAmis/mangapoiskAPI/issues/21) | 18. Documentation | done |
 | [#22](https://github.com/geekAmis/mangapoiskAPI/issues/22) | 19. Release 1.0.0 | pending |
+| [#24](https://github.com/geekAmis/mangapoiskAPI/issues/24) | 20. Admin panel + server manager | in progress |

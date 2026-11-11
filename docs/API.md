@@ -131,6 +131,51 @@ Reader settings object:
 {"theme":"midnight","reader_mode":"vertical","page_fit":"width","auto_scroll":false,"auto_scroll_speed":30,"show_page_numbers":true,"blur_adult_posters":true}
 ```
 
+## Admin / server manager
+
+The web admin panel is at `/admin` (direct URL, no nav link).  Login uses
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` from the environment and returns an admin
+JWT.  Keep this token in `sessionStorage`; it is not the reader account token.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/admin/login` | `{username,password}` → admin token |
+| GET | `/api/v1/admin/me` | current admin |
+| GET/POST | `/api/v1/admin/servers` | list / add server |
+| PATCH/DELETE | `/api/v1/admin/servers/{id}` | update / remove |
+| POST | `/api/v1/admin/servers/{id}/deploy` | install selected services over SSH |
+| GET | `/api/v1/admin/servers/{id}/health` | check one server |
+| GET | `/api/v1/admin/jobs/{id}` | deployment job + log |
+| GET | `/api/v1/admin/registry` | service → endpoints + health |
+| POST | `/api/v1/admin/registry/sync` | refresh health and switch gateway routes |
+| POST | `/api/v1/admin/failover` | same, explicit manual failover |
+| GET | `/api/v1/admin/audit` | recent admin actions |
+
+`POST /admin/servers` body:
+
+```json
+{
+  "name": "primary-85",
+  "host": "85.192.37.58",
+  "public_host": "85.192.37.58",
+  "ssh_port": 22,
+  "username": "root",
+  "password": "…",
+  "jump_server_id": "uuid-or-null",
+  "bind_host": "127.0.0.1",
+  "is_fallback": false,
+  "is_jump": false,
+  "services": [
+    {"code": "parser", "port": 8101},
+    {"code": "catalog", "port": 8102}
+  ]
+}
+```
+
+Service codes: `parser, catalog, library, media, control, gateway, notifier,
+scheduler`.  `scheduler` has no HTTP health check.  Passwords are encrypted at
+rest and never returned by the API.
+
 ## Internal API (not public)
 
 All internal paths require `X-Internal-Token`.  Services listen on an internal

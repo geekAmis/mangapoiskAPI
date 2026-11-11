@@ -4,7 +4,6 @@ import base64
 import hashlib
 
 from cryptography.fernet import Fernet, InvalidToken
-
 from manga_common.errors import AppError
 
 

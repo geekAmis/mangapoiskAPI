@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .config import ControlSettings
 from .crypto import SecretBox
 from .models import DeploymentJob
-from .repository import audit, create_job, get_job, get_server, update_job, update_server
+from .repository import audit, create_job, get_job, get_server, update_server
 from .ssh import SSHRunner, SSHTarget
 
 logger = logging.getLogger(__name__)

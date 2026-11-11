@@ -47,9 +47,22 @@ fragile parts.
 | `catalog` | 8002 | Manga/chapter index, search, import/upsert, refresh | PostgreSQL |
 | `library` | 8003 | Accounts, JWT, bookmarks, reading progress, settings | PostgreSQL |
 | `media` | 8004 | Image proxy/cache, CBZ/PDF/HTML export jobs | disk (S3-compatible optional) |
+| `control` | 8005 | Server inventory, SSH deploys, health registry/failover | SQLite/Postgres |
 | `web` | 8080 | React build served by nginx | static |
 | `scheduler` | — | Periodic catalogue refresh + notifications | none |
 | `notifier` | 8006 | Telegram delivery | none |
+
+### Admin / server manager
+
+`control` stores servers (SSH credentials encrypted with a key derived from
+`CONTROL_SECRET_KEY`), the microservices assigned to each server, and
+deployment jobs.  It can install the selected services over SSH or through a
+jump host, write systemd units and health-check them.  `/api/v1/admin/*` is
+protected by an admin JWT issued from `ADMIN_USERNAME`/`ADMIN_PASSWORD`.
+The gateway periodically pulls `/internal/registry` and switches a service to
+the first healthy endpoint (non-fallback first, then fallback).  This is how a
+server can be replaced without redeploying the web client.  The 83 jump host is
+just an SSH route; it is not used for application traffic.
 
 ## Key decisions
 

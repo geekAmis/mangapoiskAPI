@@ -5,9 +5,8 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from manga_common.errors import ConflictError, NotFoundError, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config import ControlSettings
 from .crypto import SecretBox
@@ -30,9 +29,9 @@ from .schemas import (
     ServerCreate,
     ServerHealthOut,
     ServerOut,
+    ServerUpdate,
     ServiceOut,
     ServiceSpec,
-    ServerUpdate,
 )
 from .ssh import SSHRunner, SSHTarget
 
@@ -160,7 +159,10 @@ class ControlService:
             except Exception as exc:
                 await session.rollback()
                 raise ConflictError("Не удалось обновить сервер", details=str(exc)) from exc
-            await audit(session, "server.updated", server_id=row.id, details=values)
+            audit_details = {
+                key: value for key, value in values.items() if "password" not in key.lower()
+            }
+            await audit(session, "server.updated", server_id=row.id, details=audit_details)
             await session.commit()
             jump = await session.get(Server, row.jump_server_id) if row.jump_server_id else None
             return server_out(row, jump.name if jump else None)

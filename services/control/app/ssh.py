@@ -5,7 +5,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import paramiko
-
 from manga_common.errors import UpstreamError
 
 logger = logging.getLogger(__name__)
