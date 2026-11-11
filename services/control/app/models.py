@@ -27,6 +27,7 @@ class Server(Base, UUIDPrimaryKey, TimestampMixin):
         ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
     )
     bind_host: Mapped[str] = mapped_column(String(64), nullable=False, default="0.0.0.0")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     is_fallback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_jump: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

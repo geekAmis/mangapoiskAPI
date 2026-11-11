@@ -11,6 +11,7 @@ export type AdminServiceCode =
   | 'control'
   | 'gateway'
   | 'notifier'
+  | 'replica'
   | 'scheduler';
 
 export const ADMIN_SERVICES: Array<{ code: AdminServiceCode; label: string; defaultPort: number; http: boolean }> = [
@@ -21,6 +22,7 @@ export const ADMIN_SERVICES: Array<{ code: AdminServiceCode; label: string; defa
   { code: 'control', label: 'Control', defaultPort: 8005, http: true },
   { code: 'gateway', label: 'Gateway', defaultPort: 8100, http: true },
   { code: 'notifier', label: 'Notifier', defaultPort: 8106, http: true },
+  { code: 'replica', label: 'Replica', defaultPort: 8108, http: true },
   { code: 'scheduler', label: 'Scheduler', defaultPort: 8107, http: false },
 ];
 
@@ -59,6 +61,7 @@ export interface AdminServer {
   jump_server_id: string | null;
   jump_server_name: string | null;
   bind_host: string;
+  priority: number;
   is_fallback: boolean;
   is_jump: boolean;
   enabled: boolean;
@@ -77,6 +80,7 @@ export interface AdminServerCreate {
   password: string;
   jump_server_id?: string | null;
   bind_host: string;
+  priority: number;
   is_fallback: boolean;
   is_jump: boolean;
   notes?: string | null;
@@ -92,6 +96,7 @@ export interface AdminServerUpdate {
   password?: string;
   jump_server_id?: string | null;
   bind_host?: string;
+  priority?: number;
   is_fallback?: boolean;
   is_jump?: boolean;
   enabled?: boolean;

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from manga_common.db import create_all, create_engine, create_session_factory, ping
 from manga_common.service import add_ready_check, create_service_app
-from sqlalchemy import update
+from sqlalchemy import text, update
 
 from .api import router
 from .config import ControlSettings
@@ -23,6 +23,18 @@ async def lifespan(app: FastAPI):
     engine = create_engine(settings.control_dsn, echo=settings.debug)
     session_factory = create_session_factory(engine)
     await create_all(engine)
+    async with engine.begin() as conn:
+        if engine.dialect.name == "sqlite":
+            rows = await conn.execute(text("PRAGMA table_info(servers)"))
+            columns = {row[1] for row in rows}
+            if "priority" not in columns:
+                await conn.execute(
+                    text("ALTER TABLE servers ADD COLUMN priority INTEGER NOT NULL DEFAULT 100")
+                )
+        else:
+            await conn.execute(
+                text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 100")
+            )
     async with session_factory() as session:
         stale = await session.execute(
             update(DeploymentJob)

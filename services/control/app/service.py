@@ -116,6 +116,7 @@ class ControlService:
                     password_encrypted=self.box.encrypt(payload.password),
                     jump_server_id=payload.jump_server_id,
                     bind_host=payload.bind_host.strip(),
+                    priority=payload.priority,
                     is_fallback=payload.is_fallback,
                     is_jump=payload.is_jump,
                     notes=payload.notes,
@@ -303,6 +304,8 @@ class ControlService:
             url=f"http://{host}:{service.port}",
             healthy=service.healthy,
             is_fallback=server.is_fallback,
+            priority=server.priority,
+            is_jump=server.is_jump,
             checked_at=service.checked_at,
             last_error=service.last_error,
         )
@@ -329,6 +332,7 @@ class ControlService:
                     key=lambda item: (
                         item.is_fallback,
                         not item.healthy,
+                        item.priority,
                         server_meta[item.server_id][0],
                         server_meta[item.server_id][1],
                     )

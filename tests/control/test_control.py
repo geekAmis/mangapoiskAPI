@@ -49,6 +49,7 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
             username="root",
             password="secret",
             bind_host="127.0.0.1",
+            priority=10,
             services=[
                 ServiceSpec(code="parser", port=8101),
                 ServiceSpec(code="catalog", port=8102),
@@ -56,6 +57,7 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
         )
     )
     assert created.name == "primary"
+    assert created.priority == 10
     assert len(created.services) == 2
 
     servers = await service.servers()
@@ -109,6 +111,7 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
             username="root",
             password="secret",
             bind_host="0.0.0.0",
+            priority=50,
             is_jump=True,
             services=[ServiceSpec(code="parser", port=8301)],
         )
@@ -116,6 +119,7 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
     await service.update(created.id, ServerUpdate(is_fallback=False))
     registry = await service.registry()
     assert registry.services["parser"][0].server_id == created.id
+    assert registry.services["parser"][0].priority == 10
     edge_endpoint = next(
         item for item in registry.services["parser"] if item.server_id == remote.id
     )

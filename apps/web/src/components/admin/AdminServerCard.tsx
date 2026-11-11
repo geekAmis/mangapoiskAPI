@@ -57,6 +57,9 @@ export function AdminServerCard({
           </span>
           {server.is_fallback ? <span className="badge badge--accent">Резерв</span> : null}
           {server.is_jump ? <span className="badge">Jump</span> : null}
+          <span className="badge" title="Приоритет: меньшее число важнее">
+            P{server.priority}
+          </span>
         </div>
       </header>
 
