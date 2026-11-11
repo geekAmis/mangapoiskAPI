@@ -1,0 +1,242 @@
+name: mangapoisk-reborn
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: manga
+      POSTGRES_PASSWORD: manga
+      POSTGRES_DB: manga
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U manga"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  parser:
+    build:
+      context: .
+      dockerfile: services/parser/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: parser
+      PORT: 8001
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  catalog:
+    build:
+      context: .
+      dockerfile: services/catalog/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: catalog
+      PORT: 8002
+      CATALOG_DATABASE_URL: postgresql+asyncpg://manga:manga@postgres:5432/catalog
+      REDIS_URL: redis://redis:6379/1
+      PARSER_URL: http://parser:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      parser:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  library:
+    build:
+      context: .
+      dockerfile: services/library/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: library
+      PORT: 8003
+      LIBRARY_DATABASE_URL: postgresql+asyncpg://manga:manga@postgres:5432/library
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8003/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  media:
+    build:
+      context: .
+      dockerfile: services/media/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: media
+      PORT: 8004
+      MEDIA_CACHE_DIR: /data/media-cache
+      EXPORT_DIR: /data/exports
+    volumes:
+      - media-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8004/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  notifier:
+    build:
+      context: .
+      dockerfile: services/notifier/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: notifier
+      PORT: 8006
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8006/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [internal]
+
+  control:
+    build:
+      context: .
+      dockerfile: services/control/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: control
+      PORT: 8005
+      CONTROL_DATABASE_URL: postgresql+asyncpg://manga:manga@postgres:5432/control
+    volumes:
+      - control-data:/var/lib/mangapoisk
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8005/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: gateway
+      PORT: 8000
+      CATALOG_URL: http://catalog:8002
+      PARSER_URL: http://parser:8001
+      LIBRARY_URL: http://library:8003
+      MEDIA_URL: http://media:8004
+      CONTROL_URL: http://control:8005
+      NOTIFIER_URL: http://notifier:8006
+      REDIS_URL: redis://redis:6379/2
+    depends_on:
+      catalog:
+        condition: service_healthy
+      library:
+        condition: service_healthy
+      media:
+        condition: service_started
+      parser:
+        condition: service_started
+      control:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/scheduler/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: scheduler
+      CATALOG_URL: http://catalog:8002
+      MEDIA_URL: http://media:8004
+      NOTIFIER_URL: http://notifier:8006
+    depends_on:
+      catalog:
+        condition: service_healthy
+      media:
+        condition: service_started
+    networks: [internal]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      gateway:
+        condition: service_started
+    networks: [internal]
+
+  # Optional direct access for local API exploration.  In production put the
+  # gateway behind the same reverse proxy as the web app and remove this port.
+  gateway-public:
+    image: alpine/socat:1.8.0.0
+    profiles: ["dev"]
+    restart: unless-stopped
+    command: TCP-LISTEN:8000,fork,reuseaddr TCP:gateway:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      gateway:
+        condition: service_started
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  media-data:
+  control-data:

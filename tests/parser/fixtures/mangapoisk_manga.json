@@ -1,0 +1,174 @@
+{
+  "component": "Manga/Show",
+  "props": {
+    "manga": {
+      "data": {
+        "id": 6788,
+        "name": "Во всеоружии (перезапуск)",
+        "name_en": "Overgeared",
+        "name_jp": "Temppal",
+        "name_alt": "템빨",
+        "slug": "overgeared-abs3nSd",
+        "link": "/manga/overgeared-abs3nSd",
+        "title": "Во всеоружии (перезапуск)",
+        "year": 2020,
+        "translated": 0,
+        "buy_url": null,
+        "abuse": false,
+        "description": "Долгое время ему не везло в играх. Постоянно проигрывая, он привык быть неудачником. Но однажды, играя, он нашел в глубине Северной пещеры квест, открывший свой секрет. Обретя «Редкую книгу Пагмы», игрок преображается. Теперь ему удается то, е чем мечтают миллионы пользователей. Но открывать тайну своего спасения он не будет.",
+        "external_link": null,
+        "rating": 4.15,
+        "ratesCount": 402,
+        "chapters_count": 285,
+        "comments_count": 37,
+        "genres": [
+          {
+            "id": 3,
+            "link": "/genre/action",
+            "name_en": "action",
+            "title": "боевик"
+          },
+          {
+            "id": 1,
+            "link": "/genre/adventure",
+            "name_en": "adventure",
+            "title": "приключения"
+          },
+          {
+            "id": 7,
+            "link": "/genre/fantasy",
+            "name_en": "fantasy",
+            "title": "фэнтези"
+          },
+          {
+            "id": 8,
+            "link": "/genre/shounen",
+            "name_en": "shounen",
+            "title": "сёнэн"
+          }
+        ],
+        "poster": {
+          "link": "https://static2.mangapoisk.me/posters/6788/t4RzpQtznsuXgOcMFrz8GKcGIUz4UQVq1Nspj1uM.jpg",
+          "width": 900,
+          "height": 1280,
+          "link_mini": "https://static2.mangapoisk.me/posters/6788/t4RzpQtznsuXgOcMFrz8GKcGIUz4UQVq1Nspj1uM_mini.jpg",
+          "width_mini": 280,
+          "height_mini": 398,
+          "link_micro": "https://static2.mangapoisk.me/posters/6788/t4RzpQtznsuXgOcMFrz8GKcGIUz4UQVq1Nspj1uM_micro.jpg",
+          "width_micro": 50,
+          "height_micro": 71
+        },
+        "firstChapter": {
+          "id": 268123,
+          "link": "/manga/overgeared-abs3nSd/chapter/1-0",
+          "name": "",
+          "volume": "1",
+          "number": "0",
+          "extra": false,
+          "ago": "5 лет назад",
+          "formattedDate": "16 января 2021",
+          "recent": false,
+          "title": "0 Том 1"
+        },
+        "lastChapter": {
+          "id": 1105896,
+          "link": "/manga/overgeared-abs3nSd/chapter/1-312",
+          "name": "",
+          "volume": "1",
+          "number": "312",
+          "extra": false,
+          "ago": "1 месяц назад",
+          "formattedDate": "25 сентября 2026",
+          "recent": false,
+          "title": "312 Том 1"
+        },
+        "bookmarkedType": null,
+        "bookmarkedLabel": null
+      }
+    },
+    "chapters": {
+      "data": [
+        {
+          "id": 1047946,
+          "link": "/manga/overgeared-abs3nSd/chapter/1-300",
+          "name": "",
+          "volume": "1",
+          "number": "300",
+          "extra": false,
+          "ago": "8 мес. назад",
+          "formattedDate": "16 февраля 2026",
+          "recent": false,
+          "title": "300 Том 1",
+          "read": false,
+          "finished": null,
+          "last_page_number": null
+        },
+        {
+          "id": 1028881,
+          "link": "/manga/overgeared-abs3nSd/chapter/1-299",
+          "name": "",
+          "volume": "1",
+          "number": "299",
+          "extra": false,
+          "ago": "9 мес. назад",
+          "formattedDate": "7 февраля 2026",
+          "recent": false,
+          "title": "299 Том 1",
+          "read": false,
+          "finished": null,
+          "last_page_number": null
+        },
+        {
+          "id": 1024945,
+          "link": "/manga/overgeared-abs3nSd/chapter/1-298",
+          "name": "",
+          "volume": "1",
+          "number": "298",
+          "extra": false,
+          "ago": "9 мес. назад",
+          "formattedDate": "24 января 2026",
+          "recent": false,
+          "title": "298 Том 1",
+          "read": false,
+          "finished": null,
+          "last_page_number": null
+        }
+      ],
+      "links": {
+        "first": "https://mangapoisk.me/manga/overgeared-abs3nSd?tab=chapters&page=1",
+        "last": "https://mangapoisk.me/manga/overgeared-abs3nSd?tab=chapters&page=1",
+        "prev": null,
+        "next": null
+      },
+      "meta": {
+        "current_page": 1,
+        "from": 1,
+        "last_page": 1,
+        "per_page": 50,
+        "to": 3,
+        "total": 285
+      }
+    },
+    "upcomingChapter": {
+      "data": {
+        "id": 1105896,
+        "link": "/manga/overgeared-abs3nSd/chapter/1-313",
+        "name": "",
+        "volume": "1",
+        "number": 313,
+        "extra": false,
+        "ago": "1 месяц назад",
+        "formattedDate": "25 сентября 2026",
+        "recent": false,
+        "title": "313 Том 1"
+      }
+    },
+    "lastReadChapter": {
+      "data": null
+    }
+  },
+  "url": "/manga/overgeared-abs3nSd?tab=chapters",
+  "version": "86bb586fd1ab563788fc8a932d42d5e4",
+  "clearHistory": false,
+  "encryptHistory": false
+}

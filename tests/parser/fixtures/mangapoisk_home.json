@@ -1,0 +1,169 @@
+{
+  "component": "Main/Index",
+  "props": {
+    "popular": {
+      "data": [
+        {
+          "id": 6788,
+          "name": "Во всеоружии (перезапуск)",
+          "slug": "overgeared-abs3nSd",
+          "link": "/manga/overgeared-abs3nSd",
+          "title": "Во всеоружии (перезапуск)",
+          "new": null,
+          "adult": 0,
+          "abuse": false,
+          "poster": {
+            "link": "https://static2.mangapoisk.me/posters/6788/t4RzpQtznsuXgOcMFrz8GKcGIUz4UQVq1Nspj1uM.jpg",
+            "width": 900,
+            "height": 1280,
+            "link_mini": "https://static2.mangapoisk.me/posters/6788/t4RzpQtznsuXgOcMFrz8GKcGIUz4UQVq1Nspj1uM_mini.jpg",
+            "width_mini": 280,
+            "height_mini": 398,
+            "link_micro": "https://static2.mangapoisk.me/posters/6788/t4RzpQtznsuXgOcMFrz8GKcGIUz4UQVq1Nspj1uM_micro.jpg",
+            "width_micro": 50,
+            "height_micro": 71
+          },
+          "lastChapter": {
+            "id": 1105896,
+            "link": "/manga/overgeared-abs3nSd/chapter/1-312",
+            "name": "",
+            "volume": "1",
+            "number": "312",
+            "extra": false,
+            "ago": "1 месяц назад",
+            "formattedDate": "25 сентября 2026",
+            "recent": false,
+            "title": "312 Том 1"
+          },
+          "is_external_link": false
+        },
+        {
+          "id": 12306,
+          "name": "Подземная Одиссея",
+          "slug": "dungeon-odyssey-abs3mJl",
+          "link": "/manga/dungeon-odyssey-abs3mJl",
+          "title": "Подземная Одиссея",
+          "new": null,
+          "adult": 0,
+          "abuse": false,
+          "poster": {
+            "link": "https://static2.mangapoisk.me/posters/12306/M7K4VT4iHOAFDLrBEjrU7exglLn8FFHX2xJU8ZjI.jpeg",
+            "width": 720,
+            "height": 1100,
+            "link_mini": "https://static2.mangapoisk.me/posters/12306/M7K4VT4iHOAFDLrBEjrU7exglLn8FFHX2xJU8ZjI_mini.jpeg",
+            "width_mini": 280,
+            "height_mini": 428,
+            "link_micro": "https://static2.mangapoisk.me/posters/12306/M7K4VT4iHOAFDLrBEjrU7exglLn8FFHX2xJU8ZjI_micro.jpeg",
+            "width_micro": 50,
+            "height_micro": 76
+          },
+          "lastChapter": {
+            "id": 1115221,
+            "link": "/manga/dungeon-odyssey-abs3mJl/chapter/3-173",
+            "name": "173",
+            "volume": "3",
+            "number": "173",
+            "extra": false,
+            "ago": "1 нед. назад",
+            "formattedDate": "3 ноября 2026",
+            "recent": false,
+            "title": " 173 Том 3"
+          },
+          "is_external_link": false
+        }
+      ]
+    },
+    "latestUpdated": {
+      "data": [
+        {
+          "id": 18843,
+          "name": "Злодей-тиран вернулся",
+          "slug": "the-villain-tyrant-has-returned",
+          "link": "/manga/the-villain-tyrant-has-returned",
+          "title": "Злодей-тиран вернулся",
+          "new": null,
+          "adult": 0,
+          "abuse": false,
+          "poster": {
+            "link": "https://static2.mangapoisk.me/posters/18843/widStoLzDgT8ofxEOAB1cVYkEBQON5t6FHmlrwht.jpg",
+            "width": 690,
+            "height": 1000,
+            "link_mini": "https://static2.mangapoisk.me/posters/18843/widStoLzDgT8ofxEOAB1cVYkEBQON5t6FHmlrwht_mini.jpg",
+            "width_mini": 280,
+            "height_mini": 406,
+            "link_micro": "https://static2.mangapoisk.me/posters/18843/widStoLzDgT8ofxEOAB1cVYkEBQON5t6FHmlrwht_micro.jpg",
+            "width_micro": 50,
+            "height_micro": 72
+          },
+          "chapters": [
+            {
+              "id": 1117183,
+              "link": "/manga/the-villain-tyrant-has-returned/chapter/2-82",
+              "name": "",
+              "volume": "2",
+              "number": "82",
+              "extra": false,
+              "ago": "48 мин. назад",
+              "formattedDate": "48 минут назад",
+              "recent": true,
+              "title": "82 Том 2"
+            },
+            {
+              "id": 1117184,
+              "link": "/manga/the-villain-tyrant-has-returned/chapter/2-81",
+              "name": "",
+              "volume": "2",
+              "number": "81",
+              "extra": false,
+              "ago": "48 мин. назад",
+              "formattedDate": "48 минут назад",
+              "recent": true,
+              "title": "81 Том 2"
+            }
+          ],
+          "is_external_link": false
+        },
+        {
+          "id": 17035,
+          "name": "Я не мог не влюбиться в самую жестокую девушку империи.",
+          "slug": "i-can-t-stop-doting-on-the-most-evil-woman-in-the-empire",
+          "link": "/manga/i-can-t-stop-doting-on-the-most-evil-woman-in-the-empire",
+          "title": "Я не мог не влюбиться в самую жестокую девушку империи.",
+          "new": null,
+          "adult": 0,
+          "abuse": false,
+          "poster": {
+            "link": "https://static2.mangapoisk.me/posters/17035/YYINI2NWxuBeT0GEGwMKTlmQ40w2R42XW0f08xT7.jpg",
+            "width": 344,
+            "height": 500,
+            "link_mini": "https://static2.mangapoisk.me/posters/17035/YYINI2NWxuBeT0GEGwMKTlmQ40w2R42XW0f08xT7_mini.jpg",
+            "width_mini": 280,
+            "height_mini": 407,
+            "link_micro": "https://static2.mangapoisk.me/posters/17035/YYINI2NWxuBeT0GEGwMKTlmQ40w2R42XW0f08xT7_micro.jpg",
+            "width_micro": 50,
+            "height_micro": 73
+          },
+          "chapters": [
+            {
+              "id": 1117182,
+              "link": "/manga/i-can-t-stop-doting-on-the-most-evil-woman-in-the-empire/chapter/2-119",
+              "name": "",
+              "volume": "2",
+              "number": "119",
+              "extra": false,
+              "ago": "48 мин. назад",
+              "formattedDate": "48 минут назад",
+              "recent": true,
+              "title": "119 Том 2"
+            }
+          ],
+          "is_external_link": false
+        }
+      ]
+    }
+  },
+  "url": "/",
+  "version": "86bb586fd1ab563788fc8a932d42d5e4",
+  "clearHistory": false,
+  "encryptHistory": false
+}

@@ -1,0 +1,48 @@
+{
+  "result": "ok",
+  "response": "collection",
+  "data": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "type": "manga",
+    "attributes": {
+      "title": {
+        "ru": "Во всеоружии",
+        "en": "Overgeared"
+      },
+      "altTitles": [
+        {
+          "ja": "テムパル"
+        }
+      ],
+      "description": {
+        "ru": "История о юноше, который нашёл редкую книгу и изменил свою жизнь.",
+        "en": "The story of a young man who found a rare book."
+      },
+      "year": 2020,
+      "status": "ongoing",
+      "contentRating": "safe",
+      "originalLanguage": "ko",
+      "tags": [
+        {
+          "id": "tag-fantasy",
+          "type": "tag",
+          "attributes": {
+            "name": {
+              "en": "Fantasy",
+              "ru": "Фэнтези"
+            }
+          }
+        }
+      ]
+    },
+    "relationships": [
+      {
+        "id": "cover-1",
+        "type": "cover_art",
+        "attributes": {
+          "fileName": "cover.png"
+        }
+      }
+    ]
+  }
+}
