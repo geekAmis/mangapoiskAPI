@@ -13,6 +13,7 @@ from manga_common.auth import (
 from manga_common.cache import MemoryCache, cache_key
 from manga_common.config import Settings
 from manga_common.errors import UnauthorizedError
+from manga_common.security import UserClaims, admin_auth_version, require_admin
 from manga_common.text import parse_float, parse_int, parse_year, slugify, strip_html
 
 
@@ -32,6 +33,27 @@ def test_jwt_roundtrip_and_expiry() -> None:
     assert payload["role"] == "admin"
     with pytest.raises(UnauthorizedError):
         decode_access_token(Settings(jwt_secret="another-secret", access_token_minutes=1), token)
+
+
+def test_admin_session_is_invalidated_by_password_rotation() -> None:
+    settings = Settings(
+        jwt_secret="unit-test-secret",
+        admin_username="admin",
+        admin_password="old-password",
+    )
+    version = admin_auth_version(settings)
+
+    async def scenario() -> None:
+        fresh = UserClaims(id="admin", role="admin", raw={"av": version, "username": "admin"})
+        await require_admin(fresh, settings)
+        rotated = settings.model_copy(update={"admin_password": "new-password"})
+        with pytest.raises(UnauthorizedError):
+            await require_admin(fresh, rotated)
+        legacy = UserClaims(id="admin", role="admin", raw={"username": "admin"})
+        with pytest.raises(UnauthorizedError):
+            await require_admin(legacy, settings)
+
+    asyncio.run(scenario())
 
 
 def test_refresh_hash_is_deterministic() -> None:
