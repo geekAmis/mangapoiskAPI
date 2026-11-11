@@ -374,6 +374,19 @@ class ControlClient(InternalClient):
     async def server_health(self, server_id: str) -> dict[str, Any]:
         return await self.request("GET", f"/internal/servers/{server_id}/health")
 
+    async def promote_replica(self, server_id: str) -> dict[str, Any]:
+        return await self.request(
+            "POST", f"/internal/servers/{server_id}/replica/promote", timeout=300.0
+        )
+
+    async def bootstrap_replica(self, server_id: str, source_server_id: str) -> dict[str, Any]:
+        return await self.request(
+            "POST",
+            f"/internal/servers/{server_id}/replica/bootstrap",
+            json={"source_server_id": source_server_id},
+            timeout=600.0,
+        )
+
     async def registry(self) -> dict[str, Any]:
         return await self.request("GET", "/internal/registry")
 

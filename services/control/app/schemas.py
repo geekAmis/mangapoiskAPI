@@ -135,6 +135,15 @@ class ServerHealthOut(BaseModel):
     services: list[ServiceOut]
 
 
+class ReplicaActionOut(BaseModel):
+    ok: bool
+    log: str = ""
+
+
+class ReplicaBootstrapRequest(BaseModel):
+    source_server_id: UUID
+
+
 class AuditOut(BaseModel):
     id: UUID
     action: str

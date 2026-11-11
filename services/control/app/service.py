@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import shlex
 import uuid
 from datetime import UTC, datetime
 from urllib.parse import urlparse
@@ -28,6 +31,7 @@ from .schemas import (
     DeployResponse,
     RegistryEndpoint,
     RegistryOut,
+    ReplicaActionOut,
     ServerCreate,
     ServerHealthOut,
     ServerOut,
@@ -170,9 +174,19 @@ class ControlService:
                     raise ValidationError("Jump-сервер не найден", code="jump_not_found")
             try:
                 row = await update_server(session, row, values)
+            except IntegrityError as exc:
+                await session.rollback()
+                raise ConflictError(
+                    "Сервер с таким хостом и SSH-портом уже существует",
+                    code="server_exists",
+                ) from exc
             except Exception as exc:
                 await session.rollback()
-                raise ConflictError("Не удалось обновить сервер", details=str(exc)) from exc
+                logger.exception("failed to update server %s", server_id)
+                raise UpstreamError(
+                    "Не удалось обновить сервер. Попробуйте ещё раз.",
+                    code="server_save_failed",
+                ) from exc
             audit_details = {
                 key: value for key, value in values.items() if "password" not in key.lower()
             }
@@ -356,6 +370,62 @@ class ControlService:
             if item.server_id == server_id:
                 return item
         raise NotFoundError("Сервер не найден")
+
+    async def _run_on_server(self, server: Server, script: str, timeout: float = 300.0) -> tuple[int, str]:
+        target, jump = await self.deployer._target(server)
+        return await asyncio.to_thread(
+            self.ssh.run_script, target, script, jump=jump, timeout=timeout
+        )
+
+    async def _replica_script(self, server: Server, body: str, stores: str) -> tuple[int, str]:
+        root = shlex.quote(self.settings.deploy_root.rstrip("/"))
+        payload = shlex.quote(body)
+        script = f"""set -u
+ROOT={root}
+TOKEN=$(grep '^INTERNAL_TOKEN=' "$ROOT/.env" | cut -d= -f2-)
+systemctl start mangapoisk-replica.service 2>/dev/null || true
+for svc in catalog library media; do systemctl stop "mangapoisk-$svc.service" 2>/dev/null || true; done
+curl -fsS --max-time 240 -X POST "http://127.0.0.1:8108/internal/replica/{stores}" \\
+  -H "X-Internal-Token: $TOKEN" -H 'Content-Type: application/json' -d {payload}
+CODE=$?
+for svc in catalog library media; do systemctl start "mangapoisk-$svc.service" 2>/dev/null || true; done
+exit $CODE
+"""
+        return await self._run_on_server(server, script)
+
+    async def promote_replica(self, server_id: uuid.UUID) -> ReplicaActionOut:
+        server = await self._server_model(server_id)
+        body = json.dumps({"stores": ["catalog", "library", "media"]})
+        code, output = await self._replica_script(server, body, "promote")
+        if code != 0:
+            raise UpstreamError(
+                "Не удалось восстановить данные из реплики",
+                code="replica_promote_failed",
+                details=output[-2000:],
+            )
+        await self.health_check_all()
+        return ReplicaActionOut(ok=True, log=output[-4000:])
+
+    async def bootstrap_replica(self, server_id: uuid.UUID, source_id: uuid.UUID) -> ReplicaActionOut:
+        server = await self._server_model(server_id)
+        if server_id == source_id:
+            raise ValidationError("Нельзя восстановить сервер из самого себя")
+        source = await self._server_model(source_id)
+        source_host = (source.public_host or source.host).strip()
+        if not source_host:
+            raise ValidationError("У исходного сервера не указан адрес")
+        body = json.dumps(
+            {"source": f"http://{source_host}:8108", "promote": True, "stores": ["catalog", "library", "media"]}
+        )
+        code, output = await self._replica_script(server, body, "bootstrap")
+        if code != 0:
+            raise UpstreamError(
+                "Не удалось скопировать данные с исходного сервера",
+                code="replica_bootstrap_failed",
+                details=output[-2000:],
+            )
+        await self.health_check_all()
+        return ReplicaActionOut(ok=True, log=output[-4000:])
 
     async def service_urls(self) -> dict[str, str]:
         registry = await self.registry()

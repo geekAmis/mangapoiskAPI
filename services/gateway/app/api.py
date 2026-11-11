@@ -886,6 +886,30 @@ async def admin_server_health(
     return await control(request).server_health(str(server_id))
 
 
+@router.post("/admin/servers/{server_id}/replica/promote")
+async def admin_promote_replica(
+    request: Request,
+    server_id: uuid.UUID,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).promote_replica(str(server_id))
+
+
+@router.post("/admin/servers/{server_id}/replica/bootstrap")
+async def admin_bootstrap_replica(
+    request: Request,
+    server_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    source = payload.get("source_server_id")
+    try:
+        source_id = uuid.UUID(str(source))
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("Некорректный исходный сервер") from exc
+    return await control(request).bootstrap_replica(str(server_id), str(source_id))
+
+
 @router.get("/admin/jobs/{job_id}")
 async def admin_job(
     request: Request,
