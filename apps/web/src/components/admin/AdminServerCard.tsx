@@ -119,12 +119,7 @@ export function AdminServerCard({
           type="button"
           className="btn btn--primary btn--sm"
           onClick={() => onDeploy(server)}
-          disabled={server.is_jump}
-          title={
-            server.is_jump
-              ? 'Jump-сервер используется только для SSH-доступа и не запускает микросервисы'
-              : 'Установить выбранные сервисы через SSH'
-          }
+          title="Установить выбранные сервисы через SSH"
         >
           <Icon name="download" size={15} />
           Развернуть
