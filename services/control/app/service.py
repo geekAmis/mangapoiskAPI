@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import httpx
-from manga_common.errors import ConflictError, NotFoundError, ValidationError
+from manga_common.errors import ConflictError, NotFoundError, UpstreamError, ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config import ControlSettings
@@ -119,9 +121,20 @@ class ControlService:
                     notes=payload.notes,
                     services=services,
                 )
+            except IntegrityError as exc:
+                await session.rollback()
+                raise ConflictError(
+                    "Сервер с таким хостом и SSH-портом уже есть. "
+                    "Закройте форму и нажмите «Изменить» у существующего сервера.",
+                    code="server_exists",
+                ) from exc
             except Exception as exc:
                 await session.rollback()
-                raise ConflictError("Такой сервер уже добавлен", details=str(exc)) from exc
+                logger.exception("failed to create server %s", payload.host)
+                raise UpstreamError(
+                    "Не удалось сохранить сервер. Попробуйте ещё раз.",
+                    code="server_save_failed",
+                ) from exc
             await audit(
                 session,
                 "server.created",
@@ -257,8 +270,28 @@ class ControlService:
             await session.commit()
             return results
 
+    def _local_hosts(self) -> set[str]:
+        hosts = {"127.0.0.1", "localhost", "::1"}
+        for url in (
+            self.settings.control_public_url,
+            self.settings.public_api_url,
+            self.settings.public_web_url,
+        ):
+            parsed = urlparse(url)
+            if parsed.hostname:
+                hosts.add(parsed.hostname)
+        return hosts
+
     def _endpoint(self, server: Server, service) -> RegistryEndpoint:  # type: ignore[no-untyped-def]
-        host = "127.0.0.1" if server.bind_host in {"127.0.0.1", "localhost"} else server.host
+        public_host = (server.public_host or server.host or "").strip()
+        if server.host in self._local_hosts():
+            # The control plane runs on this machine; loopback is the shortest path.
+            host = "127.0.0.1" if server.bind_host in {"127.0.0.1", "localhost"} else public_host
+        else:
+            # Remote nodes are reached by their public address.  A loopback bind
+            # on a remote node is expected to fail the check until the operator
+            # switches it to 0.0.0.0 (or puts a reverse proxy on that node).
+            host = public_host or server.host
         return RegistryEndpoint(
             server_id=server.id,
             server_name=server.name,

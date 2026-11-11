@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from manga_common.db import create_all, create_engine, create_session_factory
+from manga_common.errors import ConflictError
 from services.control.app.config import ControlSettings
 from services.control.app.crypto import SecretBox
 from services.control.app.schemas import ServerCreate, ServerUpdate, ServiceSpec
@@ -70,6 +71,43 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
     assert "mangapoisk-parser.service" in script
     assert "8201" in script
 
+    control_script = await service.deployer._build_script(
+        await service._server_model(created.id), [("control", 8005)]
+    )
+    assert 'systemctl enable "mangapoisk-control.service"' in control_script
+    assert "systemd-run" in control_script
+    assert 'systemctl restart "mangapoisk-control.service"' not in control_script
+
+    with pytest.raises(ConflictError) as duplicate:
+        await service.create(
+            ServerCreate(
+                name="primary-copy",
+                host="127.0.0.1",
+                username="root",
+                password="another-secret",
+            )
+        )
+    assert duplicate.value.code == "server_exists"
+    assert "another-secret" not in str(duplicate.value.details)
+
+    remote = await service.create(
+        ServerCreate(
+            name="edge",
+            host="203.0.113.10",
+            public_host="edge.example",
+            username="root",
+            password="secret",
+            bind_host="0.0.0.0",
+            services=[ServiceSpec(code="parser", port=8301)],
+        )
+    )
+    registry = await service.registry()
+    edge_endpoint = next(
+        item for item in registry.services["parser"] if item.server_id == remote.id
+    )
+    assert edge_endpoint.url == "http://edge.example:8301"
+
     await service.delete(created.id)
+    await service.delete(remote.id)
     assert await service.servers() == []
     await engine.dispose()

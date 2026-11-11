@@ -10,6 +10,7 @@ import {
   type AdminServiceCode,
 } from '../../api/admin';
 import { Icon } from '../Icon';
+import { DancingSpinner } from '../DancingLoader';
 import { Modal } from '../Modal';
 import { toast } from '../../stores/toast';
 
@@ -90,7 +91,13 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
       void queryClient.invalidateQueries({ queryKey: ['admin', 'servers'] });
       void queryClient.invalidateQueries({ queryKey: ['admin', 'registry'] });
       void queryClient.invalidateQueries({ queryKey: ['admin', 'audit'] });
-      toast.success(server ? 'Сервер обновлён' : 'Сервер добавлен');
+      toast.success(
+        server
+          ? 'Сервер обновлён'
+          : Object.values(serviceRows).some((row) => row.selected)
+            ? 'Сервер добавлен. Теперь нажмите «Развернуть» на его карточке.'
+            : 'Сервер добавлен',
+      );
       onClose();
     },
     onError: (mutationError: unknown) => {
@@ -194,7 +201,7 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
           <button type="submit" form={formId} className="btn btn--primary" disabled={mutation.isPending}>
             {mutation.isPending ? (
               <>
-                <Icon name="loader" size={16} className="spin" />
+                <DancingSpinner size={16} />
                 Сохраняем…
               </>
             ) : (
@@ -326,8 +333,8 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
                 onChange={(event) => setBindHost(event.target.value)}
               />
               <span className="field__hint">
-                <strong>0.0.0.0</strong> — доступен другим серверам. <strong>127.0.0.1</strong> — только
-                для локального сервера.
+                <strong>0.0.0.0</strong> — сервисы доступны другим серверам (нужно для отдельного
+                узла). <strong>127.0.0.1</strong> — только через nginx на этом же сервере.
               </span>
             </div>
             <div className="field">
@@ -431,6 +438,7 @@ export function ServerFormModal({ open, server, servers, onClose }: ServerFormMo
           </div>
           <p className="field__hint">
             Scheduler принимает порт для единообразия inventory, но health-check для него не выполняется.
+            После сохранения нажмите «Развернуть» на карточке сервера — установка идёт отдельной задачей.
           </p>
         </section>
       </form>
