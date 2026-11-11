@@ -28,8 +28,11 @@ apps/web/coverage/
 apps/mobile/www/
 apps/mobile/node_modules/
 apps/mobile/android/.gradle/
+apps/mobile/android/.idea/
 apps/mobile/android/local.properties
 apps/mobile/android/app/build/
+apps/mobile/android/app/src/main/assets/public/
+apps/mobile/android/app/src/main/assets/capacitor.config.json
 apps/android/.gradle/
 apps/android/.kotlin/
 apps/android/local.properties

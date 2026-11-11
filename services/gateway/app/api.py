@@ -91,6 +91,7 @@ def _chapter_label(chapter: ChapterOut) -> str:
 # endpoint is idempotent, this simply avoids one request per reader page view.
 _archive_posted: set[str] = set()
 _archive_tasks: set[asyncio.Task] = set()
+_warm_tasks: set[asyncio.Task] = set()
 
 
 async def _post_archive(media: MediaClient, payload: dict[str, Any], key: str) -> None:
@@ -342,6 +343,53 @@ async def import_manga(request: Request, payload: ImportMangaRequest) -> ImportM
 async def manga_variants(request: Request, manga_id: uuid.UUID) -> MangaVariantsOut:
     catalog, _, _, _ = clients(request)
     return await catalog.variants(str(manga_id))
+
+
+@router.post("/manga/{manga_id}/warm")
+async def warm_manga(
+    request: Request,
+    manga_id: uuid.UUID,
+    user: UserClaims = Depends(require_user),
+) -> dict[str, Any]:
+    """Queue server-side archiving for every chapter of a title.
+
+    A user downloading a whole work triggers this; later readers get the pages
+    from our archive instead of the upstream source.  Chapters that appear
+    later still need their first read to be archived.
+    """
+
+    catalog, _, _, media = clients(request)
+    detail = await catalog.manga(str(manga_id))
+
+    async def worker() -> None:
+        semaphore = asyncio.Semaphore(2)
+
+        async def one(chapter: ChapterOut) -> None:
+            async with semaphore:
+                try:
+                    chapter_detail = await catalog.chapter(str(chapter.id))
+                    if not chapter_detail.pages:
+                        return
+                    await media.archive_chapter(
+                        {
+                            "chapter_id": str(chapter_detail.id),
+                            "source": chapter_detail.source,
+                            "translator": getattr(chapter_detail, "translator", None),
+                            "pages": [
+                                {"number": page.number, "url": page.url}
+                                for page in chapter_detail.pages
+                            ],
+                        }
+                    )
+                except Exception as exc:
+                    logger.debug("warm chapter failed %s: %s", chapter.id, exc)
+
+        await asyncio.gather(*(one(chapter) for chapter in detail.chapters))
+
+    task = asyncio.create_task(worker())
+    _warm_tasks.add(task)
+    task.add_done_callback(_warm_tasks.discard)
+    return {"queued": len(detail.chapters), "manga_id": str(manga_id)}
 
 
 @router.get("/manga/{manga_id}", response_model=MangaDetailOut)

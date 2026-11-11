@@ -4,7 +4,10 @@
 прямо в роутерах. Я переписал его нормально: FastAPI-микросервисы, React-сайт,
 Android-клиент и общий API.
 
-![MangaPoisk Reborn](apps/web/public/themes/midnight.webp)
+![MangaPoisk Reborn](docs/screenshots/prod-home-desktop.png)
+
+**Живой сервер:** <http://85.192.37.58:8088>  
+**Админка:** `/admin` (доступ по `ADMIN_USERNAME` / `ADMIN_PASSWORD`).
 
 ## Что есть
 
@@ -107,13 +110,25 @@ SSH (напрямую или через 83 как jump-host), посмотрет
 
 ## Android
 
+Есть два клиента:
+
+- **Kotlin / Jetpack Compose** — `apps/android`, нативное приложение;
+- **Node.js / Capacitor** — `apps/mobile`, та же React-сборка в APK.
+  В нём поиск, каталог, выбор перевода и кэш на телефоне.
+
 ```bash
-cd apps/android
-./gradlew assembleDebug
+# Kotlin
+cd apps/android && ./gradlew assembleDebug
+
+# Node.js / Capacitor
+cd apps/mobile && npm install && npm run sync
+npx cap add android   # один раз
+npm run apk
 ```
 
-Для эмулятора базовый URL — `http://10.0.2.2:8000/api/v1/`. Для телефона —
-адрес вашего сервера. Инструкция: [docs/ANDROID.md](docs/ANDROID.md).
+Для эмулятора Kotlin-клиента базовый URL — `http://10.0.2.2:8000/api/v1/`.
+Для телефона — адрес сервера. Инструкции: [docs/ANDROID.md](docs/ANDROID.md)
+и [apps/mobile/README.md](apps/mobile/README.md).
 
 ## Тесты
 

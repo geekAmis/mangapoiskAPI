@@ -31,6 +31,8 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 | GET | `/api/v1/manga/search` | search; `live=true` also asks parser |
 | GET | `/api/v1/manga/{id}` | manga detail + chapters |
 | GET | `/api/v1/manga/{id}/chapters` | paginated chapter list |
+| GET | `/api/v1/manga/{id}/variants` | same title across sources + translator counts |
+| POST | `/api/v1/manga/{id}/warm` | queue server archive for every chapter (auth) |
 | POST | `/api/v1/manga/import` | import/refresh a manga by source URL or id |
 
 ### `GET /api/v1/manga`
@@ -54,7 +56,27 @@ Returns `MangaDetailOut`: all `MangaOut` fields plus `chapters: ChapterOut[]`
 (sorted newest first, capped at 500).
 
 `ChapterOut`: `id, manga_id, source, source_id, volume, number, title,
-published_at, page_count, url, is_external, created_at, updated_at`.
+translator, published_at, page_count, url, is_external, created_at, updated_at`.
+
+`GET /api/v1/manga/{id}/variants`:
+
+```json
+{
+  "primary_id": "uuid",
+  "items": [
+    {
+      "id": "uuid", "title": "…", "source": "mangalib", "source_id": "…",
+      "poster_url": "…", "rating": 9.2, "chapters_count": 166,
+      "translators": [{"name": "Komger", "count": 81}]
+    }
+  ]
+}
+```
+
+The mobile/web reader uses this to pick the source with the most chapters and
+to filter the chapter list by `<source>/<translator>/<count>`.  `translator`
+is `null` when the source does not expose a team; the UI calls it
+«Без перевода».
 
 ### `POST /api/v1/manga/import`
 

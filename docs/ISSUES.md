@@ -26,3 +26,7 @@ keeps a stable local index.
 | [#21](https://github.com/geekAmis/mangapoiskAPI/issues/21) | 18. Documentation | done |
 | [#22](https://github.com/geekAmis/mangapoiskAPI/issues/22) | 19. Release 1.0.0 | pending |
 | [#24](https://github.com/geekAmis/mangapoiskAPI/issues/24) | 20. Admin panel + server manager | in progress |
+| [#25](https://github.com/geekAmis/mangapoiskAPI/issues/25) | 21. Cross-source variants / переводы | done |
+| [#26](https://github.com/geekAmis/mangapoiskAPI/issues/26) | 22. Persistent chapter archive | done |
+| [#27](https://github.com/geekAmis/mangapoiskAPI/issues/27) | 23. Node.js/Capacitor Android | in progress |
+| [#28](https://github.com/geekAmis/mangapoiskAPI/issues/28) | 24. Dancing loading GIFs | in progress |
