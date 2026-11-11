@@ -310,6 +310,13 @@ class ControlService:
     async def registry(self) -> RegistryOut:
         async with self.session_factory() as session:
             rows = await list_servers(session)
+            server_meta = {
+                row.id: (
+                    row.is_jump,
+                    row.created_at or datetime.min.replace(tzinfo=UTC),
+                )
+                for row in rows
+            }
             services: dict[str, list[RegistryEndpoint]] = {}
             for row in rows:
                 if not row.enabled:
@@ -318,7 +325,14 @@ class ControlService:
                     endpoint = self._endpoint(row, service)
                     services.setdefault(service.code, []).append(endpoint)
             for items in services.values():
-                items.sort(key=lambda item: (item.is_fallback, not item.healthy, item.server_name))
+                items.sort(
+                    key=lambda item: (
+                        item.is_fallback,
+                        not item.healthy,
+                        server_meta[item.server_id][0],
+                        server_meta[item.server_id][1],
+                    )
+                )
             return RegistryOut(services=services)
 
     async def select(self, service: str) -> RegistryEndpoint | None:

@@ -109,10 +109,13 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
             username="root",
             password="secret",
             bind_host="0.0.0.0",
+            is_jump=True,
             services=[ServiceSpec(code="parser", port=8301)],
         )
     )
+    await service.update(created.id, ServerUpdate(is_fallback=False))
     registry = await service.registry()
+    assert registry.services["parser"][0].server_id == created.id
     edge_endpoint = next(
         item for item in registry.services["parser"] if item.server_id == remote.id
     )
