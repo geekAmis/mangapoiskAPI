@@ -127,11 +127,14 @@ class Settings(BaseSettings):
         if self._is_placeholder_secret(self.internal_token):
             problems.append("INTERNAL_TOKEN must be changed in production")
         if (
-            self.admin_password == "developer-master-pro"
-            or self._is_placeholder_secret(self.admin_password)
+            self.service_name in {"gateway", "control"}
+            and (
+                self.admin_password == "developer-master-pro"
+                or self._is_placeholder_secret(self.admin_password)
+            )
         ):
             problems.append("ADMIN_PASSWORD must be changed in production")
-        if (
+        if self.service_name == "control" and (
             self._is_placeholder_secret(self.control_secret_key)
             or self.control_secret_key == "dev-control-secret-change-me"
         ):

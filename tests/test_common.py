@@ -102,6 +102,7 @@ def test_production_secrets_reject_placeholders(
         "internal_token": "i" * 64,
         "admin_password": "strong-admin-password",
         "control_secret_key": "c" * 64,
+        "service_name": "control",
     }
     values[field] = value
     settings = Settings(environment="production", **values)
@@ -113,6 +114,7 @@ def test_production_secrets_reject_placeholders(
 def test_production_secrets_accept_strong_values() -> None:
     settings = Settings(
         environment="production",
+        service_name="control",
         jwt_secret="j" * 64,
         internal_token="i" * 64,
         admin_password="strong-admin-password",
