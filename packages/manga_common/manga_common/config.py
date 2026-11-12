@@ -113,16 +113,29 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment == "production"
 
+    @staticmethod
+    def _is_placeholder_secret(value: str) -> bool:
+        """Reject the development/example values shipped with the repository."""
+        return value.startswith(("dev-", "change-me"))
+
     def validate_production_secrets(self) -> None:
         if not self.is_production:
             return
         problems: list[str] = []
-        if self.jwt_secret.startswith("dev-"):
+        if self._is_placeholder_secret(self.jwt_secret):
             problems.append("JWT_SECRET must be changed in production")
-        if self.internal_token.startswith("dev-"):
+        if self._is_placeholder_secret(self.internal_token):
             problems.append("INTERNAL_TOKEN must be changed in production")
-        if self.admin_password in {"developer-master-pro", "change-me-admin-password"}:
+        if (
+            self.admin_password == "developer-master-pro"
+            or self._is_placeholder_secret(self.admin_password)
+        ):
             problems.append("ADMIN_PASSWORD must be changed in production")
+        if (
+            self._is_placeholder_secret(self.control_secret_key)
+            or self.control_secret_key == "dev-control-secret-change-me"
+        ):
+            problems.append("CONTROL_SECRET_KEY must be changed in production")
         if problems:
             raise RuntimeError("; ".join(problems))
 

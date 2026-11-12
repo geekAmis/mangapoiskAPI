@@ -414,7 +414,7 @@ if ! id -u "$USER_NAME" >/dev/null 2>&1; then
   useradd --system --home "$ROOT" --shell /usr/sbin/nologin "$USER_NAME"
 fi
 mkdir -p "$ROOT" "$ROOT/data" "$ROOT/data/media-cache" "$ROOT/data/exports" "$ROOT/logs" "$ROOT/run"
-chown -R "$USER_NAME:$USER_NAME" "$ROOT/data"
+chown -R "$USER_NAME:$USER_NAME" "$ROOT/data" 2>/dev/null || true
 chmod 750 "$ROOT/data"
 
 echo "== source =="

@@ -80,3 +80,46 @@ def test_memory_cache_ttl() -> None:
         assert cache_key("Manga", " Sample ") == "manga:sample"
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("jwt_secret", "change-me-to-a-long-random-string", "JWT_SECRET"),
+        ("jwt_secret", "dev-jwt-secret-change-me", "JWT_SECRET"),
+        ("internal_token", "change-me-to-another-long-random-string", "INTERNAL_TOKEN"),
+        ("internal_token", "dev-internal-token-change-me", "INTERNAL_TOKEN"),
+        ("admin_password", "change-me-admin-password", "ADMIN_PASSWORD"),
+        ("control_secret_key", "change-me-control-secret", "CONTROL_SECRET_KEY"),
+        ("control_secret_key", "dev-control-secret-change-me", "CONTROL_SECRET_KEY"),
+    ],
+)
+def test_production_secrets_reject_placeholders(
+    field: str, value: str, expected: str
+) -> None:
+    values = {
+        "jwt_secret": "j" * 64,
+        "internal_token": "i" * 64,
+        "admin_password": "strong-admin-password",
+        "control_secret_key": "c" * 64,
+    }
+    values[field] = value
+    settings = Settings(environment="production", **values)
+
+    with pytest.raises(RuntimeError, match=expected):
+        settings.validate_production_secrets()
+
+
+def test_production_secrets_accept_strong_values() -> None:
+    settings = Settings(
+        environment="production",
+        jwt_secret="j" * 64,
+        internal_token="i" * 64,
+        admin_password="strong-admin-password",
+        control_secret_key="c" * 64,
+    )
+    settings.validate_production_secrets()
+
+
+def test_development_secrets_allow_defaults() -> None:
+    Settings(environment="development").validate_production_secrets()
