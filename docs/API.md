@@ -211,8 +211,12 @@ require a reader `Authorization: Bearer <access_token>` header.
 | DELETE | `/api/v1/comments/{id}` | delete own comment |
 | POST | `/api/v1/comments/{id}/like` | like/unlike |
 | POST | `/api/v1/comments/{id}/report` | report with a reason |
+| GET | `/api/v1/notifications` | reply/like notifications for the current user |
+| POST | `/api/v1/notifications/read` | mark notification ids as read |
 | GET | `/api/v1/admin/comments` | moderation queue (admin) |
-| POST | `/api/v1/admin/comments/{id}/{action}` | `hide`, `restore`, `resolve`, `dismiss` |
+| POST | `/api/v1/admin/comments/{id}/{action}` | `hide` or `restore` (admin) |
+| GET | `/api/v1/admin/comment-reports` | report queue (admin) |
+| POST | `/api/v1/admin/comment-reports/{id}/resolve` | `resolved` or `dismissed` (admin) |
 
 The service stores a `manga_id` as an opaque UUID and keeps discussions after a
 title leaves the catalogue.  Create/duplicate cooldowns, daily limits and body
@@ -247,8 +251,7 @@ unaffected.
 | POST | `/api/v1/admin/failover` | same, explicit manual failover |
 | GET | `/api/v1/admin/audit` | recent admin actions |
 | GET | `/api/v1/admin/sources/{code}/cookie` | cookie status only (never the value) |
-| PUT | `/api/v1/admin/sources/{code}/cookie` | set/replace a source cookie |
-| DELETE | `/api/v1/admin/sources/{code}/cookie` | clear a source cookie |
+| PUT | `/api/v1/admin/sources/{code}/cookie` | set/replace a cookie; `{cookie:""}` clears it |
 | POST | `/api/v1/admin/sources/{code}/cookie/har` | extract and store a cookie from an uploaded `.har` |
 
 `POST /admin/servers` body:
