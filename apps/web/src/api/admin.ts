@@ -165,6 +165,36 @@ export interface AdminSourceCookie {
   updated_at: string | null;
 }
 
+export interface AdminComment {
+  id: string;
+  manga_id: string;
+  user_id: string;
+  user_name: string;
+  body: string;
+  spoiler: boolean;
+  status: string;
+  report_count: number;
+  created_at: string;
+}
+
+export interface AdminCommentPage {
+  items: AdminComment[];
+  total: number;
+  page: number;
+  limit: number;
+  has_next: boolean;
+}
+
+export interface AdminCommentReport {
+  id: string;
+  comment_id: string;
+  reporter_id: string;
+  reason: string;
+  status: string;
+  created_at: string;
+  comment: AdminComment | null;
+}
+
 export interface AdminAuditEntry {
   id: string;
   action: string;
@@ -344,6 +374,24 @@ export const adminApi = {
     adminRequest<AdminSourceCookie>(`/sources/${encodeURIComponent(code)}/cookie`, {
       method: 'PUT',
       body: { cookie },
+    }),
+
+  getReportedComments: (signal?: AbortSignal) =>
+    adminRequest<AdminCommentPage>('/comments?reported=true&limit=50', { signal }),
+
+  moderateComment: (id: string, action: 'hide' | 'restore') =>
+    adminRequest<AdminComment>(`/comments/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+
+  getCommentReports: (status: 'open' | 'resolved' | 'dismissed' = 'open', signal?: AbortSignal) =>
+    adminRequest<{ items: AdminCommentReport[]; total: number }>(
+      `/comment-reports?status=${status}&limit=50`,
+      { signal },
+    ),
+
+  resolveCommentReport: (id: string, status: 'resolved' | 'dismissed') =>
+    adminRequest<AdminCommentReport>(`/comment-reports/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST',
+      body: { status },
     }),
 
   syncRegistry: () =>

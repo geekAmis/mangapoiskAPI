@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/auth';
 import { initials } from '../../lib/format';
 import { Brand } from '../Brand';
 import { Icon } from '../Icon';
+import { NotificationsBell } from '../NotificationsBell';
 import { SearchBox } from '../SearchBox';
 import { ThemeSwitcher } from '../ThemeSwitcher';
 
@@ -95,7 +96,9 @@ export function Header() {
           </button>
 
           {user ? (
-            <div className="account-menu" ref={menuRef}>
+            <>
+              <NotificationsBell />
+              <div className="account-menu" ref={menuRef}>
               <button
                 type="button"
                 className="account-button"
@@ -139,6 +142,7 @@ export function Header() {
                 </div>
               ) : null}
             </div>
+            </>
           ) : (
             <Link to="/login" className="btn btn--outline btn--sm header-login">
               <Icon name="user" size={16} />

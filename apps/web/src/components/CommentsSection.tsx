@@ -279,7 +279,7 @@ export function CommentsSection({ mangaId }: { mangaId: string }) {
   const comments = data?.items ?? [];
 
   return (
-    <section className="comments-section" aria-labelledby="comments-title">
+    <section className="comments-section" id="comments" aria-labelledby="comments-title">
       <div className="comments-head">
         <h2 id="comments-title">
           Комментарии {data ? <span className="comments-count">{data.total}</span> : null}

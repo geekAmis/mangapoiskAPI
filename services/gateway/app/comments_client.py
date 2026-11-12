@@ -80,25 +80,47 @@ class CommentsClient(InternalClient):
         )
 
     async def admin_comments(
-        self, *, status: str | None, reported: bool | None, page: int, limit: int
+        self,
+        *,
+        status: str | None,
+        reported: bool | None,
+        page: int,
+        limit: int,
+        headers: dict[str, str],
     ) -> dict[str, Any]:
         params: dict[str, Any] = {"page": page, "limit": limit}
         if status:
             params["status"] = status
         if reported is not None:
             params["reported"] = reported
-        return await self.request("GET", "/internal/admin/comments", params=params)
+        return await self.request("GET", "/internal/admin/comments", params=params, headers=headers)
 
-    async def admin_moderate(self, comment_id: str, action: str) -> dict[str, Any]:
-        return await self.request("POST", f"/internal/admin/comments/{comment_id}/{action}")
+    async def admin_moderate(
+        self, comment_id: str, action: str, headers: dict[str, str]
+    ) -> dict[str, Any]:
+        return await self.request(
+            "POST", f"/internal/admin/comments/{comment_id}/{action}", headers=headers
+        )
 
-    async def admin_reports(self, *, status: str | None, page: int, limit: int) -> dict[str, Any]:
+    async def admin_reports(
+        self,
+        *,
+        status: str | None,
+        page: int,
+        limit: int,
+        headers: dict[str, str],
+    ) -> dict[str, Any]:
         params: dict[str, Any] = {"page": page, "limit": limit}
         if status:
             params["status"] = status
-        return await self.request("GET", "/internal/admin/reports", params=params)
+        return await self.request("GET", "/internal/admin/reports", params=params, headers=headers)
 
-    async def admin_resolve_report(self, report_id: str, status: str) -> dict[str, Any]:
+    async def admin_resolve_report(
+        self, report_id: str, status: str, headers: dict[str, str]
+    ) -> dict[str, Any]:
         return await self.request(
-            "POST", f"/internal/admin/reports/{report_id}/resolve", json={"status": status}
+            "POST",
+            f"/internal/admin/reports/{report_id}/resolve",
+            json={"status": status},
+            headers=headers,
         )

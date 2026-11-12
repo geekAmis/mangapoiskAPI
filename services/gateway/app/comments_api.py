@@ -30,6 +30,15 @@ def _user_headers(user: UserClaims | None, *, include_name: bool = False) -> dic
     return headers
 
 
+def _admin_headers() -> dict[str, str]:
+    """Stable synthetic identity for admin-only comment operations."""
+    return {
+        "X-User-Id": "00000000-0000-0000-0000-000000000000",
+        "X-User-Role": "admin",
+        "X-User-Name": quote("Администратор", safe=""),
+    }
+
+
 class CommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
     spoiler: bool = False
@@ -176,7 +185,7 @@ async def admin_comments(
     user: UserClaims = Depends(require_admin),
 ) -> dict[str, Any]:
     return await client(request).admin_comments(
-        status=status, reported=reported, page=page, limit=limit
+        status=status, reported=reported, page=page, limit=limit, headers=_admin_headers()
     )
 
 
@@ -187,7 +196,7 @@ async def admin_moderate_comment(
     action: Literal["hide", "restore"],
     user: UserClaims = Depends(require_admin),
 ) -> dict[str, Any]:
-    return await client(request).admin_moderate(str(comment_id), action)
+    return await client(request).admin_moderate(str(comment_id), action, _admin_headers())
 
 
 @router.get("/admin/comment-reports")
@@ -198,7 +207,9 @@ async def admin_reports(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     user: UserClaims = Depends(require_admin),
 ) -> dict[str, Any]:
-    return await client(request).admin_reports(status=status, page=page, limit=limit)
+    return await client(request).admin_reports(
+        status=status, page=page, limit=limit, headers=_admin_headers()
+    )
 
 
 @router.post("/admin/comment-reports/{report_id}/resolve")
@@ -208,4 +219,6 @@ async def admin_resolve_report(
     payload: ModerationAction,
     user: UserClaims = Depends(require_admin),
 ) -> dict[str, Any]:
-    return await client(request).admin_resolve_report(str(report_id), payload.status)
+    return await client(request).admin_resolve_report(
+        str(report_id), payload.status, _admin_headers()
+    )

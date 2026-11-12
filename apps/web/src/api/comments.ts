@@ -29,6 +29,37 @@ export interface CommentsPage {
   has_next: boolean;
 }
 
+export interface NotificationComment {
+  id: string;
+  manga_id: string;
+  user_id: string;
+  user_name: string;
+  body: string;
+  spoiler: boolean;
+  parent_id: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface CommentNotification {
+  id: string;
+  user_id: string;
+  comment_id: string;
+  type: string;
+  read_at: string | null;
+  created_at: string;
+  comment: NotificationComment | null;
+}
+
+export interface NotificationsPage {
+  items: CommentNotification[];
+  total: number;
+  page: number;
+  limit: number;
+  has_next: boolean;
+  unread_count: number;
+}
+
 export class CommentsApiError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -94,5 +125,12 @@ export const commentsApi = {
     request<unknown>(`/comments/${encodeURIComponent(commentId)}/report`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
+    }),
+  notifications: (page = 1, limit = 20) =>
+    request<NotificationsPage>(`/notifications?page=${page}&limit=${limit}`),
+  markNotificationsRead: (ids: string[]) =>
+    request<{ updated: number }>('/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
     }),
 };
