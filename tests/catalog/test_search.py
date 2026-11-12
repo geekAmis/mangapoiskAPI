@@ -69,6 +69,7 @@ async def top_ids(service: CatalogService, query: str, **kwargs) -> list[str]:  
         "chainsaw man",
         "Chainsaw Man",
         "chenso man",
+        "ченсо мен",
         "чензо мен",
         "чензомен",
         "человек бензопил",
@@ -91,6 +92,58 @@ async def test_solo_leveling_relevance(search_service, query: str) -> None:
 @pytest.mark.parametrize("query", ["overgeared", "Overgeared", "овергир", "овергир"])
 async def test_overgeared_romaji_and_cyrillic(search_service, query: str) -> None:
     assert "overgeared" in await top_ids(search_service, query)
+
+
+@pytest.mark.asyncio
+async def test_author_and_artist_search(search_service) -> None:
+    fujimoto = await search_service.list(query="Фудзимото", limit=3)
+    assert fujimoto.items
+    assert fujimoto.items[0].source_id == "chainsaw-man"
+    assert fujimoto.items[0].authors == ["Тацуки Фудзимото"]
+
+    murata = await search_service.list(query="Мурата", limit=3)
+    assert murata.items
+    assert murata.items[0].source_id == "one-punch-man"
+
+    author_title = await search_service.list(query="фудзимото человек", limit=3)
+    assert author_title.items[0].source_id == "chainsaw-man"
+
+    # Author + title works even when the author is not part of the title.
+    combined = await search_service.list(query="мурата ванпанчмен", limit=3)
+    assert combined.items[0].source_id == "one-punch-man"
+
+
+@pytest.mark.asyncio
+async def test_author_search_false_positives(search_service) -> None:
+    fujimoto = await search_service.list(query="Фудзимото", limit=5)
+    ids = {item.source_id for item in fujimoto.items}
+    assert ids.isdisjoint({"naruto", "death-note", "tokyo-ghoul"})
+
+    murata = await search_service.list(query="Мурата", limit=5)
+    ids = {item.source_id for item in murata.items}
+    assert ids.isdisjoint({"naruto", "death-note", "chainsaw-man"})
+
+
+@pytest.mark.asyncio
+async def test_author_suggestions_are_local(search_service) -> None:
+    suggestions = await search_service.suggest("Фудзимото", limit=4)
+    assert suggestions.items
+    assert suggestions.items[0].title == "Человек-бензопила"
+    assert suggestions.items[0].authors == ["Тацуки Фудзимото"]
+    assert suggestions.items[0].reason == "author"
+
+    murata = await search_service.suggest("Мурата", limit=4)
+    assert murata.items
+    assert murata.items[0].title == "Ванпанчмен"
+
+
+@pytest.mark.asyncio
+async def test_typo_does_not_surface_short_token_noise(search_service) -> None:
+    result = await search_service.list(query="чензо мен", limit=3)
+    ids = [item.source_id for item in result.items]
+    assert ids[0] == "chainsaw-man"
+    assert "menhera-chan" not in ids
+    assert "summoned-monster" not in ids
 
 
 @pytest.mark.asyncio
@@ -247,11 +300,15 @@ async def test_runtime_migration_adds_search_columns(tmp_path: Path) -> None:
         for column in (
             "search_title",
             "search_alt",
+            "search_author",
             "search_names",
             "search_meta",
             "search_description",
             "search_blob",
+            "search_doc_version",
             "search_indexed",
+            "authors",
+            "artists",
         ):
             await connection.execute(text(f"ALTER TABLE manga DROP COLUMN {column}"))
 
@@ -278,8 +335,55 @@ def test_author_metadata_is_indexed_when_present() -> None:
         description=None,
         metadata={"authors": ["Иванов"], "artists": ["Петров"]},
     )
-    assert "иванов" in fields["search_alt"]
-    assert "петров" in fields["search_alt"]
+    assert "иванов" in fields["search_author"]
+    assert "петров" in fields["search_author"]
+    assert "иванов" in fields["search_blob"]
+    assert "иванов" not in fields["search_alt"]
+
+
+def test_explicit_people_and_confusable_skeleton() -> None:
+    fields = build_search_fields(
+        title="Человек-бензопила",
+        title_en="Chainsaw Man",
+        title_alt=None,
+        genres=["Экшен"],
+        content_type="манга",
+        description=None,
+        authors=["Тацуки Фудзимото"],
+        artists=["Тацуки Фудзимото"],
+    )
+    assert "фудзимото" in fields["search_author"]
+    # The confusable skeleton collapses з/с/ц and ч/ц, so a "чензо" query can
+    # reach the document through the same candidate term as "ченсо".
+    assert "цинс" in fields["search_alt"]
+    assert "chns" in fields["search_alt"]
+
+
+@pytest.mark.asyncio
+async def test_backfill_copies_metadata_people_into_columns(search_service) -> None:
+    async with search_service.session_factory() as session:
+        await session.execute(
+            text(
+                "UPDATE manga SET metadata = :metadata, search_indexed = 0, "
+                "search_doc_version = 0, authors = '[]', artists = '[]' "
+                "WHERE source_id = 'naruto'"
+            ),
+            {"metadata": '{"authors": ["Масаси Кисимото"], "artists": ["Масаси Кисимото"]}'},
+        )
+        await session.commit()
+
+    worker = SearchBackfillWorker(
+        search_service.session_factory,
+        BackfillConfig(batch_size=10, yield_seconds=0.0),
+        owner="people-backfill-test",
+    )
+    await worker.run()
+
+    result = await search_service.list(query="Кисимото", limit=3)
+    assert result.items
+    assert result.items[0].source_id == "naruto"
+    assert result.items[0].authors == ["Масаси Кисимото"]
+    assert result.items[0].artists == ["Масаси Кисимото"]
 
 
 @pytest.mark.asyncio
@@ -297,6 +401,10 @@ def test_postgres_like_sql_compiles() -> None:
     query = analyze_query("чензо мен")
     terms = expansion_terms(query, dialect="postgresql")
     assert terms
+    # The PostgreSQL LIKE pre-filter must contain the same confusable/skeleton
+    # candidates as SQLite FTS; otherwise Chainsaw Man never reaches the
+    # Python ranker in production.
+    assert "chns" in terms or "цинс" in terms
     statement = select(Manga.id).where(
         or_(*[Manga.search_blob.contains(term, autoescape=True) for term in terms])
     )

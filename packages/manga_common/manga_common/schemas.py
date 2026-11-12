@@ -90,6 +90,8 @@ class MangaOut(ORMModel):
     poster_url: str | None = None
     adult: bool = False
     genres: list[str] = Field(default_factory=list)
+    authors: list[str] = Field(default_factory=list)
+    artists: list[str] = Field(default_factory=list)
     genre_slugs: list[str] = Field(default_factory=list)
     genre_details: list[GenreRefOut] = Field(default_factory=list)
     covers: list[CoverOut] = Field(default_factory=list)
@@ -168,6 +170,7 @@ class SearchSuggestionOut(BaseModel):
     poster_url: str | None = None
     year: int | None = None
     source: str
+    authors: list[str] = Field(default_factory=list)
     reason: str = "title"
 
 

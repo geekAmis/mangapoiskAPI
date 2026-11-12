@@ -30,6 +30,18 @@
     "mid": "/media/titles/overgeared--/cover_cb03dd26a8654ee7.webp",
     "high": "/media/titles/overgeared--/cover_a60be800bb454e60.webp"
   },
+  "creators": [
+    {
+      "id": 201,
+      "name": "Пак Сэналь",
+      "role": "author"
+    },
+    {
+      "id": 202,
+      "name": "Художник Тестовый",
+      "role": "artist"
+    }
+  ],
   "genres": [
     {
       "id": 2,

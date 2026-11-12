@@ -69,6 +69,8 @@ async def test_manga_uses_detail_endpoint_and_rus_name(settings, cache, client) 
         assert detail.description == "Описание тайтла из MangaLib."
         assert "Фэнтези" in detail.genres
         assert "Приключения" in detail.genres
+        assert detail.authors == ["Пак Сэналь"]
+        assert detail.artists == ["Художник Тестовый"]
         assert detail.chapters_count == 1204
         assert detail.updated_at is not None
         assert detail.latest_chapter is not None

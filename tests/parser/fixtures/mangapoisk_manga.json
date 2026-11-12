@@ -21,6 +21,18 @@
         "ratesCount": 402,
         "chapters_count": 285,
         "comments_count": 37,
+        "authors": [
+          {
+            "id": 301,
+            "name": "Тацуки Фудзимото"
+          }
+        ],
+        "artists": [
+          {
+            "id": 302,
+            "name": "Тацуки Фудзимото"
+          }
+        ],
         "genres": [
           {
             "id": 3,

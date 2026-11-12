@@ -32,7 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .models import Manga, SearchBackfillState
 from .normalization import genres_key, status_key
 from .repository import compute_group_key
-from .search import build_search_fields
+from .search import (
+    SEARCH_DOC_VERSION,
+    build_search_fields,
+    metadata_people,
+    normalize_people,
+)
 from .search_fts import fts_row_count, rebuild_legacy_fts, sync_search_fts_many
 
 logger = logging.getLogger(__name__)
@@ -203,6 +208,16 @@ async def bootstrap_search_index(
 def _prepare_rows(rows: Sequence[Any]) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
     for row in rows:
+        metadata = row.metadata_json or {}
+        # Legacy rows may only have people in ``metadata``.  Copy them into the
+        # dedicated columns while reindexing so the bounded worker also acts as
+        # the metadata->columns backfill; later enrichment fills the rest.
+        authors = normalize_people(getattr(row, "authors", None)) or metadata_people(
+            metadata, "authors", "author"
+        )
+        artists = normalize_people(getattr(row, "artists", None)) or metadata_people(
+            metadata, "artists", "artist"
+        )
         fields = build_search_fields(
             title=row.title,
             title_en=row.title_en,
@@ -210,7 +225,9 @@ def _prepare_rows(rows: Sequence[Any]) -> list[dict[str, Any]]:
             genres=row.genres or [],
             content_type=row.content_type,
             description=row.description,
-            metadata=row.metadata_json or {},
+            metadata=metadata,
+            authors=authors,
+            artists=artists,
         )
         group_key = row.group_key or compute_group_key(row.title)
         prepared.append(
@@ -219,6 +236,9 @@ def _prepare_rows(rows: Sequence[Any]) -> list[dict[str, Any]]:
                 "group_key": group_key,
                 "genres_key": genres_key(row.genres or []),
                 "status_key": status_key(row.status),
+                "authors": authors,
+                "artists": artists,
+                "search_doc_version": SEARCH_DOC_VERSION,
                 **fields,
                 "search_indexed": True,
             }
@@ -283,10 +303,14 @@ async def _apply_batch(session: AsyncSession, prepared: Sequence[dict[str, Any]]
         .values(
             search_title=bindparam("search_title"),
             search_alt=bindparam("search_alt"),
+            search_author=bindparam("search_author"),
             search_names=bindparam("search_names"),
             search_meta=bindparam("search_meta"),
             search_description=bindparam("search_description"),
             search_blob=bindparam("search_blob"),
+            search_doc_version=bindparam("search_doc_version"),
+            authors=bindparam("authors"),
+            artists=bindparam("artists"),
             search_indexed=True,
             group_key=bindparam("group_key"),
             genres_key=bindparam("genres_key"),
@@ -337,6 +361,8 @@ class SearchBackfillWorker:
                         Manga.description,
                         Manga.genres,
                         Manga.content_type,
+                        Manga.authors,
+                        Manga.artists,
                         Manga.metadata_json.label("metadata_json"),
                         Manga.status,
                         Manga.group_key,

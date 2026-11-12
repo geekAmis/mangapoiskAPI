@@ -55,6 +55,7 @@ from .search import (
     expansion_terms,
     filter_relevant,
     fts_match_query,
+    normalize_people,
     rank_rows,
     token_coverage,
 )
@@ -129,6 +130,26 @@ async def find_manga_by_source(
 
 def _clean(value: Any) -> Any:
     return value.strip() if isinstance(value, str) else value
+
+
+def _apply_people(
+    manga: Manga,
+    *,
+    authors: list[str] | None,
+    artists: list[str] | None,
+) -> None:
+    """Update people columns only when the source actually supplied names.
+
+    A summary/search payload usually omits authors; it must not erase names
+    that a previous detail enrichment stored.
+    """
+
+    cleaned_authors = normalize_people(authors)
+    cleaned_artists = normalize_people(artists)
+    if cleaned_authors:
+        manga.authors = cleaned_authors
+    if cleaned_artists:
+        manga.artists = cleaned_artists
 
 
 def compute_group_key(title: str | None) -> str:
@@ -298,6 +319,17 @@ async def merge_group_metadata(session: AsyncSession, group_key: str | None) -> 
     best_title_en = next((variant.title_en for variant in variants if variant.title_en), None)
     best_title_alt = next((variant.title_alt for variant in variants if variant.title_alt), None)
 
+    # A group may mix sources: MangaLib exposes authors while MangaPoisk often
+    # does not.  Union the people across variants so every source page and the
+    # search document can find the title by its author.
+    authors: list[str] = []
+    artists: list[str] = []
+    for variant in variants:
+        authors.extend(normalize_people(variant.authors))
+        artists.extend(normalize_people(variant.artists))
+    authors = list(dict.fromkeys(authors))
+    artists = list(dict.fromkeys(artists))
+
     for variant in variants:
         if best_description and not (variant.description or "").strip():
             variant.description = best_description
@@ -308,6 +340,10 @@ async def merge_group_metadata(session: AsyncSession, group_key: str | None) -> 
         variant.status = variant.status or best_status
         variant.title_en = variant.title_en or best_title_en
         variant.title_alt = variant.title_alt or best_title_alt
+        if authors:
+            variant.authors = list(authors)
+        if artists:
+            variant.artists = list(artists)
         variant.refresh_search_fields()
     for variant in variants:
         await sync_search_fts(session, variant.id, variant.search_blob)
@@ -380,6 +416,7 @@ async def upsert_manga_detail(
     manga.adult = bool(detail.adult)
     if detail.genres:
         manga.genres = list(detail.genres)
+    _apply_people(manga, authors=detail.authors, artists=detail.artists)
     manga.url = detail.url or manga.url
     manga.group_key = compute_group_key(manga.title)
     manga.last_synced_at = datetime.now(UTC)
@@ -476,6 +513,7 @@ async def upsert_manga_summary(
     manga.adult = bool(summary.adult)
     if summary.genres:
         manga.genres = list(summary.genres)
+    _apply_people(manga, authors=summary.authors, artists=summary.artists)
     manga.url = summary.url or manga.url
     manga.group_key = compute_group_key(manga.title)
     if summary.chapters_count:
@@ -612,6 +650,12 @@ def _legacy_search_text():
         + func.coalesce(Manga.title_alt, "")
         + " "
         + func.coalesce(Manga.description, "")
+        + " "
+        + func.coalesce(cast(Manga.authors, String), "")
+        + " "
+        + func.coalesce(cast(Manga.artists, String), "")
+        + " "
+        + func.coalesce(cast(Manga.metadata_json, String), "")
     )
 
 
@@ -661,8 +705,9 @@ def _candidate_order(query: SearchQuery):
         (Manga.search_title == normalized, 0),
         (Manga.search_title.startswith(normalized), 1),
         (Manga.search_names.contains(normalized, autoescape=True), 2),
-        (Manga.search_blob.contains(normalized, autoescape=True), 3),
-        else_=4,
+        (Manga.search_author.contains(normalized, autoescape=True), 3),
+        (Manga.search_blob.contains(normalized, autoescape=True), 4),
+        else_=5,
     )
     return (
         preliminary,
@@ -703,6 +748,30 @@ async def _pending_candidates(
     )
 
 
+def _filter_token_coverage(
+    query: SearchQuery,
+    ranked: list[tuple[Any, float, str]],
+) -> list[tuple[Any, float, str]]:
+    """For multi-word queries, prefer rows that match every meaningful token.
+
+    The candidate pre-filter is deliberately permissive, so a short token like
+    "мен" can pull in titles that share nothing else with "чензо мен".  If no
+    row covers all tokens we keep the permissive list instead of returning an
+    empty page.
+    """
+
+    need = len(query.tokens)
+    if need <= 1 or not ranked:
+        return ranked
+    # Only short tokens ("мен", "lev") create the broad-candidate noise this
+    # guard exists for.  Skipping the extra pass for ordinary multi-word
+    # queries keeps p95 latency in budget.
+    if not any(len(token.text) <= 3 for token in query.tokens):
+        return ranked
+    covered = [item for item in ranked if token_coverage(query, item[0]) >= need]
+    return covered or ranked
+
+
 async def search_manga(
     session: AsyncSession,
     query: SearchQuery,
@@ -741,12 +810,16 @@ async def search_manga(
             )
         ).all()
     )
-    ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, candidates)))
+    ranked = _filter_token_coverage(
+        query, filter_relevant(dedupe_ranked_groups(rank_rows(query, candidates)))
+    )
     if not ranked:
         pending = await _pending_candidates(
             session, conditions, limit=PENDING_FALLBACK_LIMIT
         )
-        ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, pending)))
+        ranked = _filter_token_coverage(
+            query, filter_relevant(dedupe_ranked_groups(rank_rows(query, pending)))
+        )
     start = (page - 1) * limit
     items = [row for row, _score, _reason in ranked[start : start + limit]]
     return items, len(ranked)
@@ -1411,6 +1484,20 @@ async def stats(session: AsyncSession) -> CatalogStats:
             ).group_by(Manga.source)
         )
     ).all()
+    empty_authors = or_(
+        Manga.authors.is_(None),
+        cast(Manga.authors, String).in_(("", "[]", "null")),
+    )
+    empty_artists = or_(
+        Manga.artists.is_(None),
+        cast(Manga.artists, String).in_(("", "[]", "null")),
+    )
+    authors_missing = int(
+        (await session.scalar(select(func.count(Manga.id)).where(empty_authors))) or 0
+    )
+    artists_missing = int(
+        (await session.scalar(select(func.count(Manga.id)).where(empty_artists))) or 0
+    )
     chapter_rows = (
         await session.execute(
             select(Chapter.source, func.count(Chapter.id)).group_by(Chapter.source)
@@ -1434,6 +1521,8 @@ async def stats(session: AsyncSession) -> CatalogStats:
         sources=sources,
         pending_enrichment=pending_total,
         retrying_enrichment=retrying_total,
+        authors_missing=authors_missing,
+        artists_missing=artists_missing,
         search_backfill=await search_backfill_stats(session),
     )
 

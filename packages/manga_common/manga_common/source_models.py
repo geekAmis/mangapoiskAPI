@@ -70,6 +70,12 @@ class MangaSummary(BaseModel):
     poster_url: str | None = None
     adult: bool = False
     genres: list[str] = Field(default_factory=list)
+    # Author/artist names when the upstream exposes them.  They are separate
+    # from ``genres`` so the catalogue can rank author matches below title/alt
+    # but above genre/description, and so author search works without a title
+    # containing the name.
+    authors: list[str] = Field(default_factory=list)
+    artists: list[str] = Field(default_factory=list)
     url: str | None = None
     updated_at: datetime | None = None
     latest_chapter: ChapterSummary | None = None

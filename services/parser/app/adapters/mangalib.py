@@ -108,6 +108,11 @@ def _label(value: Any) -> str | None:
     return text or None
 
 
+def _labels(value: Any) -> list[str]:
+    names = [_label(item) for item in _as_list(value)]
+    return [name for name in names if name]
+
+
 def _rich_text(value: Any) -> str:
     """Flatten MangaLib's ProseMirror document (``{"type": "doc", ...}``)."""
 
@@ -223,6 +228,8 @@ class MangaLibAdapter(BaseAdapter):
             ),
             adult=age_label == "18+" or "18+" in age_label,
             genres=[genre for genre in genres if genre],
+            authors=_labels(item.get("authors")),
+            artists=_labels(item.get("artists")),
             url=f"{_SITE_BASE}/ru/manga/{source_id}",
             updated_at=parse_iso_datetime(item.get("last_chapter_at")),
             chapters_count=parse_int(item.get("chap_count") or item.get("items_count")),

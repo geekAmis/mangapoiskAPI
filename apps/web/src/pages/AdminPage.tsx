@@ -820,6 +820,13 @@ export default function AdminPage() {
                   <small>{formatInt(catalogueQuery.data.enrichment.retrying)} на retry</small>
                 </div>
                 <div className="admin-stat">
+                  <span>Без авторов</span>
+                  <strong>{formatInt(catalogueQuery.data.stats.authors_missing ?? 0)}</strong>
+                  <small>
+                    художники: {formatInt(catalogueQuery.data.stats.artists_missing ?? 0)}
+                  </small>
+                </div>
+                <div className="admin-stat">
                   <span>Ошибки</span>
                   <strong>{formatInt(catalogueQuery.data.enrichment.failed)}</strong>
                   <small>после 5 попыток</small>

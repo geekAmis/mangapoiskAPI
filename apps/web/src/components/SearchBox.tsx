@@ -50,6 +50,8 @@ type SuggestionOption =
 
 function titleSubtitle(item: SearchSuggestionOut): string {
   const parts: string[] = [];
+  const author = item.authors?.[0];
+  if (author) parts.push(author);
   if (item.title_en && item.title_en.toLocaleLowerCase() !== item.title.toLocaleLowerCase()) {
     parts.push(item.title_en);
   }

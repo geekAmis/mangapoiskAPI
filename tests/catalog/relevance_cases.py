@@ -52,4 +52,7 @@ RELEVANCE_CASES: tuple[RelevanceCase, ...] = (
     RelevanceCase("боевик", _ACTION, all_expected=True, note="genre synonym"),
     RelevanceCase("манхва", _MANHWA, all_expected=True, note="media synonym"),
     RelevanceCase("читать человек бензопила", frozenset({"chainsaw-man"}), note="reading stopword"),
+    RelevanceCase("Фудзимото", frozenset({"chainsaw-man"}), note="author only"),
+    RelevanceCase("Мурата", frozenset({"one-punch-man"}), note="artist only"),
+    RelevanceCase("фудзимото человек", frozenset({"chainsaw-man"}), note="author + title"),
 )

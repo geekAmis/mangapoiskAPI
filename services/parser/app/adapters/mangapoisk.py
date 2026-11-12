@@ -68,6 +68,30 @@ def _genre_labels(value: Any) -> list[str]:
     ]
 
 
+def _people_list(value: Any) -> list[str]:
+    names: list[str] = []
+    for person in _as_list(value):
+        name = (
+            first_text(person.get("name"), person.get("title"), person.get("label"))
+            if isinstance(person, dict)
+            else first_text(person)
+        )
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _manga_people(item: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Map author/artist fields when the Inertia payload exposes them.
+
+    Current MangaPoisk pages omit people, but the catalogue contract and the
+    other sources do expose them; reading the keys here is forward-compatible
+    and costs nothing when they are absent.
+    """
+
+    return _people_list(item.get("authors")), _people_list(item.get("artists"))
+
+
 def parse_inertia_html(text: str) -> dict[str, Any]:
     """Extract and decode the Inertia payload from an HTML document."""
 
@@ -307,6 +331,7 @@ class MangaPoiskAdapter(BaseAdapter):
         updated_at = parse_ru_date(first_text(latest_item.get("formattedDate")))
         if latest_chapter is None and latest_item and slug:
             latest_chapter = self._chapter_summary(slug, latest_item)
+        authors, artists = _manga_people(manga)
         return MangaSummary(
             source=self.info.code,
             source_id=slug or first_text(manga.get("id")),
@@ -327,6 +352,8 @@ class MangaPoiskAdapter(BaseAdapter):
             adult=bool(manga.get("adult"))
             or any("18+" in genre or "взросл" in genre.casefold() for genre in genres),
             genres=[genre for genre in genres if genre],
+            authors=authors,
+            artists=artists,
             url=absolute_url(self.info.base_url, link or f"/manga/{slug}"),
             updated_at=updated_at,
             latest_chapter=latest_chapter,
@@ -350,6 +377,7 @@ class MangaPoiskAdapter(BaseAdapter):
         latest_item = last_chapter or (chapters[0] if chapters else {})
         latest_chapter = self._chapter_summary(slug, latest_item) if latest_item else None
         genres = _genre_labels(card.get("genres"))
+        authors, artists = _manga_people(card)
         return MangaSummary(
             source=self.info.code,
             source_id=slug,
@@ -365,6 +393,8 @@ class MangaPoiskAdapter(BaseAdapter):
             ),
             adult=bool(card.get("adult")),
             genres=[genre for genre in genres if genre],
+            authors=authors,
+            artists=artists,
             url=absolute_url(self.info.base_url, link or f"/manga/{slug}"),
             updated_at=parse_ru_date(first_text(latest_item.get("formattedDate"))),
             latest_chapter=latest_chapter,
@@ -379,6 +409,7 @@ class MangaPoiskAdapter(BaseAdapter):
         slug = segments[-1] if len(segments) >= 2 and segments[-2] == _MANGA_PATH else ""
         if not slug:
             return None
+        authors, artists = _manga_people(item)
         return MangaSummary(
             source=self.info.code,
             source_id=slug,
@@ -386,6 +417,8 @@ class MangaPoiskAdapter(BaseAdapter):
             title=first_text(item.get("label"), item.get("value"), slug),
             year=parse_year(item.get("year")),
             poster_url=absolute_url(self.info.base_url, first_text(item.get("image"))),
+            authors=authors,
+            artists=artists,
             url=absolute_url(self.info.base_url, link),
         )
 

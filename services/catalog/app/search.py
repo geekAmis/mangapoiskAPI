@@ -39,6 +39,11 @@ MAX_TERMS = 96
 MIN_RELEVANCE_SCORE = 45.0
 RELATIVE_RELEVANCE_CUTOFF = 0.28
 
+# Bumped whenever the normalized document changes shape.  ``ensure_runtime_schema``
+# marks older rows for the bounded background reindex so an algorithm change
+# does not require a manual ``--force`` deploy step.
+SEARCH_DOC_VERSION = 2
+
 _WHITESPACE_RE = re.compile(r"\s+")
 _CYRILLIC_RE = re.compile(r"[а-я]")
 _LATIN_RE = re.compile(r"[a-z]")
@@ -192,15 +197,41 @@ _EN_TO_RU: dict[str, str] = {
 _RU_VOWELS = frozenset("аеиоуыэюя")
 _EN_VOWELS = frozenset("aeiouyw")
 
-# Common one-character typing confusions.  Used only by the SQLite candidate
-# pre-filter, which has no trigram index.  PostgreSQL uses word_similarity.
+# Canonical spelling for the typo pairs that matter for Russian/Latin manga
+# queries: з/с/ц, ч/ц, е/э/и/ы/й and о/а.  This is deliberately a *skeleton*
+# (vowels are dropped as well), so it widens candidate recall without making
+# the main token index or the exact-match ranker fuzzy.
+_CONFUSABLE_CANON: dict[str, str] = {
+    "з": "с",
+    "с": "с",
+    "ц": "с",
+    "ч": "ц",
+    "ш": "ш",
+    "щ": "ш",
+    "е": "е",
+    "э": "е",
+    "и": "и",
+    "ы": "и",
+    "й": "и",
+    "о": "а",
+    "а": "а",
+    "z": "s",
+    "s": "s",
+    "e": "e",
+    "i": "i",
+    "o": "a",
+    "a": "a",
+}
+
+# Common one-character typing confusions.  Both dialects add these terms to the
+# candidate pre-filter; PostgreSQL's trigram GIN index accelerates the LIKEs.
 _CONFUSABLES: dict[str, str] = {
     "а": "ои",
     "б": "п",
     "в": "ф",
     "г": "к",
     "д": "т",
-    "е": "и",
+    "е": "иэа",
     "ё": "е",
     "ж": "ш",
     "з": "сц",
@@ -218,8 +249,8 @@ _CONFUSABLES: dict[str, str] = {
     "у": "ою",
     "ф": "в",
     "х": "к",
-    "ц": "с",
-    "ч": "ш",
+    "ц": "сч",
+    "ч": "шц",
     "ш": "жч",
     "щ": "ш",
     "ы": "и",
@@ -342,6 +373,34 @@ def consonant_skeleton(text: str, *, cyrillic: bool | None = None) -> str:
     return " ".join(_skeleton_word(word, cyrillic=cyrillic) for word in words)
 
 
+def _confusable_word(word: str) -> str:
+    if not word:
+        return ""
+    cyrillic = bool(_CYRILLIC_RE.search(word))
+    vowels = _RU_VOWELS if cyrillic else _EN_VOWELS
+    first = _CONFUSABLE_CANON.get(word[0], word[0])
+    rest = [
+        _CONFUSABLE_CANON.get(char, char)
+        for char in word[1:]
+        if char not in vowels
+    ]
+    return first + "".join(rest)
+
+
+def confusable_skeleton(text: str) -> str:
+    """Vowel-free skeleton with Russian sibilant/vowel typo classes collapsed.
+
+    ``чензо``/``ченсо`` become ``цнс`` and their transliterations
+    ``chenzo``/``chenso`` become ``chns``; Latin ``chainsaw`` also becomes
+    ``chns``.  Query skeletons match exactly/prefix only, so normal fuzzy
+    ranking keeps its precision.
+    """
+
+    if not text:
+        return ""
+    return " ".join(_confusable_word(word) for word in text.split())
+
+
 def _unique(values: Iterable[str]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -354,7 +413,12 @@ def _unique(values: Iterable[str]) -> list[str]:
     return result
 
 
-def _variants_for_text(value: object | None, *, with_skeleton: bool = True) -> list[str]:
+def _variants_for_text(
+    value: object | None,
+    *,
+    with_skeleton: bool = True,
+    with_confusable: bool = True,
+) -> list[str]:
     """Normalized text plus cross-script and consonant-skeleton variants."""
 
     normalized = normalize_search_text(value)
@@ -369,6 +433,10 @@ def _variants_for_text(value: object | None, *, with_skeleton: bool = True) -> l
                 skeleton = consonant_skeleton(latin, cyrillic=False)
                 variants.append(skeleton)
                 variants.append(skeleton.replace(" ", ""))
+                if with_confusable:
+                    confusable = confusable_skeleton(latin)
+                    variants.append(confusable)
+                    variants.append(confusable.replace(" ", ""))
     if _LATIN_RE.search(normalized):
         cyrillic = phonetic_latin(normalized)
         if cyrillic and cyrillic != normalized:
@@ -377,12 +445,54 @@ def _variants_for_text(value: object | None, *, with_skeleton: bool = True) -> l
                 skeleton = consonant_skeleton(cyrillic, cyrillic=True)
                 variants.append(skeleton)
                 variants.append(skeleton.replace(" ", ""))
+                if with_confusable:
+                    confusable = confusable_skeleton(cyrillic)
+                    variants.append(confusable)
+                    variants.append(confusable.replace(" ", ""))
     if with_skeleton:
         skeleton = consonant_skeleton(
             normalized, cyrillic=bool(_CYRILLIC_RE.search(normalized))
         )
         variants.append(skeleton)
         variants.append(skeleton.replace(" ", ""))
+        if with_confusable:
+            confusable = confusable_skeleton(normalized)
+            variants.append(confusable)
+            variants.append(confusable.replace(" ", ""))
+    return _unique(variants)
+
+
+def _exact_skeleton_variants_for_text(value: object | None) -> list[str]:
+    """Skeletons used as exact (non-fuzzy) query variants.
+
+    Skeletons are excellent at vowel-insensitive and sibilant-confusion
+    matching, but as *fuzzy* tokens they also make short unrelated words
+    ("манхва" vs "Менхера") look similar.  Keeping them exact preserves the
+    recall win and removes that precision loss.
+    """
+
+    normalized = normalize_search_text(value)
+    if not normalized:
+        return []
+    variants: list[str] = []
+    sources = [normalized]
+    if _CYRILLIC_RE.search(normalized):
+        latin = transliterate_ru(normalized)
+        if latin and latin != normalized:
+            sources.append(latin)
+    if _LATIN_RE.search(normalized):
+        cyrillic = phonetic_latin(normalized)
+        if cyrillic and cyrillic != normalized:
+            sources.append(cyrillic)
+    for source in sources:
+        cyrillic = bool(_CYRILLIC_RE.search(source))
+        for skeleton in (
+            consonant_skeleton(source, cyrillic=cyrillic),
+            confusable_skeleton(source),
+        ):
+            if len(skeleton.replace(" ", "")) >= 3:
+                variants.append(skeleton)
+                variants.append(skeleton.replace(" ", ""))
     return _unique(variants)
 
 
@@ -394,17 +504,67 @@ def search_document_tokens(values: Sequence[object | None], *, with_skeleton: bo
     return " ".join(_unique(tokens))
 
 
-def _metadata_people(metadata: Mapping[str, Any] | None) -> list[str]:
+def _people_values(value: object | None) -> list[str]:
+    """Normalize a scalar/list of author or artist names."""
+
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, Mapping):
+        text = str(value.get("name") or value.get("label") or "").strip()
+        return [text] if text else []
+    if isinstance(value, (list, tuple)):
+        result: list[str] = []
+        for item in value:
+            if isinstance(item, Mapping):
+                text = str(item.get("name") or item.get("label") or "").strip()
+            else:
+                text = str(item).strip()
+            if text:
+                result.append(text)
+        return result
+    return []
+
+
+def normalize_people(value: object | None) -> list[str]:
+    """Public wrapper used by import/backfill code."""
+
+    return _people_values(value)
+
+
+def _metadata_people(metadata: Mapping[str, Any] | None, *keys: str) -> list[str]:
     if not isinstance(metadata, Mapping):
         return []
     result: list[str] = []
-    for key in ("authors", "author", "artists", "artist"):
-        value = metadata.get(key)
-        if isinstance(value, str):
-            result.append(value)
-        elif isinstance(value, (list, tuple)):
-            result.extend(str(item) for item in value if item)
+    for key in keys:
+        result.extend(_people_values(metadata.get(key)))
     return result
+
+
+def metadata_people(metadata: Mapping[str, Any] | None, *keys: str) -> list[str]:
+    """Public helper for the enrichment/backfill fallback path."""
+
+    return _metadata_people(metadata, *keys)
+
+
+def _people_for_fields(
+    authors: Sequence[str] | None,
+    artists: Sequence[str] | None,
+    metadata: Mapping[str, Any] | None,
+) -> list[str]:
+    """Explicit columns win, but legacy ``metadata`` people are still indexed.
+
+    The union keeps a row searchable after an adapter starts writing the new
+    columns and while older rows only have ``metadata.authors`` from the v1.2
+    import path.
+    """
+
+    people = [
+        *_people_values(list(authors or ())),
+        *_people_values(list(artists or ())),
+    ]
+    people.extend(_metadata_people(metadata, "authors", "author", "artists", "artist"))
+    return _unique(people)
 
 
 def build_search_fields(
@@ -416,12 +576,15 @@ def build_search_fields(
     content_type: str | None,
     description: str | None,
     metadata: Mapping[str, Any] | None = None,
+    authors: Sequence[str] | None = None,
+    artists: Sequence[str] | None = None,
 ) -> dict[str, str]:
     """Build the denormalised search document for one catalogue row."""
 
-    people = _metadata_people(metadata)
+    people = _people_for_fields(authors, artists, metadata)
     title_doc = search_document_tokens([title])
-    alt_doc = search_document_tokens([title_en, title_alt, *people])
+    alt_doc = search_document_tokens([title_en, title_alt])
+    author_doc = search_document_tokens(people)
     names_doc = " ".join(_unique([title_doc, alt_doc]))
 
     genre_values: list[str] = []
@@ -446,6 +609,7 @@ def build_search_fields(
         _unique(
             [
                 *tokenize(names_doc),
+                *tokenize(author_doc),
                 *tokenize(meta_doc),
                 *tokenize(description_doc),
             ]
@@ -454,6 +618,7 @@ def build_search_fields(
     return {
         "search_title": title_doc[:8000],
         "search_alt": alt_doc[:8000],
+        "search_author": author_doc[:8000],
         "search_names": names_doc[:12000],
         "search_meta": meta_doc[:8000],
         "search_description": description_doc[:MAX_DESCRIPTION_CHARS],
@@ -465,6 +630,10 @@ def build_search_fields(
 class QueryToken:
     text: str
     variants: tuple[str, ...]
+    # Confusable skeletons match only exactly/prefix, never through fuzzy
+    # edit distance.  That keeps ``манхва`` from fuzzy-matching ``Менхера``
+    # while still letting ``чензо`` reach ``Чейнсо``.
+    exact_variants: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -473,6 +642,7 @@ class SearchQuery:
     normalized: str
     tokens: tuple[QueryToken, ...]
     variants: tuple[str, ...]
+    exact_variants: tuple[str, ...] = ()
 
     @property
     def is_empty(self) -> bool:
@@ -502,20 +672,33 @@ def analyze_query(raw: str | None) -> SearchQuery:
             label = GENRE_LABELS.get(canonical)
             if label:
                 variants.append(normalize_search_text(label))
-        variants.extend(_variants_for_text(word))
-        tokens.append(QueryToken(text=word, variants=tuple(_unique(variants))))
+        variants.extend(
+            _variants_for_text(word, with_skeleton=False, with_confusable=False)
+        )
+        exact_variants = _exact_skeleton_variants_for_text(word)
+        tokens.append(
+            QueryToken(
+                text=word,
+                variants=tuple(_unique(variants)),
+                exact_variants=tuple(exact_variants),
+            )
+        )
 
     if not tokens:
         return SearchQuery(raw=source, normalized="", tokens=(), variants=())
 
     normalized_tokens = " ".join(token.text for token in tokens)
     full_variants: list[str] = [normalized_tokens]
-    full_variants.extend(_variants_for_text(normalized_tokens))
+    full_variants.extend(
+        _variants_for_text(normalized_tokens, with_skeleton=False, with_confusable=False)
+    )
+    exact_variants = _exact_skeleton_variants_for_text(normalized_tokens)
     return SearchQuery(
         raw=source,
         normalized=normalized_tokens,
         tokens=tuple(tokens),
         variants=tuple(_unique(full_variants)),
+        exact_variants=tuple(exact_variants),
     )
 
 
@@ -538,7 +721,9 @@ def _trigram_similarity(left: str, right: str) -> float:
 
 
 def _max_edits(length: int) -> int:
-    if length < 4:
+    # Three-letter tokens are common in short queries ("мен", "man"); allow one
+    # edit there.  Two-letter tokens stay exact/prefix-only to avoid noise.
+    if length < 3:
         return 0
     if length <= 7:
         return 1
@@ -654,6 +839,7 @@ def _best_match(variant: str, field: _FieldIndex, *, fuzzy: bool) -> tuple[int, 
 _FIELD_WEIGHTS = {
     "title": 1.0,
     "alt": 0.82,
+    "author": 0.62,
     "meta": 0.38,
     "description": 0.12,
 }
@@ -668,6 +854,8 @@ def _legacy_fields(
     content_type: str | None,
     description: str | None,
     metadata_json: str,
+    authors: tuple[str, ...] = (),
+    artists: tuple[str, ...] = (),
 ) -> dict[str, str]:
     try:
         metadata = json.loads(metadata_json) if metadata_json else {}
@@ -681,6 +869,8 @@ def _legacy_fields(
         content_type=content_type,
         description=description,
         metadata=metadata if isinstance(metadata, Mapping) else {},
+        authors=list(authors),
+        artists=list(artists),
     )
 
 
@@ -703,6 +893,8 @@ def ranking_view(manga: Any) -> Any:
         if isinstance(metadata, Mapping)
         else "{}"
     )
+    authors = tuple(str(item) for item in (getattr(manga, "authors", None) or ()))
+    artists = tuple(str(item) for item in (getattr(manga, "artists", None) or ()))
     fields = _legacy_fields(
         getattr(manga, "title", None),
         getattr(manga, "title_en", None),
@@ -711,6 +903,8 @@ def ranking_view(manga: Any) -> Any:
         getattr(manga, "content_type", None),
         getattr(manga, "description", None),
         metadata_json,
+        authors,
+        artists,
     )
     return SimpleNamespace(
         **fields,
@@ -736,6 +930,7 @@ def rank_manga(query: SearchQuery, manga: Any) -> tuple[float, str]:
     fields = (
         ("title", getattr(document, "search_title", "") or "", True),
         ("alt", getattr(document, "search_alt", "") or "", True),
+        ("author", getattr(document, "search_author", "") or "", True),
         ("meta", getattr(document, "search_meta", "") or "", False),
     )
     normalized_query = query.normalized
@@ -763,6 +958,10 @@ def rank_manga(query: SearchQuery, manga: Any) -> tuple[float, str]:
                     continue
                 similarity = fuzzy_similarity(variant, token)
                 phrase_bonus = max(phrase_bonus, 200.0 * similarity)
+        for variant in query.exact_variants:
+            if f" {variant} " in padded:
+                phrase_bonus = max(phrase_bonus, 360.0)
+                break
         field_score += phrase_bonus * weight
 
         matched = 0
@@ -774,6 +973,18 @@ def rank_manga(query: SearchQuery, manga: Any) -> tuple[float, str]:
                 if level > best_level or (level == best_level and similarity > best_similarity):
                     best_level = level
                     best_similarity = similarity
+                if best_level == 3:
+                    break
+            if best_level != 3:
+                for variant in token.exact_variants:
+                    level, similarity = _best_match(variant, field, fuzzy=False)
+                    if level > best_level or (
+                        level == best_level and similarity > best_similarity
+                    ):
+                        best_level = level
+                        best_similarity = similarity
+                    if best_level == 3:
+                        break
             if best_level == 0:
                 continue
             matched += 1
@@ -848,6 +1059,7 @@ def token_coverage(query: SearchQuery, manga: Any) -> int:
     fields = (
         (_index_field(getattr(document, "search_title", "") or ""), True),
         (_index_field(getattr(document, "search_alt", "") or ""), True),
+        (_index_field(getattr(document, "search_author", "") or ""), True),
         (_index_field(getattr(document, "search_meta", "") or ""), False),
     )
     matched = 0
@@ -856,6 +1068,12 @@ def token_coverage(query: SearchQuery, manga: Any) -> int:
         for field, fuzzy in fields:
             for variant in token.variants:
                 if _best_match(variant, field, fuzzy=fuzzy)[0] > 0:
+                    hit = True
+                    break
+            if hit:
+                break
+            for variant in token.exact_variants:
+                if _best_match(variant, field, fuzzy=False)[0] > 0:
                     hit = True
                     break
             if hit:
@@ -906,14 +1124,14 @@ def expansion_terms(query: SearchQuery, *, dialect: str) -> list[str]:
     """LIKE terms for the SQL candidate pre-filter.
 
     Long, specific terms are kept first so a capped list still contains the
-    useful ones.  PostgreSQL has trigram indexes and a word-similarity branch,
-    so it needs fewer hand-made variants.
+    useful ones.  PostgreSQL and SQLite both get confusable substitutions and
+    the confusable skeleton variants; the trigram GIN index accelerates the
+    resulting ``LIKE '%term%'`` on PostgreSQL.
     """
 
     if query.is_empty:
         return []
     terms: set[str] = set()
-    is_sqlite = dialect == "sqlite"
     for token in query.tokens:
         for variant in token.variants:
             if not variant:
@@ -927,16 +1145,27 @@ def expansion_terms(query: SearchQuery, *, dialect: str) -> list[str]:
                 terms.add(variant[-3:])
             if len(variant) >= 4:
                 terms.update(_deletions(variant))
-                if is_sqlite:
-                    terms.update(_substitutions(variant))
+                # Both dialects need the confusable substitutions: PostgreSQL
+                # has no FTS mirror and its LIKE pre-filter is the only way a
+                # typo can become a candidate before Python reranks it.
+                terms.update(_substitutions(variant))
             elif len(variant) == 3:
                 terms.add(variant[:2])
+                terms.update(_substitutions(variant))
+        for variant in token.exact_variants:
+            if len(variant) >= 3:
+                terms.add(variant)
+                terms.add(variant.replace(" ", ""))
     for variant in query.variants:
         if len(variant) >= 3:
             terms.add(variant)
             if len(variant) >= 5:
                 terms.add(variant[:3])
                 terms.add(variant[-3:])
+    for variant in query.exact_variants:
+        if len(variant) >= 3:
+            terms.add(variant)
+            terms.add(variant.replace(" ", ""))
     ordered = sorted(terms, key=lambda item: (-len(item), item))
     return ordered[:MAX_TERMS]
 
@@ -960,6 +1189,7 @@ def suggestion_reason(reason: str) -> str:
     return {
         "title": "title",
         "alt": "alternative",
+        "author": "author",
         "meta": "genre",
         "description": "description",
     }.get(reason, "title")
@@ -974,5 +1204,6 @@ def describe_query(raw: str | None) -> dict[str, Any]:
         "normalized": query.normalized,
         "tokens": [token.text for token in query.tokens],
         "variants": list(query.variants),
+        "exact_variants": list(query.exact_variants),
         "empty": query.is_empty,
     }

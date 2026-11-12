@@ -301,6 +301,39 @@ class RemangaAdapter(BaseAdapter):
                         names.append(name)
         return names
 
+    @staticmethod
+    def _people_list(value: Any) -> list[str]:
+        names: list[str] = []
+        for person in _as_list(value):
+            name = _named(person)
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    @classmethod
+    def _people(cls, item: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """Map explicit author/artist fields and Remanga's ``creators`` list."""
+
+        authors = cls._people_list(item.get("authors"))
+        artists = cls._people_list(item.get("artists"))
+        for creator in _as_list(item.get("creators")):
+            name = _named(creator)
+            if not name:
+                continue
+            role = (
+                first_text(
+                    _as_dict(creator).get("role"),
+                    _named(_as_dict(creator).get("type")),
+                )
+                or ""
+            ).casefold()
+            if "artist" in role or "худож" in role:
+                if name not in artists:
+                    artists.append(name)
+            elif name not in authors:
+                authors.append(name)
+        return authors, artists
+
     def _summary_from_search(self, item: Any) -> MangaSummary | None:
         if not isinstance(item, dict):
             return None
@@ -309,6 +342,7 @@ class RemangaAdapter(BaseAdapter):
         source_id = directory or (str(numeric_id) if numeric_id is not None else "")
         if not source_id:
             return None
+        authors, artists = self._people(item)
         return MangaSummary(
             source=self.info.code,
             source_id=source_id,
@@ -324,6 +358,8 @@ class RemangaAdapter(BaseAdapter):
             poster_url=self._cover_url(item),
             adult=bool(item.get("is_erotic")),
             genres=self._genres(item),
+            authors=authors,
+            artists=artists,
             updated_at=parse_iso_datetime(item.get("uploaded")),
             chapters_count=parse_int(item.get("count_chapters")),
             url=absolute_url(_SITE_BASE, f"/manga/{directory}") if directory else None,
@@ -332,6 +368,7 @@ class RemangaAdapter(BaseAdapter):
     def _summary_from_detail(self, title: dict[str, Any]) -> MangaSummary:
         directory = first_text(title.get("dir"))
         age_label = first_text(_as_dict(title.get("age_limit")).get("name"))
+        authors, artists = self._people(title)
         return MangaSummary(
             source=self.info.code,
             source_id=directory or first_text(title.get("id")),
@@ -348,6 +385,8 @@ class RemangaAdapter(BaseAdapter):
             poster_url=self._cover_url(title),
             adult=bool(title.get("is_erotic")) or "18+" in age_label,
             genres=self._genres(title),
+            authors=authors,
+            artists=artists,
             updated_at=parse_iso_datetime(title.get("uploaded")),
             chapters_count=parse_int(title.get("count_chapters")),
             url=absolute_url(_SITE_BASE, f"/manga/{directory}") if directory else None,

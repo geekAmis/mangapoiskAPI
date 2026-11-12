@@ -369,6 +369,7 @@ class CatalogService:
                         poster_url=row.poster_url,
                         year=row.year,
                         source=row.source,
+                        authors=list(row.authors or []),
                         reason=suggestion_reason(reason),
                     )
                     for row, reason in rows

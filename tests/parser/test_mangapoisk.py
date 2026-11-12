@@ -129,6 +129,8 @@ async def test_manga_parses_inertia_payload(settings, cache, client) -> None:
         assert detail.rating == 4.15
         assert detail.rating_count == 402
         assert "фэнтези" in detail.genres
+        assert detail.authors == ["Тацуки Фудзимото"]
+        assert detail.artists == ["Тацуки Фудзимото"]
         assert detail.poster_url is not None
         assert detail.url == MANGA_PATH
         assert detail.latest_chapter is not None

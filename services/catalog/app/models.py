@@ -24,7 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.types import JSON
 
 from .normalization import genres_key, status_key
-from .search import build_search_fields
+from .search import SEARCH_DOC_VERSION, build_search_fields
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
 
@@ -81,16 +81,25 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     adult: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     genres: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     genres_key: Mapped[str | None] = mapped_column(Text, nullable=True, default="")
+    # People are stored separately from ``metadata`` so author/artist search
+    # survives adapter changes and can be ranked below title/alt but above
+    # genre/description.  JSON keeps names as structured, ordered lists.
+    authors: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
+    artists: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     # Denormalised, Python-normalised search document.  See ``search.py``:
     # it contains original text, Russian/Latin transliterations, consonant
     # skeletons and genre/media synonyms.  Keeping it in plain TEXT makes the
     # same ranking work on PostgreSQL and SQLite.
     search_title: Mapped[str] = mapped_column(Text, nullable=False, default="")
     search_alt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_author: Mapped[str] = mapped_column(Text, nullable=False, default="")
     search_names: Mapped[str] = mapped_column(Text, nullable=False, default="")
     search_meta: Mapped[str] = mapped_column(Text, nullable=False, default="")
     search_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     search_blob: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Version of the normalization algorithm that produced ``search_*``.
+    # A deploy bump marks older rows pending for the bounded reindex worker.
+    search_doc_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # False while a legacy row still relies on the SQL/FTS legacy fallback.
     # The background backfill flips this to true after writing the normalized
     # document; startup must never wait for all rows to reach true.
@@ -140,9 +149,12 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
             content_type=self.content_type,
             description=self.description,
             metadata=self.metadata_json or {},
+            authors=self.authors or [],
+            artists=self.artists or [],
         )
         for name, value in fields.items():
             setattr(self, name, value)
+        self.search_doc_version = SEARCH_DOC_VERSION
         self.search_indexed = True
 
 

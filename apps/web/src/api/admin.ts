@@ -213,6 +213,8 @@ export interface AdminCatalogueHealth {
     chapters: number;
     pending_enrichment: number;
     retrying_enrichment: number;
+    authors_missing?: number;
+    artists_missing?: number;
     sources: Array<{ source: string; manga: number; chapters: number }>;
   };
   enrichment: {

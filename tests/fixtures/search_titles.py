@@ -19,6 +19,8 @@ class TitleSpec:
     title_en: str | None = None
     title_alt: str | None = None
     genres: tuple[str, ...] = field(default_factory=tuple)
+    authors: tuple[str, ...] = field(default_factory=tuple)
+    artists: tuple[str, ...] = field(default_factory=tuple)
     content_type: str | None = "манга"
     year: int = 2020
     status: str = "ongoing"
@@ -35,6 +37,8 @@ TITLES: tuple[TitleSpec, ...] = (
         "Chainsaw Man",
         "Chainsaw Man / チェンソーマン",
         ("Экшен", "Ужасы", "Сверхъестественное"),
+        authors=("Тацуки Фудзимото",),
+        artists=("Тацуки Фудзимото",),
         description="Дэндзи мечтает о нормальной жизни, но становится гибридом с бензопилой.",
         rating=8.9,
         rating_count=45_000,
@@ -410,6 +414,8 @@ TITLES: tuple[TitleSpec, ...] = (
         "One Punch Man",
         "One Punch Man / ワンパンマン",
         ("Экшен", "Комедия", "Супергерои"),
+        authors=("ONE",),
+        artists=("Юсукэ Мурата",),
         description="Герой побеждает любого врага одним ударом.",
         rating=8.5,
         rating_count=50_000,
@@ -478,6 +484,33 @@ TITLES: tuple[TitleSpec, ...] = (
         chapters_count=327,
         year=1998,
     ),
+    # Production false-positive shapes for the "чензо мен" failure: these
+    # titles share the short token "мен" but have nothing to do with Chainsaw
+    # Man.  They must stay out of the top-3 for the typo query.
+    TitleSpec(
+        "menhera-chan",
+        "Ями кавай Менхера чан",
+        "Yami Kawaii Menhera-chan",
+        None,
+        (),
+        description="Комедия о повседневности и странных прозвищах.",
+        rating=7.1,
+        rating_count=2_400,
+        chapters_count=40,
+        year=2021,
+    ),
+    TitleSpec(
+        "summoned-monster",
+        "Меня призвали быть монстром",
+        "I Was Summoned to Be a Monster",
+        None,
+        (),
+        description="Герой попадает в другой мир и становится монстром.",
+        rating=7.4,
+        rating_count=3_100,
+        chapters_count=55,
+        year=2022,
+    ),
 )
 
 
@@ -510,6 +543,8 @@ def detail_from_spec(spec: TitleSpec, *, source: str = "mangapoisk") -> MangaDet
         rating_count=spec.rating_count,
         poster_url=f"https://cdn.example/{spec.slug}.jpg",
         genres=list(spec.genres),
+        authors=list(spec.authors),
+        artists=list(spec.artists),
         url=f"https://mangapoisk.me/manga/{spec.slug}",
         chapters=[_chapter(spec)],
         chapters_count=spec.chapters_count,
@@ -532,6 +567,8 @@ def summary_from_spec(spec: TitleSpec, *, source: str = "mangapoisk") -> MangaSu
         rating_count=spec.rating_count,
         poster_url=f"https://cdn.example/{spec.slug}.jpg",
         genres=list(spec.genres),
+        authors=list(spec.authors),
+        artists=list(spec.artists),
         url=f"https://mangapoisk.me/manga/{spec.slug}",
         chapters_count=spec.chapters_count,
     )

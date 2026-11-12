@@ -306,6 +306,8 @@ async def test_manga_detail_chapters_and_pagination(settings, cache, client) -> 
         assert detail.adult is False
         assert "Экшен" in detail.genres
         assert "Веб" in detail.genres
+        assert detail.authors == ["Пак Сэналь"]
+        assert detail.artists == ["Художник Тестовый"]
         assert detail.description is not None and "SATISFY" in detail.description
         assert detail.poster_url == (
             "https://remanga.org/media/titles/overgeared--/cover_cb03dd26a8654ee7.webp"

@@ -84,6 +84,8 @@ export interface MangaOut {
   poster_url: string | null;
   adult: boolean;
   genres: string[];
+  authors?: string[];
+  artists?: string[];
   genre_slugs?: string[];
   covers?: CoverOut[];
   /** Public page of the title on its source, when known. */
@@ -154,7 +156,12 @@ export interface SearchResponse extends Paginated<MangaOut> {
   live: boolean;
 }
 
-export type SearchSuggestionReason = 'title' | 'alternative' | 'genre' | 'description';
+export type SearchSuggestionReason =
+  | 'title'
+  | 'alternative'
+  | 'author'
+  | 'genre'
+  | 'description';
 
 /** Instant local suggestion; no upstream/parser request is involved. */
 export interface SearchSuggestionOut {
@@ -164,6 +171,7 @@ export interface SearchSuggestionOut {
   poster_url: string | null;
   year: number | null;
   source: string;
+  authors?: string[];
   reason: SearchSuggestionReason;
 }
 

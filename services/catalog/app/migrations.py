@@ -6,11 +6,14 @@ from manga_common.db import Base
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from .search import SEARCH_DOC_VERSION
+
 logger = logging.getLogger(__name__)
 
 _SEARCH_COLUMNS = (
     "search_title",
     "search_alt",
+    "search_author",
     "search_names",
     "search_meta",
     "search_description",
@@ -79,6 +82,21 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             if "enrichment_last_error" not in manga_columns:
                 await connection.execute(
                     text("ALTER TABLE manga ADD COLUMN enrichment_last_error TEXT")
+                )
+            if "authors" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN authors JSON NOT NULL DEFAULT '[]'")
+                )
+            if "artists" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN artists JSON NOT NULL DEFAULT '[]'")
+                )
+            if "search_doc_version" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN search_doc_version "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
                 )
             for column in _SEARCH_COLUMNS:
                 if column not in manga_columns:
@@ -161,6 +179,24 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS genres_key TEXT")
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "authors JSONB NOT NULL DEFAULT '[]'::jsonb"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "artists JSONB NOT NULL DEFAULT '[]'::jsonb"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "search_doc_version INTEGER NOT NULL DEFAULT 0"
+                )
             )
             for column in _SEARCH_COLUMNS:
                 await connection.execute(
@@ -264,6 +300,7 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 for name, column in (
                     ("ix_manga_search_names_trgm", "search_names"),
                     ("ix_manga_search_title_trgm", "search_title"),
+                    ("ix_manga_search_author_trgm", "search_author"),
                     ("ix_manga_search_blob_trgm", "search_blob"),
                 ):
                     try:
@@ -277,23 +314,42 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                     except Exception as exc:  # pragma: no cover - server specific
                         logger.warning("could not create %s: %s", name, exc)
 
-        # Rows that already carry a normalized document from a previous v1.2
-        # deploy are marked indexed in one cheap statement.  Everything else
-        # is handled by the background worker; startup must never walk 78k
-        # rows in Python and hold the SQLite write lock for minutes.
+        # A document produced by an older algorithm is marked pending so the
+        # bounded SearchBackfillWorker rebuilds it with authors and the
+        # confusable skeleton.  Rows that already carry the current version
+        # are marked indexed in one cheap statement.  Startup must never walk
+        # 78k rows in Python and hold the SQLite write lock for minutes.
         if dialect == "sqlite":
             await connection.execute(
                 text(
+                    "UPDATE manga SET search_indexed = 0 "
+                    "WHERE search_doc_version < :version"
+                ),
+                {"version": SEARCH_DOC_VERSION},
+            )
+            await connection.execute(
+                text(
                     "UPDATE manga SET search_indexed = 1 "
-                    "WHERE search_indexed = 0 AND search_blob <> ''"
-                )
+                    "WHERE search_indexed = 0 AND search_blob <> '' "
+                    "AND search_doc_version >= :version"
+                ),
+                {"version": SEARCH_DOC_VERSION},
             )
         else:
             await connection.execute(
                 text(
+                    "UPDATE manga SET search_indexed = false "
+                    "WHERE search_doc_version < :version"
+                ),
+                {"version": SEARCH_DOC_VERSION},
+            )
+            await connection.execute(
+                text(
                     "UPDATE manga SET search_indexed = true "
-                    "WHERE search_indexed = false AND search_blob <> ''"
-                )
+                    "WHERE search_indexed = false AND search_blob <> '' "
+                    "AND search_doc_version >= :version"
+                ),
+                {"version": SEARCH_DOC_VERSION},
             )
 
     logger.info("catalogue runtime schema is up to date")

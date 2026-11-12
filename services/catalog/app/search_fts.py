@@ -99,7 +99,9 @@ async def sync_search_fts_many(
 _LEGACY_BODY_SQL = (
     "coalesce(title, '') || ' ' || coalesce(title_en, '') || ' ' || "
     "coalesce(title_alt, '') || ' ' || coalesce(description, '') || ' ' || "
-    "coalesce(genres, '[]') || ' ' || coalesce(content_type, '')"
+    "coalesce(genres, '[]') || ' ' || coalesce(content_type, '') || ' ' || "
+    "coalesce(authors, '[]') || ' ' || coalesce(artists, '[]') || ' ' || "
+    "coalesce(metadata, '{}')"
 )
 
 

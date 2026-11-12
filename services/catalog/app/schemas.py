@@ -77,6 +77,11 @@ class CatalogStats(BaseModel):
     sources: list[SourceStats]
     pending_enrichment: int = 0
     retrying_enrichment: int = 0
+    # Progress for the author/artist backfill: rows still missing people.
+    # They are reindexed by the search worker when metadata already has names,
+    # otherwise the bounded enrichment rotation refreshes them from the source.
+    authors_missing: int = 0
+    artists_missing: int = 0
     search_backfill: SearchBackfillStats | None = None
 
 

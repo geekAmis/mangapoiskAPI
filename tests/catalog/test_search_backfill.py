@@ -47,13 +47,13 @@ async def _seed_legacy(
                 text(
                     "INSERT INTO manga (id, source, source_id, slug, title, "
                     "title_en, title_alt, description, year, status, content_type, "
-                    "rating, rating_count, adult, genres, metadata, search_title, "
-                    "search_alt, search_names, search_meta, search_description, "
-                    "search_blob, search_indexed, group_key, chapters_count, "
-                    "enrichment_attempts) VALUES "
+                    "rating, rating_count, adult, genres, metadata, authors, artists, "
+                    "search_title, search_alt, search_author, search_names, search_meta, "
+                    "search_description, search_blob, search_doc_version, search_indexed, "
+                    "group_key, chapters_count, enrichment_attempts) VALUES "
                     "(:id,'mangapoisk',:source_id,:source_id,:title,:title_en,NULL,"
-                    ":description,2020,'ongoing','манга',8.5,1000,0,:genres,'{}',"
-                    "'','','','','','',0,:group_key,10,0)"
+                    ":description,2020,'ongoing','манга',8.5,1000,0,:genres,'{}','[]','[]',"
+                    "'','','','','','','',0,0,:group_key,10,0)"
                 ),
                 {
                     "id": manga_id,
