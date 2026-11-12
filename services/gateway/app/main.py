@@ -19,6 +19,7 @@ from .notifier_client import NotifierClient
 from .retention import router as retention_router
 from .routing import EndpointPool, reset_client_key, set_client_key
 from .seo import router as seo_router
+from .seo import warm_sitemap_cache
 
 logger = logging.getLogger(__name__)
 settings = GatewaySettings()
@@ -70,12 +71,14 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(10)
 
     sync_task = asyncio.create_task(registry_sync())
+    warm_task = asyncio.create_task(warm_sitemap_cache(app))
     logger.info("gateway ready")
     try:
         yield
     finally:
         sync_task.cancel()
-        await asyncio.gather(sync_task, return_exceptions=True)
+        warm_task.cancel()
+        await asyncio.gather(sync_task, warm_task, return_exceptions=True)
         await asyncio.gather(
             catalog.close(), parser.close(), library.close(), media.close(), control.close(),
             comments.close(), notifier.close(),

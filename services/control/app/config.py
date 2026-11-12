@@ -20,6 +20,10 @@ class ControlSettings(Settings):
     deploy_stale_job_seconds: int = Field(default=1_800, ge=60, le=86_400)
     deploy_pre_start_command: str = ""
     deploy_pre_start_timeout_seconds: int = Field(default=1_800, ge=30, le=86_400)
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@example.com"
+    web_push_enabled: bool = False
 
     @property
     def control_dsn(self) -> str:

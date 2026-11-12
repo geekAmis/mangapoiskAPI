@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from manga_common.db import retry_on_locked
 from manga_common.errors import NotFoundError, UpstreamError
 from manga_common.schemas import (
     ChapterOut,
@@ -18,6 +19,7 @@ from manga_common.schemas import (
     PageOut,
     RelatedMangaOut,
     SearchSuggestionOut,
+    SitemapEntryOut,
     SuggestResponse,
     TranslatorOut,
 )
@@ -41,6 +43,7 @@ from .repository import (
     list_crawl_states,
     list_genres,
     list_manga,
+    list_sources,
     manga_relations,
     ordered_chapter_ids,
     pending_enrichment,
@@ -56,6 +59,9 @@ from .repository import (
     upsert_manga_detail,
     upsert_relation,
     upsert_source,
+)
+from .repository import (
+    sitemap_entries as repo_sitemap_entries,
 )
 from .schemas import (
     CatalogStats,
@@ -324,46 +330,52 @@ class CatalogService:
         page: int = 1,
         limit: int = 24,
     ) -> MangaListResponse:
-        async with self.session_factory() as session:
-            items, total = await list_manga(
-                session,
-                query=query,
-                source=source,
-                genre=genre,
-                genres=genres,
-                year=year,
-                status=status,
-                include_empty=include_empty,
-                sort=sort,
-                page=page,
-                limit=limit,
-            )
-            return MangaListResponse(
-                items=[_manga_out(item) for item in items],
-                total=total,
-                page=page,
-                limit=limit,
-                has_next=(page - 1) * limit + limit < total,
-            )
+        async def read() -> MangaListResponse:
+            async with self.session_factory() as session:
+                items, total = await list_manga(
+                    session,
+                    query=query,
+                    source=source,
+                    genre=genre,
+                    genres=genres,
+                    year=year,
+                    status=status,
+                    include_empty=include_empty,
+                    sort=sort,
+                    page=page,
+                    limit=limit,
+                )
+                return MangaListResponse(
+                    items=[_manga_out(item) for item in items],
+                    total=total,
+                    page=page,
+                    limit=limit,
+                    has_next=(page - 1) * limit + limit < total,
+                )
+
+        return await retry_on_locked(read)
 
     async def suggest(self, query: str, *, limit: int = 6) -> SuggestResponse:
         """Instant local suggestions; this method has no parser dependency."""
 
-        async with self.session_factory() as session:
-            rows = await suggest_manga(session, query, limit=limit)
-            items = [
-                SearchSuggestionOut(
-                    id=row.id,
-                    title=row.title,
-                    title_en=row.title_en,
-                    poster_url=row.poster_url,
-                    year=row.year,
-                    source=row.source,
-                    reason=suggestion_reason(reason),
-                )
-                for row, reason in rows
-            ]
-            return SuggestResponse(query=query, items=items, total=len(items))
+        async def read() -> SuggestResponse:
+            async with self.session_factory() as session:
+                rows = await suggest_manga(session, query, limit=limit)
+                items = [
+                    SearchSuggestionOut(
+                        id=row.id,
+                        title=row.title,
+                        title_en=row.title_en,
+                        poster_url=row.poster_url,
+                        year=row.year,
+                        source=row.source,
+                        reason=suggestion_reason(reason),
+                    )
+                    for row, reason in rows
+                ]
+                return SuggestResponse(query=query, items=items, total=len(items))
+
+        return await retry_on_locked(read)
 
     async def chapters(
         self, manga_id: uuid.UUID, *, query: str | None = None, page: int = 1, limit: int = 200
@@ -515,8 +527,33 @@ class CatalogService:
         return len(sources)
 
     async def catalog_stats(self) -> CatalogStats:
-        async with self.session_factory() as session:
-            return await stats(session)
+        async def read() -> CatalogStats:
+            async with self.session_factory() as session:
+                return await stats(session)
+
+        return await retry_on_locked(read)
+
+    async def source_rows(self) -> list[Any]:
+        async def read() -> list[Any]:
+            async with self.session_factory() as session:
+                return list(await list_sources(session))
+
+        return await retry_on_locked(read)
+
+    async def sitemap_entries(self, *, limit: int = 50_000) -> list[SitemapEntryOut]:
+        async def read() -> list[SitemapEntryOut]:
+            async with self.session_factory() as session:
+                rows = await repo_sitemap_entries(session, limit=limit)
+                return [
+                    SitemapEntryOut(
+                        id=row[0],
+                        last_chapter_at=row[1],
+                        updated_at=row[2],
+                    )
+                    for row in rows
+                ]
+
+        return await retry_on_locked(read)
 
     async def search_backfill(self) -> SearchBackfillStats | None:
         async with self.session_factory() as session:

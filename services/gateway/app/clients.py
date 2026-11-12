@@ -32,6 +32,7 @@ from manga_common.schemas import (
     ReaderSettings,
     RecommendationListOut,
     RelatedMangaOut,
+    SitemapEntryOut,
     SourceOut,
     StreakOut,
     SuggestResponse,
@@ -186,6 +187,10 @@ class CatalogClient(InternalClient):
     async def sources(self) -> list[SourceOut]:
         data = await self.request("GET", "/internal/sources")
         return [SourceOut.model_validate(item) for item in data]
+
+    async def sitemap_entries(self, *, limit: int = 50_000) -> list[SitemapEntryOut]:
+        data = await self.request("GET", "/internal/sitemap", params={"limit": limit})
+        return [SitemapEntryOut.model_validate(item) for item in data]
 
     async def manga_list(self, params: dict[str, Any]) -> MangaListResponse:
         data = await self.request("GET", "/internal/manga", params=params)

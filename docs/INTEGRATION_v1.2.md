@@ -58,20 +58,23 @@
 
 ## 3. Тестовая матрица
 
-Финальный прогон на `release/v1.2-integration` после merge обоих hotfix #63.
+Финальный прогон на `release/v1.2-integration` после hotfix #63 и #64.
 
 | Проверка | Команда | Результат |
 |---|---|---|
 | Lint | `ruff check packages services tests` | PASS |
-| Backend | `pytest` | **343 passed, 1 skipped** (network), 14 warnings, 213.77 s |
+| Backend | `pytest` | **359 passed, 1 skipped** (network), 14 warnings, 226.59 s |
 | Web types | `npm run typecheck` | PASS |
 | Web build | `npm run build` | PASS |
 | Web unit | `npm run test:unit` | 4/4 PASS |
 | Mobile web build | `npm run build:www` (apps/mobile) | PASS, plain-HTTP fallback отсутствует |
 | Ops scripts syntax | `bash -n scripts/ops/*.sh` | PASS |
-| Catalog startup, 78 275 rows | `scripts/benchmark_migration.py --titles 78275 --batch-size 500` | lifespan **1.349 s**, bootstrap 1.205 s, schema 0.144 s |
-| Search during backfill, 78k | same benchmark | search 259.35 ms / suggest 137.53 ms, 300 результатов; после первого батча 293.78/148.03 ms |
-| Background backfill, 78k | same benchmark | 158.28 s, 491.4 строк/с, повторный запуск 0 строк |
+| Service imports | `import app.main` для 10 сервисов | 10/10 PASS |
+| Catalog startup, 78 275 rows | `scripts/benchmark_migration.py --titles 78275 --batch-size 500` | lifespan **1.341 s**, bootstrap 1.197 s, schema 0.144 s |
+| Search during backfill, 78k | same benchmark | search 251.06 ms / suggest 141.01 ms, 300 результатов; после первого батча 286.54/147.03 ms |
+| Background backfill, 78k | same benchmark | 162.65 s, 478.2 строк/с, повторный запуск 0 строк |
+| Sitemap cold, 6 510 titles | `sitemap_entries` + XML, SQLite fixture | query 57.27 ms + XML 10.37 ms = **67.64 ms** |
+| Sitemap cache | `TestClient`, 6 500 entries | one catalog query, warm request from cache |
 | Search benchmark (SQLite) | `scripts/benchmark_search.py --titles 5000 --runs 7` | search p50 25.37 ms / p95 40.43 ms; suggest p50 19.70 ms / p95 32.81 ms |
 
 Коммит-доказательство бенчмарка:
@@ -198,3 +201,63 @@ backfill **158.28 с** (~491 строка/с), повторный запуск *
 7. Затем comments/library/notifier/media/scheduler/gateway и web; полная
    verification matrix. Rollback — OPS §9.4; откат кода на main безопасен,
    schema additive.
+
+## 9. Hotfix #64 — red retry fixes
+
+Production retry `d76e09d` был откатан. Health/startup #63 сработали
+(offline reindex 78 319 строк за 185 с, `HEALTH_OK catalog:8102 attempt=2`), но
+обнаружились четыре дефекта.
+
+### 9.1 Причины и исправления
+
+| # | Симптом | Причина | Исправление |
+|---:|---|---|---|
+| 1 | `/internal/sources` → 500, `ImportError: cannot import name 'list_sources'` | `list_sources` был удалён из `repository.py` в `6ff8be0` при перестройке enrichment-кода; API импортировал его лениво внутри route, поэтому import-smoke не видел | функция восстановлена; API вызывает `CatalogService.source_rows()`; добавлены route-тест и import smoke |
+| 2 | notifier `PermissionError` на `./data/notifier.db` | deploy-template не писал `NOTIFIER_DATABASE_URL`, сервис падал в read-only `src/services/notifier/data` | шаблон пишет `sqlite+aiosqlite:////opt/mangapoisk-reborn/data/notifier.db`; `COMMENTS_URL` и VAPID/Web Push placeholders добавлены; `$ROOT/data` создаётся и chown-ится |
+| 3 | cold sitemap ~79 с, nginx 30 с timeout | gateway последовательно запрашивал ~65 страниц `manga_list` | новый `GET /internal/sitemap` — одна SQL-выборка канонических групп; gateway кэширует и прогревает её в фоне; nginx `proxy_read_timeout 120s`; cold/warm performance test |
+| 4 | 2× transient `database is locked` | конкурирующие записи crawler/backfill в SQLite single-writer | WAL + `busy_timeout=15000` подтверждены; read-only catalog list/stats/sources/suggest/sitemap ретраятся до 3 раз с backoff |
+
+### 9.2 Замеры
+
+- Sitemap на 6 510 тайтлах: query **57.27 мс** + XML **10.37 мс** = **67.64 мс**
+  cold; warm — из кэша. Было ~79 с на production из-за пагинации.
+- Catalog startup на 78 275 строках: **1.341 с**, under-10s gate PASS;
+  backfill 162.65 с @ 478 строк/с; повторный запуск 0 строк.
+- Search/suggest во время backfill: 251/141 мс, результаты есть.
+- Полный `pytest`: **359 passed, 1 skipped**; ruff/typecheck/build/unit PASS.
+
+### 9.3 Exact retry sequence
+
+1. Encrypted backup `catalog.db`/`pg_dump` и `control.db` (OPS §9.1).
+2. Deploy **control**: новый deploy health + env template (`NOTIFIER_DATABASE_URL`,
+   `COMMENTS_URL`, VAPID placeholders). Задать VAPID ключи в control env до
+   деплоя, если Web Push должен быть включён.
+3. Optional: остановить catalog и выполнить `scripts/reindex_catalog.py
+   --database-url "$CATALOG_DATABASE_URL" --batch-size 500` (78k ≈ 2.5 мин).
+4. Deploy **catalog**; ждать `/health` 200 <10 с.
+5. Проверить:
+   - `GET /internal/sources` → 200 (не ImportError);
+   - `GET /internal/stats` и `/internal/search/backfill`;
+   - `GET /sitemap.xml` — cold/warm, HTTPS, без 504;
+   - в логах нет `database is locked` пачками.
+6. Deploy **notifier**; проверить, что файл создан в
+   `/opt/mangapoisk-reborn/data/notifier.db`, нет `PermissionError`, in-app feed
+   и Web Push (если VAPID задан) работают.
+7. Deploy comments/library/media/scheduler/gateway и web; browser smoke
+   1440×900/390×844, health, robots/sitemap, admin panels.
+8. Rollback — OPS §9.4. Код main schema-additive; не запускать второй deploy
+   параллельно, сначала cancel/reap старого job.
+
+### 9.4 Остаточные риски
+
+- PostgreSQL path и sitemap-запрос на PG не проверены вживую — нужен PG-прогон
+  `benchmark_search.py`/`reindex_catalog.py` и проверка `EXPLAIN` sitemap-запроса.
+- WAL + `synchronous=NORMAL` применяются ко всем сервисам через
+  `manga_common.db`; это durability trade-off, требуется согласие lead.
+- Retry маскирует только короткие lock-и. Если crawler/backfill пишут
+  одновременно долго, возможны повторные `database is locked`; это mitigation,
+  не multi-writer решение. Мониторить после деплоя.
+- Sitemap performance-тест использует fake catalog; фактический SQLite-замер
+  67.64 мс приведён выше. Production-замер нужен после деплоя.
+- Import smoke ловит ошибки модульного уровня; ленивые импорты дополнительно
+  покрыты route-тестами (`/internal/sources`, `/internal/sitemap`).

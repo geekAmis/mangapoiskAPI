@@ -108,6 +108,13 @@ async def ensure_source(session: AsyncSession, code: str, name: str | None = Non
     return source
 
 
+async def list_sources(session: AsyncSession) -> list[Source]:
+    """Return every registered source ordered for the admin/source picker."""
+
+    result = await session.scalars(select(Source).order_by(Source.name.asc()))
+    return list(result.all())
+
+
 async def find_manga(session: AsyncSession, manga_id: uuid.UUID) -> Manga | None:
     return await session.get(Manga, manga_id)
 
@@ -893,6 +900,50 @@ async def list_manga(
         ).all()
     )
     return items, total
+
+
+async def sitemap_entries(
+    session: AsyncSession, *, limit: int = 50_000
+) -> list[tuple[uuid.UUID, datetime | None, datetime | None]]:
+    """One lightweight row per canonical title group for sitemap generation.
+
+    The public sitemap used to call the paginated catalogue list ~65 times for
+    a few thousand titles, which made a cold build take 79 s.  This query keeps
+    the same group-dedup semantics but returns the whole set in one round trip:
+    only id and lastmod fields are selected, no cards/covers are serialized.
+    """
+
+    group_expr = _group_expr()
+    ranked = (
+        select(
+            Manga.id.label("manga_id"),
+            Manga.last_chapter_at.label("last_chapter_at"),
+            Manga.updated_at.label("updated_at"),
+            func.row_number()
+            .over(
+                partition_by=group_expr,
+                order_by=(
+                    desc(Manga.chapters_count),
+                    desc(Manga.last_chapter_at),
+                    desc(Manga.updated_at),
+                ),
+            )
+            .label("row_number"),
+        )
+        .where(*_manga_conditions())
+        .subquery()
+    )
+    rows = await session.execute(
+        select(
+            ranked.c.manga_id,
+            ranked.c.last_chapter_at,
+            ranked.c.updated_at,
+        )
+        .where(ranked.c.row_number == 1)
+        .order_by(desc(ranked.c.last_chapter_at), desc(ranked.c.updated_at))
+        .limit(max(1, limit))
+    )
+    return [(row[0], row[1], row[2]) for row in rows.all()]
 
 
 async def backfill_group_keys(session: AsyncSession) -> int:

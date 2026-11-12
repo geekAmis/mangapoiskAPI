@@ -330,6 +330,7 @@ network in production and should not be exposed publicly.
 - `GET /internal/manga?...`, `GET /internal/manga/{id}`
 - `GET /internal/manga/by-source/{source}/{source_id}`
 - `GET /internal/manga/{id}/chapters`
+- `GET /internal/sitemap?limit=50000` (canonical title ids + lastmod for the gateway sitemap)
 - `POST /internal/manga/import`
 - `PATCH /internal/manga/{id}/chapters/{chapter_id}/pages`
 - `POST /internal/maintenance/refresh?limit=5`

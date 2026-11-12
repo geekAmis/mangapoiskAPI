@@ -86,6 +86,23 @@ async def test_stats_reports_enrichment_backlog(api) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sources_endpoint_imports_and_returns_rows(api) -> None:
+    response = await api.get("/internal/sources")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+@pytest.mark.asyncio
+async def test_sitemap_endpoint_returns_canonical_titles(api) -> None:
+    response = await api.get("/internal/sitemap")
+    assert response.status_code == 200
+    entries = response.json()
+    assert len(entries) == 2
+    assert {entry["id"] for entry in entries}
+    assert all("last_chapter_at" in entry for entry in entries)
+
+
+@pytest.mark.asyncio
 async def test_crawl_state_round_trips_eta(api) -> None:
     payload = {
         "source": "mangapoisk",

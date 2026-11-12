@@ -1168,8 +1168,31 @@ jobs before retrying; deploy the remaining services; verify `/api/v1/health`,
 sitemap/robots and admin panels; roll back and stop if catalog remains
 unhealthy.
 
-## 11. Change log
+## 11. v1.2 retry #64 — known fixes
 
+- Catalog `/internal/sources` now imports `list_sources` at module load; the
+  function was dropped from `repository.py` during the catalogue-reliability
+  rewrite. A service-import smoke test and a route test cover it.
+- Deploy template writes `NOTIFIER_DATABASE_URL=sqlite+aiosqlite:////opt/.../data/notifier.db`
+  (absolute path), always includes `COMMENTS_URL`, and renders VAPID/Web Push
+  placeholders. The template creates/chowns `$ROOT/data`, so the SQLite file is
+  writable by the service user.
+- Sitemap uses one `/internal/sitemap` query, is warmed on gateway startup, and
+  nginx has a 120s `proxy_read_timeout` for `/sitemap.xml`.
+- SQLite connections keep WAL, `synchronous=NORMAL`, `busy_timeout=15000`;
+  read-only catalog list/stats/sources/suggest/sitemap paths retry transient
+  `database is locked` up to 3 times. Concurrent crawler writes remain the
+  likely root cause of sustained locks; this is bounded mitigation, not a
+  multi-writer fix.
+- Import smoke tests run `import app.main` for every service in CI.
+
+Чек-лист retry deploy и rollback — в `docs/INTEGRATION_v1.2.md` §9.
+
+## 12. Change log
+
+* 2026-11-12: catalog `/internal/sources` restored, deploy template writes an
+  absolute `NOTIFIER_DATABASE_URL`, sitemap cold path is one query + warm cache,
+  and SQLite read paths retry transient locks (#64).
 * 2026-11-12: search backfill moved out of catalog startup into a batched,
   resumable worker with WAL/busy_timeout and progress endpoint (#63).
 * 2026-11-12: deploy health gate is configurable (600s default), SSH reads

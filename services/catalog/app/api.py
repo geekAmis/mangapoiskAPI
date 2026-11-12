@@ -9,6 +9,7 @@ from manga_common.schemas import (
     MangaOut,
     MangaVariantsOut,
     RelatedMangaOut,
+    SitemapEntryOut,
     SourceOut,
     SuggestResponse,
 )
@@ -49,22 +50,29 @@ def get_service(request: Request) -> CatalogService:
 async def sources(
     service: CatalogService = Depends(get_service),
 ) -> list[SourceOut]:
-    from .repository import list_sources
+    rows = await service.source_rows()
+    return [
+        SourceOut(
+            code=row.code,
+            name=row.name,
+            base_url=row.base_url,
+            language=row.language,
+            enabled=row.enabled,
+            requires_cookies=row.requires_cookies,
+            capabilities=row.capabilities or {},
+        )
+        for row in rows
+    ]
 
-    async with service.session_factory() as session:
-        rows = await list_sources(session)
-        return [
-            SourceOut(
-                code=row.code,
-                name=row.name,
-                base_url=row.base_url,
-                language=row.language,
-                enabled=row.enabled,
-                requires_cookies=row.requires_cookies,
-                capabilities=row.capabilities or {},
-            )
-            for row in rows
-        ]
+
+@router.get("/sitemap", response_model=list[SitemapEntryOut])
+async def sitemap(
+    limit: int = Query(default=50_000, ge=1, le=50_000),
+    service: CatalogService = Depends(get_service),
+) -> list[SitemapEntryOut]:
+    """One row per canonical title for the gateway sitemap collector."""
+
+    return await service.sitemap_entries(limit=limit)
 
 
 @router.post("/sources/sync")

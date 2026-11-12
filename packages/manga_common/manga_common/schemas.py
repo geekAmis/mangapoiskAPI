@@ -124,6 +124,14 @@ class MangaListResponse(BaseModel):
     has_next: bool
 
 
+class SitemapEntryOut(BaseModel):
+    """Minimal catalogue row used by the gateway sitemap collector."""
+
+    id: UUID
+    last_chapter_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class HomeUpdateOut(BaseModel):
     manga_id: UUID
     manga_title: str

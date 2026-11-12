@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from manga_common.db import create_all, create_engine, create_session_factory
 from manga_common.errors import ConflictError
+from services.control.app import deployer as deployer_module
 from services.control.app.config import ControlSettings
 from services.control.app.crypto import SecretBox
 from services.control.app.deployer import Deployer, merge_deployed_services
@@ -89,6 +90,36 @@ def test_deployer_env_normalizes_api_base() -> None:
 
     assert "PUBLIC_API_URL=https://manga.example/api/v1\n" in env
     assert "REGISTRY_URL=https://manga.example/api/v1/registry\n" in env
+
+
+def test_deployer_env_has_absolute_notifier_db_and_web_push_placeholders() -> None:
+    settings = ControlSettings(
+        service_name="control-test",
+        deploy_root="/opt/mangapoisk-reborn",
+        control_secret_key="control-test-secret",
+        vapid_public_key="test-public-key",
+        vapid_private_key="test-private-key",
+        vapid_subject="mailto:ops@example.com",
+        web_push_enabled=True,
+    )
+    deployer = Deployer(settings, None, None, None, None)  # type: ignore[arg-type]
+    env = deployer._env_file(None, "127.0.0.1", {})
+
+    assert (
+        "NOTIFIER_DATABASE_URL=sqlite+aiosqlite:////opt/mangapoisk-reborn/data/notifier.db"
+        in env
+    )
+    assert "COMMENTS_URL=http://127.0.0.1:8109" in env
+    assert "VAPID_PUBLIC_KEY=test-public-key" in env
+    assert "VAPID_PRIVATE_KEY=test-private-key" in env
+    assert "VAPID_SUBJECT=mailto:ops@example.com" in env
+    assert "WEB_PUSH_ENABLED=true" in env
+    assert "NOTIFIER_DATABASE_URL=sqlite+aiosqlite:///./data" not in env
+
+    template = deployer_module._SCRIPT_TEMPLATE
+    assert 'mkdir -p "$ROOT" "$ROOT/data"' in template
+    assert 'chown -R "$USER_NAME:$USER_NAME" "$ROOT/data"' in template
+    assert 'chmod 750 "$ROOT/data"' in template
 
 
 def test_ssh_handle_cancellation_closes_channel() -> None:

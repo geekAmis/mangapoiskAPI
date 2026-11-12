@@ -79,13 +79,36 @@ def build_sitemap_xml(entries: list[tuple[str, str | None]]) -> str:
 
 async def _collect_entries(request: Request) -> list[tuple[str, str | None]]:
     """Static pages first, then every catalogue title that has chapters."""
-    catalog = request.app.state.catalog
-    base = str(request.app.state.settings.public_web_url).rstrip("/")
+    return await _collect_entries_for_app(request.app)
+
+
+async def _collect_entries_for_app(app) -> list[tuple[str, str | None]]:  # type: ignore[no-untyped-def]
+    catalog = app.state.catalog
+    base = str(app.state.settings.public_web_url).rstrip("/")
     entries: list[tuple[str, str | None]] = [
         (f"{base}/", None),
         (f"{base}/catalogue", None),
         (f"{base}/sources", None),
     ]
+
+    # Preferred path: one dedicated catalogue query for all canonical titles.
+    # The old paginated path made ~65 HTTP round trips for a few thousand
+    # titles and took 79 s cold in production.
+    sitemap_getter = getattr(catalog, "sitemap_entries", None)
+    if callable(sitemap_getter):
+        try:
+            rows = await sitemap_getter()
+        except Exception:
+            logger.warning("catalog sitemap endpoint failed; falling back to pages", exc_info=True)
+        else:
+            for row in rows:
+                if len(entries) >= SITEMAP_MAX_URLS:
+                    break
+                lastmod = _lastmod(getattr(row, "last_chapter_at", None)) or _lastmod(
+                    getattr(row, "updated_at", None)
+                )
+                entries.append((f"{base}/manga/{row.id}", lastmod))
+            return entries
 
     page = 1
     while len(entries) < SITEMAP_MAX_URLS:
@@ -113,6 +136,32 @@ async def _collect_entries(request: Request) -> list[tuple[str, str | None]]:
         page += 1
 
     return entries
+
+
+async def warm_sitemap_cache(app, *, attempts: int = 6) -> None:  # type: ignore[no-untyped-def]
+    """Populate the in-process cache after startup, without blocking health."""
+
+    global _cache
+    for attempt in range(1, attempts + 1):
+        started = time.monotonic()
+        try:
+            entries = await _collect_entries_for_app(app)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if attempt >= attempts:
+                logger.warning("sitemap cache warmup failed", exc_info=True)
+                return
+            await asyncio.sleep(min(10.0, 2.0 * attempt))
+            continue
+        xml = build_sitemap_xml(entries)
+        _cache = (time.monotonic(), xml)
+        logger.info(
+            "sitemap cache warmed: %s urls in %.2fs",
+            len(entries),
+            time.monotonic() - started,
+        )
+        return
 
 
 async def _sitemap_response(request: Request) -> Response:

@@ -388,6 +388,12 @@ fi
             f"LIBRARY_DATABASE_URL=sqlite+aiosqlite:///{root}/data/library.db",
             f"CONTROL_DATABASE_URL=sqlite+aiosqlite:///{root}/data/control.db",
             f"COMMENTS_DATABASE_URL=sqlite+aiosqlite:///{root}/data/comments.db",
+            f"NOTIFIER_DATABASE_URL=sqlite+aiosqlite:///{root}/data/notifier.db",
+            f"COMMENTS_URL={urls.get('comments', 'http://127.0.0.1:8109')}",
+            f"VAPID_PUBLIC_KEY={self.settings.vapid_public_key}",
+            f"VAPID_PRIVATE_KEY={self.settings.vapid_private_key}",
+            f"VAPID_SUBJECT={self.settings.vapid_subject}",
+            f"WEB_PUSH_ENABLED={'true' if self.settings.web_push_enabled else 'false'}",
             f"MEDIA_CACHE_DIR={root}/data/media-cache",
             f"REPLICA_DIR={root}/data/replica",
             f"REPLICA_DATA_ROOT={root}/data",
@@ -412,7 +418,7 @@ fi
             "CATALOGUE_ENRICHMENT_LIMIT=60",
             f"CONTROL_URL={self.settings.control_public_url}",
         ]
-        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica", "comments"):
+        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica"):
             if code in urls:
                 lines.append(f"{code.upper()}_URL={urls[code]}")
         return "\n".join(lines) + "\n"

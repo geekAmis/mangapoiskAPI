@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from xml.etree import ElementTree
@@ -127,4 +128,74 @@ def test_sitemap_serves_stale_copy_when_catalog_fails() -> None:
     stale = client.get("/sitemap.xml")
     assert stale.status_code == 200
     assert stale.text == first.text
+    seo.reset_sitemap_cache()
+
+
+def test_sitemap_cold_generation_uses_one_catalog_query_and_is_bounded() -> None:
+    seo.reset_sitemap_cache()
+
+    class FastCatalog:
+        def __init__(self) -> None:
+            self.sitemap_calls = 0
+            self.page_calls = 0
+
+        async def sitemap_entries(self) -> list[SimpleNamespace]:
+            self.sitemap_calls += 1
+            return [
+                SimpleNamespace(
+                    id=f"title-{index}",
+                    last_chapter_at=datetime(2026, 1, 2),
+                    updated_at=datetime(2026, 1, 2),
+                )
+                for index in range(6_500)
+            ]
+
+        async def manga_list(self, params: dict[str, object]) -> SimpleNamespace:
+            self.page_calls += 1
+            raise AssertionError("paginated fallback must not run on new catalog")
+
+    catalog = FastCatalog()
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(public_web_url="https://example.test")
+    app.state.catalog = catalog
+    app.include_router(seo.router)
+    client = TestClient(app)
+
+    started = time.perf_counter()
+    response = client.get("/sitemap.xml")
+    cold_seconds = time.perf_counter() - started
+
+    assert response.status_code == 200
+    assert catalog.sitemap_calls == 1
+    assert catalog.page_calls == 0
+    assert cold_seconds < 5.0
+    root = ElementTree.fromstring(response.text)
+    assert len(root.findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url")) == 6_503
+
+    started = time.perf_counter()
+    warm = client.get("/sitemap.xml")
+    warm_seconds = time.perf_counter() - started
+    assert warm.status_code == 200
+    assert warm.text == response.text
+    assert catalog.sitemap_calls == 1
+    assert warm_seconds < cold_seconds + 1.0
+    seo.reset_sitemap_cache()
+
+
+async def test_warm_sitemap_cache_populates_cache() -> None:
+    seo.reset_sitemap_cache()
+
+    class WarmCatalog:
+        async def sitemap_entries(self) -> list[SimpleNamespace]:
+            return [SimpleNamespace(id="warm-1", last_chapter_at=None, updated_at=None)]
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            settings=SimpleNamespace(public_web_url="https://example.test"),
+            catalog=WarmCatalog(),
+        )
+    )
+    await seo.warm_sitemap_cache(app, attempts=1)
+    assert seo._cache is not None  # type: ignore[attr-defined]
+    assert "<loc>https://example.test/manga/warm-1</loc>" in seo._cache[1]  # type: ignore[attr-defined]
     seo.reset_sitemap_cache()

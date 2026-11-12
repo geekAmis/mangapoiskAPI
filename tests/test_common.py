@@ -12,6 +12,7 @@ from manga_common.auth import (
 )
 from manga_common.cache import MemoryCache, cache_key
 from manga_common.config import Settings
+from manga_common.db import retry_on_locked
 from manga_common.errors import UnauthorizedError
 from manga_common.security import UserClaims, admin_auth_version, require_admin
 from manga_common.text import parse_float, parse_int, parse_year, slugify, strip_html
@@ -145,3 +146,24 @@ def test_production_public_urls_must_be_https() -> None:
 
 def test_development_secrets_allow_defaults() -> None:
     Settings(environment="development").validate_production_secrets()
+
+
+@pytest.mark.asyncio
+async def test_retry_on_locked_retries_only_transient_lock_errors() -> None:
+    calls = 0
+
+    async def transient() -> str:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise RuntimeError("(sqlite3.OperationalError) database is locked")
+        return "ok"
+
+    assert await retry_on_locked(transient, attempts=3, base_delay=0) == "ok"
+    assert calls == 3
+
+    async def permanent() -> str:
+        raise RuntimeError("no such table: manga")
+
+    with pytest.raises(RuntimeError, match="no such table"):
+        await retry_on_locked(permanent, attempts=3, base_delay=0)

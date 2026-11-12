@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -125,3 +126,32 @@ async def ping(engine: AsyncEngine) -> bool:
         return True
     except Exception:
         return False
+
+
+def is_database_locked(exc: BaseException) -> bool:
+    """True for SQLite's transient single-writer contention error."""
+
+    return "database is locked" in str(exc).lower()
+
+
+async def retry_on_locked(
+    operation: Callable[[], Awaitable[Any]],
+    *,
+    attempts: int = 3,
+    base_delay: float = 0.2,
+) -> Any:
+    """Retry a read operation when SQLite reports a transient writer lock.
+
+    Each attempt must open its own session so a rolled-back connection is not
+    reused.  Write paths are intentionally not wrapped: their transactions must
+    be retried by the caller with explicit idempotency semantics.
+    """
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return await operation()
+        except Exception as exc:
+            if attempt >= attempts or not is_database_locked(exc):
+                raise
+            await asyncio.sleep(base_delay * (2 ** (attempt - 1)))
+    raise AssertionError("unreachable")
