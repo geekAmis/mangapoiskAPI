@@ -16,6 +16,7 @@ from .config import GatewaySettings
 from .middleware import RateLimitMiddleware
 from .notifications_api import router as notifications_router
 from .notifier_client import NotifierClient
+from .observability import GatewayObservabilityCollector
 from .retention import router as retention_router
 from .routing import EndpointPool, reset_client_key, set_client_key
 from .seo import router as seo_router
@@ -72,10 +73,14 @@ async def lifespan(app: FastAPI):
 
     sync_task = asyncio.create_task(registry_sync())
     warm_task = asyncio.create_task(warm_sitemap_cache(app))
+    observability = GatewayObservabilityCollector(app, settings)
+    app.state.observability_collector = observability
+    observability.start()
     logger.info("gateway ready")
     try:
         yield
     finally:
+        await observability.stop()
         sync_task.cancel()
         warm_task.cancel()
         await asyncio.gather(sync_task, warm_task, return_exceptions=True)

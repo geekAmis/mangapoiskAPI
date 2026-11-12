@@ -218,15 +218,18 @@ curl -fsS -H "X-Internal-Token: $INTERNAL_TOKEN" http://127.0.0.1:8102/internal/
 
 ## 5. Алерты и пороги
 
-Пока алертов нет. Минимальный набор (внешний uptime-монитор + systemd
-`OnFailure` + скрипт, дергающий notifier):
+Реализовано: in-process метрики `/metrics` (Prometheus text/JSON), агрегатор
+gateway, systemd `OnFailure` + watchdog-таймер, отправка в Telegram через
+notifier. Подробности, список метрик и runbook — в
+[`docs/OBSERVABILITY.md`](OBSERVABILITY.md). Внешний uptime-монитор всё ещё
+рекомендуется для случая недоступности самого хоста.
 
 | Алерт | Условие | Severity | Действие |
 |---|---|---|---|
 | Сервис down | `/health` != 200 > 2 мин | critical | рестарт по runbook, эскалация |
 | 5xx rate | > 2 % за 5 мин | high | смотреть gateway/upstream, откат |
-| p95 latency | > 2 с за 10 мин | high | проверить catalog/DB |
-| Диск | > 80 % warning, > 90 % critical | high | очистка кэша/экспортов, расширение |
+| p95 latency | > 2 с за 5 мин | high | проверить catalog/DB |
+| Диск | > 80 % warning, > 90 % critical | critical/warning | очистка кэша/экспортов, расширение |
 | RAM available | < 10 % или OOM-kill | high | рестарт control, добавить swap/RAM |
 | Backup fail | нет успешного бэкапа > 26 ч | critical | проверить timer/restic |
 | Crawler stalled | running и нет прогресса > 30 мин | high | source 403/404, circuit breaker |
@@ -238,8 +241,15 @@ curl -fsS -H "X-Internal-Token: $INTERNAL_TOKEN" http://127.0.0.1:8102/internal/
 | TLS | < 14 дней | warning | certbot renew |
 | Replica lag | snapshot старше 10 мин | high | проверить replica/sync |
 
-Notifier уже умеет `POST /internal/notify` (Telegram). Достаточно добавить
-`ALERT_CHAT_ID`/второй канал и не смешивать с лентой новых глав.
+Алерты идут в `POST /internal/notify/alert` (Telegram) с `ALERT_CHAT_ID`, а
+при его отсутствии — в `TELEGRAM_CHAT_ID`; лента новых глав остаётся
+отдельной. Watchdog дедуплицирует сообщения на 1 час, повторяет
+недоставленные алерты и не рассылает ложные «восстановлено», если источник
+метрик недоступен. Установка и проверка: `docs/OBSERVABILITY.md`.
+
+Watchdog покрывает сервисы, 5xx/p95, диск, backup, crawler, SQLite lock и
+media/archive. RAM, TLS и replica lag пока остаются ручными/внешними
+проверками — для них нужен отдельный exporter или uptime-монитор.
 
 ---
 

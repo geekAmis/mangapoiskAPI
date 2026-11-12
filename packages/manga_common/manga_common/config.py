@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # present this token in the X-Internal-Token header.
     internal_token: str = "dev-internal-token-change-me"
 
+    # Optional protection for GET /metrics.  Services bind to 127.0.0.1 in
+    # production, so it is empty by default; set it when a remote Prometheus
+    # scraper reaches the service through a network.
+    metrics_token: str | None = None
+
     # Public authentication.
     jwt_secret: str = "dev-jwt-secret-change-me"
     jwt_algorithm: str = "HS256"
@@ -151,6 +156,8 @@ class Settings(BaseSettings):
             problems.append("JWT_SECRET must be changed in production")
         if self._is_placeholder_secret(self.internal_token):
             problems.append("INTERNAL_TOKEN must be changed in production")
+        if self.metrics_token and self._is_placeholder_secret(self.metrics_token):
+            problems.append("METRICS_TOKEN must be changed in production")
         if (
             self.service_name in {"gateway", "control"}
             and (

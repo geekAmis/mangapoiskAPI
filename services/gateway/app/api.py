@@ -22,6 +22,7 @@ from manga_common.errors import (
     UpstreamError,
     ValidationError,
 )
+from manga_common.metrics import metrics
 from manga_common.schemas import (
     BookmarkCreate,
     BookmarkOut,
@@ -1472,6 +1473,58 @@ async def admin_media_stats(
 
     _, _, _, media = clients(request)
     return await media.stats()
+
+
+def _fallback_observability() -> dict[str, Any]:
+    snapshot = metrics.snapshot()
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "http": snapshot["http"],
+        "db": snapshot["db"],
+        "services": {},
+        "crawler": {
+            "backlog": 0,
+            "backlog_by_source": {},
+            "sources": [],
+            "stalled": [],
+            "failed": [],
+        },
+        "media": {},
+        "backup": {
+            "configured": False,
+            "status": "missing",
+            "last_success_at": None,
+            "last_attempt_at": None,
+            "age_seconds": None,
+            "last_error": None,
+        },
+        "disk": {},
+        "alerts": [],
+    }
+
+
+@router.get("/admin/observability")
+async def admin_observability(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> dict[str, Any]:
+    """HTTP percentiles, 5xx rate, SQLite locks, backup age and active alerts.
+
+    The collector refreshes every 30 seconds; a cold process performs one
+    refresh on demand so the first admin page load is not empty.
+    """
+
+    snapshot = getattr(request.app.state, "observability_snapshot", None)
+    if snapshot is None:
+        collector = getattr(request.app.state, "observability_collector", None)
+        if collector is not None:
+            try:
+                snapshot = await collector.refresh()
+            except Exception:
+                logger.exception("admin observability refresh failed")
+                snapshot = _fallback_observability()
+        else:
+            snapshot = _fallback_observability()
+    return snapshot
 
 
 @router.get("/admin/crawl", response_model=CrawlerStatusOut)

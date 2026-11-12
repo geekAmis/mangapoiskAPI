@@ -29,6 +29,7 @@ import { AdminLogin } from '../components/admin/AdminLogin';
 import { AdminServerCard } from '../components/admin/AdminServerCard';
 import { AdsPanel } from '../components/admin/AdsPanel';
 import { CrawlerStatusPanel } from '../components/admin/CrawlerStatusPanel';
+import { ObservabilityPanel } from '../components/admin/ObservabilityPanel';
 import { DeployModal } from '../components/admin/DeployModal';
 import { MediaStoragePanel } from '../components/admin/MediaStoragePanel';
 import { ServerFormModal } from '../components/admin/ServerFormModal';
@@ -768,6 +769,8 @@ export default function AdminPage() {
             <small>последние 100 записей</small>
           </div>
         </div>
+
+        <ObservabilityPanel />
 
         <CrawlerStatusPanel />
 

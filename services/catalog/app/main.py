@@ -12,6 +12,7 @@ from manga_common.service import add_ready_check, create_service_app
 from .api import router
 from .config import CatalogSettings
 from .migrations import ensure_runtime_schema
+from .observability import CatalogMetricsCollector
 from .parser_client import ParserClient
 from .search_backfill import (
     BackfillConfig,
@@ -78,6 +79,8 @@ async def lifespan(app: FastAPI):
         return await ping(engine)
 
     add_ready_check(app, "database", db_ready)
+    metrics_collector = CatalogMetricsCollector(service)
+    app.state.metrics_collectors.append(metrics_collector.collect)
 
     async def sync_sources() -> None:
         try:

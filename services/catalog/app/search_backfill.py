@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from manga_common.metrics import metrics
 from sqlalchemy import bindparam, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -70,10 +71,18 @@ async def retry_on_locked[T](
 
     for attempt in range(max(1, attempts)):
         try:
-            return await operation()
+            result = await operation()
+            if attempt > 0:
+                metrics.record_db_lock_recovered()
+            return result
         except OperationalError as exc:
-            if not _is_locked(exc) or attempt >= attempts - 1:
+            if not _is_locked(exc):
                 raise
+            metrics.record_db_lock_error()
+            if attempt >= attempts - 1:
+                metrics.record_db_lock_exhausted()
+                raise
+            metrics.record_db_lock_retry()
             delay = base_delay * (2**attempt)
             logger.warning(
                 "catalogue database is locked; retrying in %.1fs (%s/%s)",

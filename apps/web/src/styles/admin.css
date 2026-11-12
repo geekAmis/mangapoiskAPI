@@ -1776,3 +1776,136 @@ html[data-admin="true"] .toast-region {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Observability panel: HTTP/SQLite/backup/alerts. */
+.admin-observability-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.admin-observability-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.admin-observability-card h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.admin-observability-card strong {
+  font-size: 1.05rem;
+}
+.admin-observability-card span {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+.admin-observability-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.admin-observability-service {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 0.68rem;
+}
+.admin-observability-service > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.admin-observability-service.is-ok > span {
+  background: var(--success, #3fb950);
+}
+.admin-observability-service.is-bad > span {
+  background: var(--danger, #f85149);
+}
+.admin-observability-muted {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+.admin-observability-alerts {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger, #f85149) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger, #f85149) 7%, transparent);
+}
+.admin-observability-alerts__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+.admin-observability-alerts ul {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.admin-observability-alert {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+.admin-observability-alert__severity {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.admin-observability-alert.is-critical .admin-observability-alert__severity {
+  background: var(--danger, #f85149);
+  color: #fff;
+}
+.admin-observability-alert.is-high .admin-observability-alert__severity {
+  background: #d29922;
+  color: #111;
+}
+.admin-observability-alert.is-warning .admin-observability-alert__severity {
+  background: #9e6a03;
+  color: #fff;
+}
+.admin-observability-alert strong {
+  font-size: 0.78rem;
+}
+.admin-observability-alert p {
+  margin: 2px 0 0;
+  color: var(--text-faint);
+  font-size: 0.71rem;
+  word-break: break-word;
+}
+
+@media (max-width: 1099px) {
+  .admin-observability-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .admin-observability-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

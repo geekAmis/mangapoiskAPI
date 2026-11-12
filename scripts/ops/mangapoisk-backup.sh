@@ -12,6 +12,7 @@ DATA_ROOT="${DATA_ROOT:-/opt/mangapoisk-reborn/data}"
 APP_ROOT="${APP_ROOT:-/opt/mangapoisk-reborn}"
 STAGE="${STAGE:-/var/tmp/mangapoisk-backup}"
 STATE_DIR="${STATE_DIR:-/var/lib/mangapoisk-backup}"
+BACKUP_STATUS_FILE="${BACKUP_STATUS_FILE:-$STATE_DIR/status.json}"
 LOG_FILE="${LOG_FILE:-/var/log/mangapoisk-backup.log}"
 RESTIC_REPOSITORY="${RESTIC_REPOSITORY:-sftp:mpbackup-jump:/srv/mangapoisk-backups/restic}"
 RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE:-/root/.restic-password}"
@@ -21,7 +22,10 @@ HOST_LABEL="${HOST_LABEL:-primary-85}"
 DB_NAMES=(catalog library comments control archives)
 
 umask 077
-install -d -m 700 "$STATE_DIR"
+install -d -m 755 "$STATE_DIR"
+# Older installs used 0700; the status file itself is deliberately public
+# (readable by the gateway user) and contains no secrets.
+chmod 755 "$STATE_DIR" 2>/dev/null || true
 touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -29,12 +33,60 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
 
+write_status() {
+    status="$1"
+    rc="${2:-0}"
+    error="${3:-}"
+    duration="${4:-0}"
+    python3 - "$BACKUP_STATUS_FILE" "$status" "$rc" "$HOST_LABEL" "$error" "$duration" <<'PY'
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime, timezone
+
+path, status, rc, host, error, duration = sys.argv[1:7]
+now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+last_success = None
+try:
+    with open(path, encoding="utf-8") as handle:
+        previous = json.load(handle)
+    last_success = previous.get("last_success_at")
+except (OSError, ValueError):
+    pass
+if status == "ok":
+    last_success = now
+payload = {
+    "status": status,
+    "last_attempt_at": now,
+    "last_success_at": last_success,
+    "exit_code": int(rc),
+    "duration_seconds": int(duration),
+    "host": host,
+    "last_error": error or None,
+}
+directory = os.path.dirname(path) or "."
+os.makedirs(directory, exist_ok=True)
+fd, temporary = tempfile.mkstemp(prefix=".status-", dir=directory, text=True)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+        handle.write("\n")
+    os.chmod(temporary, 0o644)
+    os.replace(temporary, path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+
 exec 9>/run/mangapoisk-backup.lock
 if ! flock -n 9; then
     log "another backup is running; exiting"
     exit 0
 fi
 
+BACKUP_COMPLETE=0
 cleanup() {
     rc=$?
     trap - EXIT
@@ -43,11 +95,16 @@ cleanup() {
     fi
     if [ "$rc" -ne 0 ]; then
         log "backup FAILED rc=$rc"
+        write_status failed "$rc" "backup failed rc=$rc" "$SECONDS" || true
+    elif [ "$BACKUP_COMPLETE" = "1" ]; then
+        write_status ok 0 "" "$SECONDS" || true
     fi
     exit "$rc"
 }
 trap cleanup EXIT
 
+command -v python3 >/dev/null || fail "python3 is required for backup status"
+write_status running 0 "" 0 || true
 log "backup start host=$HOST_LABEL repo=$RESTIC_REPOSITORY"
 [ -r "$RESTIC_PASSWORD_FILE" ] || fail "missing restic password file: $RESTIC_PASSWORD_FILE"
 [ -x "$RESTIC_BIN" ] || fail "missing restic binary: $RESTIC_BIN"
@@ -153,4 +210,5 @@ if [ "$(cat "$STATE_DIR/last-check" 2>/dev/null || true)" != "$WEEK" ]; then
     echo "$WEEK" > "$STATE_DIR/last-check"
 fi
 
+BACKUP_COMPLETE=1
 log "backup OK"
