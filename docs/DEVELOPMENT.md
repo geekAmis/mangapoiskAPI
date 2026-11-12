@@ -122,6 +122,27 @@ python scripts/seed_demo.py
 The script imports a couple of MangaPoisk titles through the running parser
 and catalog.  It is safe to re-run.
 
+## Documentation encoding
+
+`README.md` and everything under `docs/` is **UTF-8 without BOM**; Git stores
+these files with LF line endings.  Do not round-trip Russian text through
+CP1251, Windows-1251 or an editor that guesses a legacy code page — that is how
+the README was once turned into unreadable CP1251 mojibake.
+
+Run this before committing documentation changes:
+
+```bash
+python scripts/check_docs_encoding.py
+```
+
+The script fails on invalid UTF-8, a UTF-8 BOM, `U+FFFD` replacement
+characters, common `UTF-8 -> CP1251` mojibake signatures and mixed CRLF/LF
+endings.  It accepts explicit paths too:
+
+```bash
+python scripts/check_docs_encoding.py README.md docs/RELEASE_NOTES_v1.1.0.md
+```
+
 ## Conventions
 
 - Async everywhere in services; never block the event loop with `requests`.

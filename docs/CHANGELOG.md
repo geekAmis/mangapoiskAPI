@@ -11,6 +11,12 @@ SemVer.
 - S3-compatible media storage.
 - More verified sources (MangaDex/ReadManga).
 
+## [1.2.0] — unreleased (EPIC #48)
+
+### Added
+
+- SEO: per-route metadata, JSON-LD, `robots.txt` and a dynamic sitemap (#38).
+
 ## [1.1.0] — 2026-11-12 (draft)
 
 ### Added
@@ -27,6 +33,21 @@ SemVer.
 - Replica service: periodic SQLite snapshots and chapter-archive sync between
   nodes, with manual promotion. This is **in progress** and not enabled on the
   demo/production deployment yet.
+- Remanga adapter: search, catalogue/popular, title details, chapter list and
+  reader pages; free chapters work anonymously, paid chapters return a typed
+  `chapter_paid` error instead of bypassing the paywall. Source cookies are
+  optional and managed from the admin panel.
+- Prepare-then-download: idempotent `POST/GET /manga/{id}/prepare`, persistent
+  `prepared/pending/failed` progress and client batches of five chapters.
+- Comments service (`:8109`): title-only threads, one-level replies, likes,
+  spoilers, reports, admin moderation and reply/like notifications.
+- Source cookie store: persistent `PARSER_COOKIE_STORE_PATH` (mode `0600`),
+  admin status/set/clear routes and `.har` import (server endpoint plus
+  browser-side extraction for large files).
+- Chapter archive LRU: about 25 GiB, `last_accessed_at`, prune on startup and
+  after archiving; metadata and covers are not evicted.
+- HTTPS is live at `https://85.192.37.58.nip.io:8443` (Let's Encrypt, HSTS,
+  CSP); HTTP `:8088` remains as a compatibility fallback.
 
 ### Changed
 
@@ -36,7 +57,11 @@ SemVer.
 - Gateway registry routing: deterministic priority-weighted rendezvous hash,
   with fallbacks tried last. Writes and stateful reads stay on the leader.
 - README and docs now distinguish Compose ports (8000–8006) from production
-  systemd ports (8100–8107, control 8005).
+  systemd ports (8100–8109, control 8005).
+- User-facing CBZ/PDF/HTML export UI removed; the remaining public export
+  routes are deprecated and scheduled for cleanup (#36).
+- README and corrupted docs restored from the last clean UTF-8 revision and
+  re-applied to v1.1 content; BOM removed and encoding check documented.
 
 ### Fixed
 
@@ -54,6 +79,8 @@ SemVer.
   client-controlled `X-Forwarded-For`.
 - Media proxy re-validates every DNS answer and redirect hop, rejects
   private/link-local/metadata hosts and non-raster image types.
+- Source cookies are stored with mode `0600`, never returned by the API, never
+  written to the audit log and never forwarded to clients.
 
 ### Notes
 

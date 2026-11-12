@@ -52,10 +52,14 @@ fragile parts.
 | `web` | 8080 | 8088 | React build served by nginx | static |
 | `scheduler` | — | 8107 (no HTTP) | Periodic catalogue refresh + notifications | none |
 | `notifier` | 8006 | 8106 | Telegram delivery | none |
+| `comments` | — | 8109 | Title discussions, reactions, reports, moderation, notifications | SQLite/Postgres |
+| `replica` | — | 8108 | SQLite snapshots and chapter-archive replication (in progress) | disk |
 
 The two port ranges are intentional: Compose is for local development, while the
 production server runs systemd units behind a private nginx on `:8088`. Only
-nginx is exposed; the backend ports bind to `127.0.0.1`.
+nginx is exposed; the backend ports bind to `127.0.0.1`.  `comments` and
+`replica` are deployed by `control`/systemd; the default Compose stack does not
+include them yet.
 
 ### Admin / server manager
 
