@@ -5,6 +5,9 @@ import uuid
 from fastapi import APIRouter, Depends, Query, Request
 from manga_common.schemas import (
     ChapterOut,
+    CollectionAuditOut,
+    CollectionListOut,
+    CollectionOut,
     MangaListResponse,
     MangaOut,
     MangaVariantsOut,
@@ -19,6 +22,10 @@ from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
 from .schemas import (
     CatalogStats,
     ChapterDetailInternal,
+    CollectionCreate,
+    CollectionItemIn,
+    CollectionOrderIn,
+    CollectionUpdate,
     CrawlStateIn,
     CrawlStateOut,
     EnrichmentFailureRequest,
@@ -44,6 +51,110 @@ router = APIRouter(prefix="/internal", dependencies=[Depends(require_internal_to
 
 def get_service(request: Request) -> CatalogService:
     return request.app.state.service
+
+
+def _parse_ids(raw: str | None, *, limit: int = 100) -> list[uuid.UUID]:
+    result: list[uuid.UUID] = []
+    for chunk in (raw or "").split(","):
+        value = chunk.strip()
+        if not value:
+            continue
+        try:
+            parsed = uuid.UUID(value)
+        except ValueError:
+            continue
+        if parsed not in result:
+            result.append(parsed)
+        if len(result) >= limit:
+            break
+    return result
+
+
+@router.get("/collections", response_model=CollectionListOut)
+async def collections(
+    limit: int = Query(default=12, ge=1, le=24),
+    service: CatalogService = Depends(get_service),
+) -> CollectionListOut:
+    return await service.collections(limit=limit)
+
+
+@router.get("/collections/{slug}", response_model=CollectionOut)
+async def collection(
+    slug: str,
+    limit: int = Query(default=24, ge=1, le=60),
+    service: CatalogService = Depends(get_service),
+) -> CollectionOut:
+    return await service.collection(slug, limit=limit)
+
+
+@router.get("/admin/collections", response_model=CollectionListOut)
+async def admin_collections(
+    service: CatalogService = Depends(get_service),
+) -> CollectionListOut:
+    return await service.admin_collections()
+
+
+@router.post("/admin/collections", response_model=CollectionOut)
+async def admin_create_collection(
+    payload: CollectionCreate,
+    service: CatalogService = Depends(get_service),
+) -> CollectionOut:
+    return await service.create_collection(payload)
+
+
+@router.patch("/admin/collections/{collection_id}", response_model=CollectionOut)
+async def admin_update_collection(
+    collection_id: uuid.UUID,
+    payload: CollectionUpdate,
+    service: CatalogService = Depends(get_service),
+) -> CollectionOut:
+    return await service.update_collection(collection_id, payload)
+
+
+@router.delete("/admin/collections/{collection_id}")
+async def admin_delete_collection(
+    collection_id: uuid.UUID,
+    service: CatalogService = Depends(get_service),
+) -> dict[str, bool]:
+    await service.delete_collection(collection_id)
+    return {"ok": True}
+
+
+@router.post("/admin/collections/{collection_id}/items", response_model=CollectionOut)
+async def admin_add_collection_item(
+    collection_id: uuid.UUID,
+    payload: CollectionItemIn,
+    service: CatalogService = Depends(get_service),
+) -> CollectionOut:
+    return await service.add_collection_item(collection_id, payload)
+
+
+@router.delete(
+    "/admin/collections/{collection_id}/items/{manga_id}", response_model=CollectionOut
+)
+async def admin_remove_collection_item(
+    collection_id: uuid.UUID,
+    manga_id: uuid.UUID,
+    service: CatalogService = Depends(get_service),
+) -> CollectionOut:
+    return await service.remove_collection_item(collection_id, manga_id)
+
+
+@router.put("/admin/collections/{collection_id}/order", response_model=CollectionOut)
+async def admin_reorder_collection(
+    collection_id: uuid.UUID,
+    payload: CollectionOrderIn,
+    service: CatalogService = Depends(get_service),
+) -> CollectionOut:
+    return await service.reorder_collection_items(collection_id, payload)
+
+
+@router.get("/admin/collections/audit", response_model=list[CollectionAuditOut])
+async def admin_collection_audit(
+    limit: int = Query(default=100, ge=1, le=500),
+    service: CatalogService = Depends(get_service),
+) -> list[CollectionAuditOut]:
+    return await service.collection_audit(limit=limit)
 
 
 @router.get("/sources", response_model=list[SourceOut])
@@ -219,9 +330,33 @@ async def recommendations(
 @router.get("/manga/{manga_id}/related", response_model=RelatedMangaOut)
 async def related_manga(
     manga_id: uuid.UUID,
+    history: str | None = Query(
+        default=None,
+        max_length=4096,
+        description="Comma-separated read manga ids used to exclude already-read titles",
+    ),
+    limit: int = Query(default=12, ge=6, le=12),
     service: CatalogService = Depends(get_service),
 ) -> RelatedMangaOut:
-    return await service.related(manga_id)
+    return await service.related(
+        manga_id,
+        history_ids=_parse_ids(history),
+        limit=limit,
+    )
+
+
+@router.get("/manga/{manga_id}/similar", response_model=list[MangaOut])
+async def similar_manga(
+    manga_id: uuid.UUID,
+    history: str | None = Query(default=None, max_length=4096),
+    limit: int = Query(default=12, ge=6, le=12),
+    service: CatalogService = Depends(get_service),
+) -> list[MangaOut]:
+    return await service.similar(
+        manga_id,
+        history_ids=_parse_ids(history),
+        limit=limit,
+    )
 
 
 @router.put("/manga/{manga_id}/relations", response_model=RelationsOut)

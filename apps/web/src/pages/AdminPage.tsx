@@ -28,6 +28,7 @@ import { Skeleton } from '../components/Skeleton';
 import { AdminLogin } from '../components/admin/AdminLogin';
 import { AdminServerCard } from '../components/admin/AdminServerCard';
 import { AdsPanel } from '../components/admin/AdsPanel';
+import { CollectionsPanel } from '../components/admin/CollectionsPanel';
 import { CrawlerStatusPanel } from '../components/admin/CrawlerStatusPanel';
 import { ObservabilityPanel } from '../components/admin/ObservabilityPanel';
 import { DeployModal } from '../components/admin/DeployModal';
@@ -1023,6 +1024,8 @@ export default function AdminPage() {
         <ProfileReportsPanel />
 
         <AdsPanel />
+
+        <CollectionsPanel />
 
         <section className="admin-panel" aria-labelledby="admin-audit-title">
           <div className="admin-panel__head">

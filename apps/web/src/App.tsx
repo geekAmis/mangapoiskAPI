@@ -6,6 +6,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { PageLoader, ReaderFallback } from './components/PageLoader';
 import HomePage from './pages/HomePage';
 import CataloguePage from './pages/CataloguePage';
+import CollectionPage from './pages/CollectionPage';
 import MangaPage from './pages/MangaPage';
 import LibraryPage from './pages/LibraryPage';
 import LoginPage from './pages/LoginPage';
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="catalog/genres" element={<CataloguePage />} />
         <Route path="catalogue" element={<CataloguePage />} />
         <Route path="manga/:id" element={<MangaPage />} />
+        <Route path="collections/:slug" element={<CollectionPage />} />
         <Route
           path="library"
           element={

@@ -378,6 +378,53 @@ export interface RecommendationListOut {
 export interface RelatedMangaOut {
   series: MangaOut[];
   related: MangaOut[];
+  /** Heuristic shelf: genres, rating, year, type and chapter-count closeness. */
+  similar: MangaOut[];
+}
+
+export type CollectionKind = 'smart' | 'manual';
+export type CollectionRule = 'weekly_best' | 'beginners' | 'completed' | 'short' | 'new';
+
+export interface CollectionOut {
+  id: UUID;
+  slug: string;
+  title: string;
+  description: string;
+  kind: CollectionKind;
+  rule: CollectionRule | null;
+  enabled: boolean;
+  position: number;
+  limit: number;
+  item_count: number;
+  items: MangaOut[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CollectionListOut {
+  items: CollectionOut[];
+  total: number;
+}
+
+export interface CollectionAuditOut {
+  id: UUID;
+  action: string;
+  collection_id: UUID | null;
+  details: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface AnalyticsSurfaceOut {
+  surface: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+}
+
+export interface AnalyticsSurfacesOut {
+  days: number;
+  generated_at: string;
+  items: AnalyticsSurfaceOut[];
 }
 
 export type AnalyticsEventName =

@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -344,3 +344,20 @@ async def list_analytics_events(
         .order_by(AnalyticsEvent.created_at.asc())
     )
     return list(result.all())
+
+
+async def analytics_surface_totals(
+    session: AsyncSession, *, since: datetime
+) -> list[tuple[str, str, int]]:
+    """Impression/click counts grouped by non-empty product surface."""
+
+    rows = await session.execute(
+        select(AnalyticsEvent.surface, AnalyticsEvent.event, func.count(AnalyticsEvent.id))
+        .where(
+            AnalyticsEvent.created_at >= since,
+            AnalyticsEvent.event.in_(("impression", "click")),
+            AnalyticsEvent.surface != "",
+        )
+        .group_by(AnalyticsEvent.surface, AnalyticsEvent.event)
+    )
+    return [(str(row[0]), str(row[1]), int(row[2])) for row in rows.all()]

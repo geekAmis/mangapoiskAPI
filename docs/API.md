@@ -131,6 +131,75 @@ or `{"source":"mangapoisk","source_id":"overgeared-abs3nSd"}`.  Requires no
 auth (public import is rate-limited).  Returns `ImportMangaResponse` with
 `manga`, `imported_chapters`, `imported_pages`, `source`.
 
+## Discovery: related titles and public collections
+
+See [`DISCOVERY.md`](DISCOVERY.md) for the heuristic weights, collection rules,
+editorial workflow, caching and metrics.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/manga/{id}/related` | explicit series/links + heuristic `similar` shelf |
+| GET | `/api/v1/collections` | enabled public collections with preview items |
+| GET | `/api/v1/collections/{slug}` | one collection with up to 60 titles |
+
+### `GET /api/v1/manga/{id}/related`
+
+Query: `history` (optional comma-separated UUIDs of locally read titles, up to
+4096 characters), `limit` (6–12, default 12).
+
+Response:
+
+```json
+{
+  "series": [],
+  "related": [],
+  "similar": [
+    {
+      "id": "uuid", "title": "…", "poster_url": "…",
+      "chapters_count": 120, "rating": 8.7, "year": 2021,
+      "genre_slugs": ["fantasy", "action"]
+    }
+  ]
+}
+```
+
+`similar` is deterministic and explainable: genres 52 %, rating 18 %, year
+10 %, type 8 %, chapter-count closeness 7 %, popularity 5 %.  The seed itself,
+its source variants, empty stubs (no cover/chapter), already-read titles and
+explicit `series`/`related` entries are excluded.  Authenticated requests add
+server-side history and return `Cache-Control: private, max-age=120`; anonymous
+responses are `public, max-age=120`.
+
+### `GET /api/v1/collections`
+
+Returns `CollectionListOut`:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid", "slug": "weekly-best", "title": "Лучшее за неделю",
+      "description": "…", "kind": "smart", "rule": "weekly_best",
+      "enabled": true, "position": 10, "limit": 12, "item_count": 8,
+      "items": [{"id": "uuid", "title": "…", "poster_url": "…", "chapters_count": 42}],
+      "created_at": "…", "updated_at": "…"
+    }
+  ],
+  "total": 5
+}
+```
+
+`kind` is `smart` or `manual`.  Smart collections are generated from the
+catalogue rules (`weekly_best`, `beginners`, `completed`, `short`, `new`);
+manual collections keep the editor's order.  Duplicate source variants and
+empty cards are removed.  Empty smart shelves are omitted; an empty manual
+collection is still returned with `items: []` so the editor can see it.
+
+### `GET /api/v1/collections/{slug}`
+
+Same `CollectionOut` shape with up to 60 items.  Disabled or unknown slugs
+return `404`.  Responses are `public, max-age=60, stale-while-revalidate=300`.
+
 ## Reader
 
 | Method | Path | Description |
@@ -298,6 +367,15 @@ unaffected.
 | POST | `/api/v1/admin/registry/sync` | refresh health and switch gateway routes |
 | POST | `/api/v1/admin/failover` | same, explicit manual failover |
 | GET | `/api/v1/admin/audit` | recent admin actions |
+| GET | `/api/v1/admin/collections` | list all collections, including hidden |
+| POST | `/api/v1/admin/collections` | create a collection |
+| PATCH | `/api/v1/admin/collections/{id}` | edit fields/rule/visibility/position |
+| DELETE | `/api/v1/admin/collections/{id}` | delete a collection |
+| POST | `/api/v1/admin/collections/{id}/items` | add a title `{manga_id}` |
+| DELETE | `/api/v1/admin/collections/{id}/items/{manga_id}` | remove a title |
+| PUT | `/api/v1/admin/collections/{id}/order` | `{manga_ids:[...]}` |
+| GET | `/api/v1/admin/collections/audit?limit=100` | editorial audit trail |
+| GET | `/api/v1/admin/analytics/surfaces?days=30` | impression/click/CTR by surface |
 | GET | `/api/v1/admin/sources/{code}/cookie` | cookie status only (never the value) |
 | PUT | `/api/v1/admin/sources/{code}/cookie` | set/replace a cookie; `{cookie:""}` clears it |
 | POST | `/api/v1/admin/sources/{code}/cookie/har` | extract and store a cookie from an uploaded `.har` |
@@ -348,6 +426,15 @@ network in production and should not be exposed publicly.
 - `GET /internal/manga?...`, `GET /internal/manga/{id}`
 - `GET /internal/manga/by-source/{source}/{source_id}`
 - `GET /internal/manga/{id}/chapters`
+- `GET /internal/manga/{id}/related?history=&limit=`
+- `GET /internal/manga/{id}/similar?history=&limit=`
+- `GET /internal/collections?limit=`
+- `GET /internal/collections/{slug}?limit=`
+- `GET /internal/admin/collections`, `POST /internal/admin/collections`
+- `PATCH/DELETE /internal/admin/collections/{id}`
+- `POST/DELETE /internal/admin/collections/{id}/items...`
+- `PUT /internal/admin/collections/{id}/order`
+- `GET /internal/admin/collections/audit?limit=`
 - `GET /internal/sitemap?limit=50000` (canonical title ids + lastmod for the gateway sitemap)
 - `POST /internal/manga/import`
 - `PATCH /internal/manga/{id}/chapters/{chapter_id}/pages`
@@ -361,6 +448,7 @@ network in production and should not be exposed publicly.
 - `GET/POST/DELETE /internal/users/{user_id}/bookmarks...`
 - `GET/PUT /internal/users/{user_id}/progress...`
 - `GET/PUT /internal/users/{user_id}/settings`
+- `GET /internal/analytics/surfaces?days=30`
 
 ### Media
 

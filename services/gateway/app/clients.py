@@ -26,9 +26,13 @@ from manga_common.profile_schemas import (
 from manga_common.schemas import (
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
+    AnalyticsSurfacesOut,
     BookmarkOut,
     ChapterDetailOut,
     ChapterOut,
+    CollectionAuditOut,
+    CollectionListOut,
+    CollectionOut,
     ExportJobOut,
     HomeUpdatesOut,
     MangaDetailOut,
@@ -236,9 +240,87 @@ class CatalogClient(InternalClient):
         data = await self.request("POST", "/internal/recommendations", json=payload)
         return RecommendationListOut.model_validate(data)
 
-    async def related(self, manga_id: str) -> RelatedMangaOut:
-        data = await self.request("GET", f"/internal/manga/{manga_id}/related")
+    async def related(
+        self,
+        manga_id: str,
+        *,
+        history_ids: list[str] | None = None,
+        limit: int = 12,
+    ) -> RelatedMangaOut:
+        params: dict[str, Any] = {"limit": max(6, min(limit, 12))}
+        if history_ids:
+            params["history"] = ",".join(history_ids[:100])
+        data = await self.request(
+            "GET", f"/internal/manga/{manga_id}/related", params=params
+        )
         return RelatedMangaOut.model_validate(data)
+
+    async def collections(self, *, limit: int = 12) -> CollectionListOut:
+        data = await self.request(
+            "GET", "/internal/collections", params={"limit": max(1, min(limit, 24))}
+        )
+        return CollectionListOut.model_validate(data)
+
+    async def collection(self, slug: str, *, limit: int = 24) -> CollectionOut:
+        data = await self.request(
+            "GET",
+            f"/internal/collections/{quote(slug, safe='')}",
+            params={"limit": max(1, min(limit, 60))},
+        )
+        return CollectionOut.model_validate(data)
+
+    async def admin_collections(self) -> CollectionListOut:
+        data = await self.request("GET", "/internal/admin/collections")
+        return CollectionListOut.model_validate(data)
+
+    async def create_collection(self, payload: dict[str, Any]) -> CollectionOut:
+        data = await self.request("POST", "/internal/admin/collections", json=payload)
+        return CollectionOut.model_validate(data)
+
+    async def update_collection(
+        self, collection_id: str, payload: dict[str, Any]
+    ) -> CollectionOut:
+        data = await self.request(
+            "PATCH", f"/internal/admin/collections/{collection_id}", json=payload
+        )
+        return CollectionOut.model_validate(data)
+
+    async def delete_collection(self, collection_id: str) -> None:
+        await self.request("DELETE", f"/internal/admin/collections/{collection_id}")
+
+    async def add_collection_item(
+        self, collection_id: str, manga_id: str
+    ) -> CollectionOut:
+        data = await self.request(
+            "POST",
+            f"/internal/admin/collections/{collection_id}/items",
+            json={"manga_id": manga_id},
+        )
+        return CollectionOut.model_validate(data)
+
+    async def remove_collection_item(
+        self, collection_id: str, manga_id: str
+    ) -> CollectionOut:
+        data = await self.request(
+            "DELETE", f"/internal/admin/collections/{collection_id}/items/{manga_id}"
+        )
+        return CollectionOut.model_validate(data)
+
+    async def reorder_collection(
+        self, collection_id: str, manga_ids: list[str]
+    ) -> CollectionOut:
+        data = await self.request(
+            "PUT",
+            f"/internal/admin/collections/{collection_id}/order",
+            json={"manga_ids": manga_ids},
+        )
+        return CollectionOut.model_validate(data)
+
+    async def collection_audit(self, limit: int = 100) -> list[CollectionAuditOut]:
+        data = await self.request(
+            "GET", "/internal/admin/collections/audit", params={"limit": limit}
+        )
+        return [CollectionAuditOut.model_validate(item) for item in data]
 
     async def link_relations(self, manga_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("PUT", f"/internal/manga/{manga_id}/relations", json=payload)
@@ -512,6 +594,11 @@ class LibraryClient(InternalClient):
             json={"status": status},
         )
         return AdminProfileReportOut.model_validate(data)
+    async def analytics_surfaces(self, days: int) -> AnalyticsSurfacesOut:
+        data = await self.request(
+            "GET", "/internal/analytics/surfaces", params={"days": days}
+        )
+        return AnalyticsSurfacesOut.model_validate(data)
 
 
 class ControlClient(InternalClient):

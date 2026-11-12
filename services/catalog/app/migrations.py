@@ -110,6 +110,18 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 )
             )
             await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_rating_count ON manga (rating_count)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_chapters_count "
+                    "ON manga (chapters_count)"
+                )
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_created_at ON manga (created_at)")
+            )
+            await connection.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_manga_search_title "
                     "ON manga (search_title)"
@@ -226,6 +238,18 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)")
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_rating_count ON manga (rating_count)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_chapters_count "
+                    "ON manga (chapters_count)"
+                )
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_created_at ON manga (created_at)")
             )
             await connection.execute(
                 text(

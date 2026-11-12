@@ -7,6 +7,8 @@ import type {
   ChapterDetailOut,
   ChapterListParams,
   ChapterOut,
+  CollectionListOut,
+  CollectionOut,
   HealthOut,
   HomeUpdatesOut,
   ImportMangaRequest,
@@ -524,8 +526,32 @@ export const api = {
       signal,
     }),
 
-  getMangaRelated: (id: string, signal?: AbortSignal) =>
+  getMangaRelated: (
+    id: string,
+    historyIds: string[] = [],
+    signal?: AbortSignal,
+    limit = 12,
+    authenticated = false,
+  ) =>
     request<RelatedMangaOut>(`/manga/${encodeURIComponent(id)}/related`, {
+      query: {
+        limit,
+        history: historyIds.slice(0, 100).join(','),
+      },
+      auth: authenticated,
+      signal,
+    }),
+
+  getCollections: (limit = 12, signal?: AbortSignal) =>
+    request<CollectionListOut>('/collections', {
+      query: { limit },
+      auth: false,
+      signal,
+    }),
+
+  getCollection: (slug: string, limit = 24, signal?: AbortSignal) =>
+    request<CollectionOut>(`/collections/${encodeURIComponent(slug)}`, {
+      query: { limit },
       auth: false,
       signal,
     }),

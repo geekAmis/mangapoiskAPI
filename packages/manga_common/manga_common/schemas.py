@@ -332,6 +332,51 @@ class RecommendationListOut(BaseModel):
 class RelatedMangaOut(BaseModel):
     series: list[MangaOut] = Field(default_factory=list)
     related: list[MangaOut] = Field(default_factory=list)
+    # Heuristic shelf: genres, rating, year, type and chapter count.  Explicit
+    # ``related`` links are curated and therefore returned separately.
+    similar: list[MangaOut] = Field(default_factory=list)
+
+
+class CollectionOut(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    description: str = ""
+    kind: Literal["smart", "manual"] = "manual"
+    rule: str | None = None
+    enabled: bool = True
+    position: int = 100
+    limit: int = 12
+    item_count: int = 0
+    items: list[MangaOut] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CollectionListOut(BaseModel):
+    items: list[CollectionOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class CollectionAuditOut(BaseModel):
+    id: UUID
+    action: str
+    collection_id: UUID | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class AnalyticsSurfaceOut(BaseModel):
+    surface: str
+    impressions: int = 0
+    clicks: int = 0
+    ctr: float = 0.0
+
+
+class AnalyticsSurfacesOut(BaseModel):
+    days: int = 30
+    generated_at: datetime
+    items: list[AnalyticsSurfaceOut] = Field(default_factory=list)
 
 
 AnalyticsEventName = Literal[

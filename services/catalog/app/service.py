@@ -9,6 +9,9 @@ from manga_common.db import retry_on_locked
 from manga_common.errors import NotFoundError, UpstreamError
 from manga_common.schemas import (
     ChapterOut,
+    CollectionAuditOut,
+    CollectionListOut,
+    CollectionOut,
     CoverOut,
     GenreRefOut,
     MangaDetailOut,
@@ -27,9 +30,32 @@ from manga_common.source_models import MangaDetail, SourceInfo
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config import CatalogSettings
+from .discovery import (
+    add_collection_item,
+    collection_manga,
+    create_collection,
+    delete_collection,
+    find_collection,
+    find_collection_by_slug,
+    list_collection_audit,
+    list_collections,
+    remove_collection_item,
+    reorder_collection_items,
+    similar_manga,
+    update_collection,
+)
 from .normalization import GENRE_LABELS, genre_slugs
 from .parser_client import ParserClient
-from .recommendations import recommendation_cache, recommendation_cache_key
+from .recommendations import (
+    clear_discovery_cache as clear_discovery_caches,
+)
+from .recommendations import (
+    collection_cache,
+    discovery_cache_key,
+    recommendation_cache,
+    recommendation_cache_key,
+    similar_cache,
+)
 from .repository import (
     DESCRIPTION_FALLBACK,
     chapter_label,
@@ -66,6 +92,10 @@ from .repository import (
 from .schemas import (
     CatalogStats,
     ChapterDetailInternal,
+    CollectionCreate,
+    CollectionItemIn,
+    CollectionOrderIn,
+    CollectionUpdate,
     CrawlStateIn,
     CrawlStateOut,
     EnrichmentFailureRequest,
@@ -118,6 +148,24 @@ def _manga_out(manga, covers=None) -> MangaOut:  # type: ignore[no-untyped-def]
     return payload
 
 
+def _collection_out(collection, rows) -> CollectionOut:  # type: ignore[no-untyped-def]
+    return CollectionOut(
+        id=collection.id,
+        slug=collection.slug,
+        title=collection.title,
+        description=collection.description or "",
+        kind=collection.kind,  # type: ignore[arg-type]
+        rule=collection.rule,
+        enabled=collection.enabled,
+        position=collection.position,
+        limit=collection.limit,
+        item_count=len(rows),
+        items=[_manga_out(row) for row in rows],
+        created_at=collection.created_at,
+        updated_at=collection.updated_at,
+    )
+
+
 def _crawl_state_out(state) -> CrawlStateOut:  # type: ignore[no-untyped-def]
     return CrawlStateOut(
         id=state.id,
@@ -165,6 +213,7 @@ class CatalogService:
         async with self.session_factory() as session:
             manga, created, new_chapters = await upsert_manga_detail(session, detail)
             await session.commit()
+            clear_discovery_caches()
             chapters = await get_manga_chapters(session, manga.id, limit=2000)
             covers = await covers_for_group(session, manga.group_key)
             manga_out = _manga_out(manga, covers)
@@ -187,6 +236,7 @@ class CatalogService:
         async with self.session_factory() as session:
             manga, _ = await upsert_manga_summary(session, summary)
             await session.commit()
+            clear_discovery_caches()
             covers = await covers_for_group(session, manga.group_key)
             return _manga_out(manga, covers)
 
@@ -278,19 +328,212 @@ class CatalogService:
         recommendation_cache.set(key, result)
         return result
 
-    async def related(self, manga_id: uuid.UUID) -> RelatedMangaOut:
+    async def _similar_out(
+        self,
+        session: AsyncSession,
+        seed,  # type: ignore[no-untyped-def]
+        *,
+        history_ids: list[uuid.UUID] | None = None,
+        exclude_ids: list[uuid.UUID] | None = None,
+        limit: int = 12,
+    ) -> list[MangaOut]:
+        history = list(dict.fromkeys(history_ids or []))
+        explicit = list(dict.fromkeys(exclude_ids or []))
+        target = max(6, min(limit, 12))
+        key = discovery_cache_key(
+            "similar",
+            seed.id,
+            ",".join(str(item) for item in sorted(history)),
+            ",".join(str(item) for item in sorted(explicit)),
+            target,
+        )
+        cached = similar_cache.get(key)
+        if cached is not None:
+            return cached
+        rows = await similar_manga(
+            session,
+            seed,
+            history_ids=history,
+            exclude_ids=explicit,
+            limit=target,
+        )
+        result = [_manga_out(row) for row in rows]
+        similar_cache.set(key, result)
+        return result
+
+    async def similar(
+        self,
+        manga_id: uuid.UUID,
+        *,
+        history_ids: list[uuid.UUID] | None = None,
+        limit: int = 12,
+    ) -> list[MangaOut]:
+        async def read() -> list[MangaOut]:
+            async with self.session_factory() as session:
+                seed = await find_manga(session, manga_id)
+                if seed is None:
+                    raise NotFoundError("Manga not found")
+                return await self._similar_out(
+                    session,
+                    seed,
+                    history_ids=history_ids,
+                    limit=limit,
+                )
+
+        return await retry_on_locked(read)
+
+    async def related(
+        self,
+        manga_id: uuid.UUID,
+        *,
+        history_ids: list[uuid.UUID] | None = None,
+        limit: int = 12,
+    ) -> RelatedMangaOut:
         async def read() -> RelatedMangaOut:
             async with self.session_factory() as session:
                 manga = await find_manga(session, manga_id)
                 if manga is None:
                     raise NotFoundError("Manga not found")
                 series, related = await manga_relations(session, manga_id)
+                explicit_ids = [row.id for row in [*series, *related]]
+                rows = await self._similar_out(
+                    session,
+                    manga,
+                    history_ids=history_ids,
+                    exclude_ids=explicit_ids,
+                    limit=limit,
+                )
                 return RelatedMangaOut(
                     series=[_manga_out(row) for row in series],
                     related=[_manga_out(row) for row in related],
+                    similar=rows,
                 )
 
         return await retry_on_locked(read)
+
+    async def collections(self, *, limit: int = 12) -> CollectionListOut:
+        key = discovery_cache_key("collections", max(1, min(limit, 24)))
+        cached = collection_cache.get(key)
+        if cached is not None:
+            return cached
+        async with self.session_factory() as session:
+            collections = await list_collections(session, enabled_only=True)
+            items: list[CollectionOut] = []
+            for collection in collections:
+                preview = max(1, min(limit, collection.limit or limit))
+                rows = await collection_manga(session, collection, limit=preview)
+                if not rows:
+                    continue
+                items.append(_collection_out(collection, rows))
+            result = CollectionListOut(items=items, total=len(items))
+        collection_cache.set(key, result)
+        return result
+
+    async def collection(self, slug: str, *, limit: int = 24) -> CollectionOut:
+        key = discovery_cache_key("collection", slug, max(1, min(limit, 60)))
+        cached = collection_cache.get(key)
+        if cached is not None:
+            return cached
+        async with self.session_factory() as session:
+            collection = await find_collection_by_slug(session, slug)
+            if collection is None or not collection.enabled:
+                raise NotFoundError("Collection not found")
+            rows = await collection_manga(session, collection, limit=limit)
+            result = _collection_out(collection, rows)
+        collection_cache.set(key, result)
+        return result
+
+    async def admin_collections(self) -> CollectionListOut:
+        async with self.session_factory() as session:
+            collections = await list_collections(session)
+            items: list[CollectionOut] = []
+            for collection in collections:
+                rows = await collection_manga(session, collection, limit=60)
+                items.append(_collection_out(collection, rows))
+            return CollectionListOut(items=items, total=len(items))
+
+    async def create_collection(self, payload: CollectionCreate) -> CollectionOut:
+        async with self.session_factory() as session:
+            collection = await create_collection(session, payload)
+            await session.commit()
+            clear_discovery_caches()
+            rows = await collection_manga(session, collection, limit=60)
+            return _collection_out(collection, rows)
+
+    async def update_collection(
+        self, collection_id: uuid.UUID, payload: CollectionUpdate
+    ) -> CollectionOut:
+        async with self.session_factory() as session:
+            collection = await find_collection(session, collection_id)
+            if collection is None:
+                raise NotFoundError("Collection not found")
+            await update_collection(session, collection, payload)
+            await session.commit()
+            clear_discovery_caches()
+            rows = await collection_manga(session, collection, limit=60)
+            return _collection_out(collection, rows)
+
+    async def delete_collection(self, collection_id: uuid.UUID) -> None:
+        async with self.session_factory() as session:
+            collection = await find_collection(session, collection_id)
+            if collection is None:
+                raise NotFoundError("Collection not found")
+            await delete_collection(session, collection)
+            await session.commit()
+            clear_discovery_caches()
+
+    async def add_collection_item(
+        self, collection_id: uuid.UUID, payload: CollectionItemIn
+    ) -> CollectionOut:
+        async with self.session_factory() as session:
+            collection = await find_collection(session, collection_id)
+            if collection is None:
+                raise NotFoundError("Collection not found")
+            await add_collection_item(session, collection, payload.manga_id)
+            await session.commit()
+            clear_discovery_caches()
+            rows = await collection_manga(session, collection, limit=60)
+            return _collection_out(collection, rows)
+
+    async def remove_collection_item(
+        self, collection_id: uuid.UUID, manga_id: uuid.UUID
+    ) -> CollectionOut:
+        async with self.session_factory() as session:
+            collection = await find_collection(session, collection_id)
+            if collection is None:
+                raise NotFoundError("Collection not found")
+            await remove_collection_item(session, collection, manga_id)
+            await session.commit()
+            clear_discovery_caches()
+            rows = await collection_manga(session, collection, limit=60)
+            return _collection_out(collection, rows)
+
+    async def reorder_collection_items(
+        self, collection_id: uuid.UUID, payload: CollectionOrderIn
+    ) -> CollectionOut:
+        async with self.session_factory() as session:
+            collection = await find_collection(session, collection_id)
+            if collection is None:
+                raise NotFoundError("Collection not found")
+            await reorder_collection_items(session, collection, payload.manga_ids)
+            await session.commit()
+            clear_discovery_caches()
+            rows = await collection_manga(session, collection, limit=60)
+            return _collection_out(collection, rows)
+
+    async def collection_audit(self, *, limit: int = 100) -> list[CollectionAuditOut]:
+        async with self.session_factory() as session:
+            rows = await list_collection_audit(session, limit=limit)
+            return [
+                CollectionAuditOut(
+                    id=row.id,
+                    action=row.action,
+                    collection_id=row.collection_id,
+                    details=row.details or {},
+                    created_at=row.created_at,
+                )
+                for row in rows
+            ]
 
     async def link_relations(
         self, manga_id: uuid.UUID, payload: RelationsIn
@@ -315,6 +558,7 @@ class CatalogService:
                 )
                 linked += 1
             await session.commit()
+            clear_discovery_caches()
             return RelationsOut(linked=linked)
 
     async def manga_by_source(self, source: str, source_id: str) -> MangaDetailOut:

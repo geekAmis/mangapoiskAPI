@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { AdSlot } from '../components/ads/AdSlot';
+import { CollectionsShelves } from '../components/CollectionsShelves';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
@@ -252,6 +253,8 @@ export default function HomePage() {
             />
           )}
         </section>
+
+        <CollectionsShelves />
 
         <RecommendationShelf
           title="Для вас"

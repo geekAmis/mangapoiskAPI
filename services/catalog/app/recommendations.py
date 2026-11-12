@@ -41,6 +41,11 @@ recommendation_cache = TTLCache(
     ttl=RECOMMENDATION_CACHE_TTL_SECONDS,
     max_items=RECOMMENDATION_CACHE_MAX_ITEMS,
 )
+# Curated collections change only through admin actions or imports.  A longer
+# TTL keeps home-page requests off the database; every import and every admin
+# mutation clears the cache immediately.
+collection_cache = TTLCache(ttl=300.0, max_items=128)
+similar_cache = TTLCache(ttl=300.0, max_items=1024)
 
 
 def recommendation_cache_key(
@@ -63,5 +68,18 @@ def recommendation_cache_key(
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
+def discovery_cache_key(*parts: object) -> str:
+    raw = "|".join(str(part) for part in parts)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 def clear_recommendation_cache() -> None:
     recommendation_cache.clear()
+
+
+def clear_discovery_cache() -> None:
+    """Invalidate every derived discovery shelf after an import or edit."""
+
+    recommendation_cache.clear()
+    collection_cache.clear()
+    similar_cache.clear()
