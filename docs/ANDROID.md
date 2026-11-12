@@ -403,7 +403,9 @@ Outputs:
   installable with `adb install -r`; still uses the HTTPS production API unless
   `CAPACITOR_API_BASE` was overridden for local development.
 - `apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk`
-  — release, **unsigned** because the repository has no signing config.
+  — release, **unsigned** because the repository has no signing config. Sign it
+  with the production key before distribution; see
+  [Release signing](#release-signing-production).
 
 `apps/mobile/scripts/build-www.mjs` bakes the API base into the JS bundle and
 refuses arbitrary plain-HTTP URLs. Only `https://` and local development hosts
@@ -411,61 +413,309 @@ refuses arbitrary plain-HTTP URLs. Only `https://` and local development hosts
 silently fall back to HTTP. The Android shell still enforces HTTPS in every
 build type, so localhost HTTP is only useful for the browser web build.
 
-#### Signing notes
+#### Release signing (production)
 
-The release APK must be signed before it can be published as a release asset or
-installed over an existing release build:
+The release APK is signed outside Gradle with the production keystore; the
+repository intentionally contains no signing config and no keystore.
 
-```powershell
-keytool -genkeypair -v -keystore mangapoisk-release.jks -alias mangapoisk `
-  -keyalg RSA -keysize 4096 -validity 10000
+Current 1.1.0 certificate:
+
+| Field | Value |
+|---|---|
+| Alias | `mangapoisk` |
+| Key | RSA 4096, SHA-384 self-signed |
+| Validity | 2026-11-13 to 2054-03-31 (10 000 days) |
+| Certificate SHA-256 | `E8:B8:C8:12:EF:40:2E:3E:54:ED:29:32:B7:00:6E:96:E9:8B:30:AE:E5:FD:27:E4:4B:7B:B2:A4:59:E2:BE:74` |
+
+The signing key is immutable for the app's lifetime: Android rejects an update
+signed by a different key. Back it up and never rotate it unless the package is
+renamed or all users are told to uninstall.
+
+**Where the key lives (production only)**
+
+- `/opt/mangapoisk-reborn/env/android/mangapoisk-release.jks` - PKCS#12
+  keystore, `root:root`, directory mode `700`, file mode `600`.
+- `/opt/mangapoisk-reborn/env/android/keystore.properties` - `storePassword`,
+  `keyPassword`, `keyAlias` and the keystore filename; `root:root`, mode `600`.
+- The encrypted off-host restic repository includes this directory because
+  `/usr/local/sbin/mangapoisk-backup.sh` copies the whole
+  `/opt/mangapoisk-reborn/env` tree into the snapshot. Repository:
+  `sftp:mpbackup-jump:/srv/mangapoisk-backups/restic`; password file:
+  `/root/.restic-password`.
+- A temporary copy on the signing workstation is acceptable for one signing
+  session; delete it afterwards. Never put the keystore,
+  `keystore.properties` or the password in git, issue comments, chat, CI logs
+  or shell history.
+
+**Generate the keystore (one-time; already done for 1.1.0)**
+
+Run on production as root. `keytool` is part of the JDK 17 installation.
+
+```bash
+KS_DIR=/opt/mangapoisk-reborn/env/android
+install -d -m 700 -o root -g root "$KS_DIR"
+
+read -r -s -p "Keystore password: " KS_PASS; echo
+keytool -genkeypair -v \
+  -keystore "$KS_DIR/mangapoisk-release.jks" \
+  -storetype PKCS12 \
+  -alias mangapoisk \
+  -keyalg RSA -keysize 4096 -validity 10000 \
+  -dname "CN=MangaPoisk Reborn, OU=Android, O=MangaPoisk, L=Moscow, ST=Moscow, C=RU" \
+  -storepass:env KS_PASS
+
+umask 077
+printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=mangapoisk\nkeystore=mangapoisk-release.jks\n' \
+  "$KS_PASS" "$KS_PASS" > "$KS_DIR/keystore.properties"
+unset KS_PASS
+chown root:root "$KS_DIR"/*
+chmod 600 "$KS_DIR"/*
 ```
 
-Configure `signingConfigs.release` in `apps/mobile/android/app/build.gradle`
-(or sign the unsigned APK with `apksigner`), keep the keystore and passwords
-outside the repository, and use the same signing key for every update. A debug
-APK is signed with the local debug keystore and is suitable only for device QA,
-not for the release asset.
+Use a random password of at least 32 bytes, for example
+`openssl rand -hex 32`. PKCS#12 uses the same password for the store and the
+key. Keep `keystore.properties` LF-only so it can be sourced by bash.
+
+**Sign a release APK**
+
+Build the unsigned release first (`assembleRelease` above), then:
+
+```bash
+cd apps/mobile/android/app/build/outputs/apk/release
+KS_DIR=/opt/mangapoisk-reborn/env/android
+set -a; . "$KS_DIR/keystore.properties"; set +a
+
+# AGP already aligns release APKs; confirm, and align explicitly if it fails.
+zipalign -c -P 16 -v 4 app-release-unsigned.apk
+
+apksigner sign \
+  --ks "$KS_DIR/mangapoisk-release.jks" \
+  --ks-type PKCS12 \
+  --ks-key-alias "$keyAlias" \
+  --ks-pass env:storePassword \
+  --key-pass env:keyPassword \
+  --v1-signing-enabled true \
+  --v2-signing-enabled true \
+  --v3-signing-enabled true \
+  --out mangapoisk-reborn-1.1.0-release.apk \
+  app-release-unsigned.apk
+
+unset storePassword keyPassword
+```
+
+If `zipalign -c` fails, run
+`zipalign -P 16 -f 4 app-release-unsigned.apk app-release-aligned.apk` and sign
+the aligned file. `apksigner` and `zipalign` are in
+`$ANDROID_HOME/build-tools/35.0.0/` (or `C:\Android\Sdk\build-tools\35.0.0\` on
+Windows).
+
+On Windows PowerShell the same steps are:
+
+```powershell
+$KS_DIR = "C:\path\to\android-signing"   # temporary local copy only
+$props = @{}
+Get-Content "$KS_DIR\keystore.properties" | Where-Object { $_ -match '^[A-Za-z]+=' } |
+  ForEach-Object { $k,$v = $_ -split '=',2; $props[$k]=$v }
+$env:storePassword = $props['storePassword']
+$env:keyPassword = $props['keyPassword']
+apksigner sign --ks "$KS_DIR\mangapoisk-release.jks" --ks-type PKCS12 `
+  --ks-key-alias mangapoisk --ks-pass env:storePassword --key-pass env:keyPassword `
+  --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true `
+  --out mangapoisk-reborn-1.1.0-release.apk app-release-unsigned.apk
+Remove-Item Env:storePassword, Env:keyPassword
+```
+
+**Verify the signature**
+
+```bash
+apksigner verify --verbose --print-certs mangapoisk-reborn-1.1.0-release.apk
+sha256sum mangapoisk-reborn-1.1.0-release.apk
+```
+
+Expected for 1.1.0:
+
+- `Verifies`
+- `Verified using v1 scheme (JAR signing): true`
+- `Verified using v2 scheme (APK Signature Scheme v2): true`
+- `Verified using v3 scheme (APK Signature Scheme v3): true`
+- `v3.1` / `v4` may be `false`; they are not required for this build.
+- certificate SHA-256
+  `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`
+  and `RSA 4096`.
+- APK SHA-256
+  `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`
+  (7 355 329 bytes).
+
+`apksigner` may warn that `META-INF/*.version` entries are not protected by the
+v1 JAR signature. This is expected for AndroidX metadata; v2/v3 protect the
+whole APK.
+
+Upload the signed file to the **draft** GitHub release as
+`mangapoisk-reborn.apk`. Do not publish the release until the on-device
+checklist below passes.
+
+**Recover the key from restic**
+
+The backup script stages `env/` at `/var/tmp/mangapoisk-backup/config/env`, so
+snapshot paths look like
+`/var/tmp/mangapoisk-backup/config/env/android/mangapoisk-release.jks`.
+
+```bash
+RESTIC="restic -r sftp:mpbackup-jump:/srv/mangapoisk-backups/restic --password-file /root/.restic-password"
+
+$RESTIC snapshots --tag mangapoisk --latest 5
+$RESTIC ls latest | grep 'config/env/android'
+
+mkdir -p /var/tmp/android-key-restore
+$RESTIC restore latest --target /var/tmp/android-key-restore \
+  --include '/var/tmp/mangapoisk-backup/config/env/android'
+
+install -d -m 700 -o root -g root /opt/mangapoisk-reborn/env/android
+install -m 600 -o root -g root \
+  /var/tmp/android-key-restore/var/tmp/mangapoisk-backup/config/env/android/* \
+  /opt/mangapoisk-reborn/env/android/
+```
+
+For a single file, use
+`$RESTIC dump latest /var/tmp/mangapoisk-backup/config/env/android/mangapoisk-release.jks > mangapoisk-release.jks`.
+After restoring, compare the certificate SHA-256 with the value above before
+signing. If the keystore is lost and no snapshot exists, existing installs
+cannot be updated in place; the package name must change or users must
+uninstall.
 
 #### Static verification (no device required)
 
-```powershell
-# 1. APK hash
-Get-FileHash .\app\build\outputs\apk\release\app-release-unsigned.apk -Algorithm SHA256
+Run these checks against the signed release APK (the unsigned build has the same
+assets):
 
-# 2. Inspect the packaged JS and Capacitor config
-tar -xf .\app\build\outputs\apk\release\app-release-unsigned.apk `
-  -C $env:TEMP\apk-check assets/public assets/capacitor.config.json
-Select-String -Path $env:TEMP\apk-check\assets\public\assets\*.js `
-  -Pattern '85\.192\.37\.58|api/v1'
-Get-Content $env:TEMP\apk-check\assets\capacitor.config.json
+```bash
+APK=mangapoisk-reborn-1.1.0-release.apk
+sha256sum "$APK"
+apksigner verify --verbose --print-certs "$APK"
+
+rm -rf /tmp/apk-check && mkdir -p /tmp/apk-check
+unzip -q "$APK" 'assets/public/*' 'assets/capacitor.config.json' -d /tmp/apk-check
+grep -R -l 'http://85.192.37.58:8088' /tmp/apk-check || echo 'HTTP_8088_HITS: none'
+grep -R -l 'https://85.192.37.58.nip.io:8443' /tmp/apk-check
+cat /tmp/apk-check/assets/capacitor.config.json
+
+aapt2 dump xmltree --file AndroidManifest.xml "$APK" |
+  grep -E 'usesCleartextTraffic|versionName|versionCode|package='
 ```
 
 Expected: the only API base is
 `https://85.192.37.58.nip.io:8443/api/v1`; `http://85.192.37.58:8088` is absent;
 the packaged config has `"androidScheme": "https"`, `"cleartext": false` and
-`"allowMixedContent": false`.
+`"allowMixedContent": false`; the manifest has
+`usesCleartextTraffic=false`, `versionName="1.1.0"`, `versionCode=2` and
+`package="ru.mangapoisk.reborn"`. On Windows, use `tar -xf` instead of `unzip`.
 
-#### On-device QA checklist (when the phone reconnects)
+#### On-device QA checklist (TECNO KL6, Android 14)
 
-1. `adb devices` shows the TECNO KL6; install the debug build with
-   `adb install -r app-debug.apk` (or the signed release build once available).
-2. Confirm package metadata: `adb shell dumpsys package ru.mangapoisk.reborn`
-   shows the expected `versionName`/`versionCode`; the debug build is
-   `debuggable=true`, a release build must not be.
-3. Launch with `adb logcat` open. Verify requests go to
-   `https://85.192.37.58.nip.io:8443/api/v1` and no request contains
-   `85.192.37.58:8088`.
-4. Verify the WebView origin is `https://localhost` (Capacitor
-   `androidScheme: "https"`), not `http://localhost`.
-5. Smoke-test home, catalogue/search, manga detail, reader, library and
-   login/refresh. A stale session may produce one 401 on `/auth/refresh`; the
-   app must recover or ask for login, not crash.
-6. Enable airplane mode and check downloaded chapters/library still open.
-7. If the device clock is wrong, Let's Encrypt validation can fail; check the
-   certificate chain and device date before filing an API bug.
-8. Record the installed APK SHA-256 and repeat the same checks for the signed
-   release artifact.
+Do not publish the draft release until every item passes. Record results in
+issue #35.
+
+1. **Preconditions.** Phone unlocked, USB debugging enabled, `adb devices`
+   shows the device as `device` (not `unauthorized`). The 1.0 build on the QA
+   phone is debug-signed, so the production-signed APK cannot install over it.
+   Uninstall once (this wipes app data on the QA phone):
+
+   ```bash
+   adb uninstall ru.mangapoisk.reborn
+   ```
+
+2. **Install the signed release.**
+
+   ```bash
+   adb install -r mangapoisk-reborn-1.1.0-release.apk
+   ```
+
+   Expected `Success`. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means an old
+   differently-signed build is still installed; uninstall and retry.
+
+3. **Package metadata.**
+
+   ```bash
+   adb shell dumpsys package ru.mangapoisk.reborn |
+     grep -E 'versionName|versionCode|firstInstallTime|lastUpdateTime|flags='
+   ```
+
+   Expected `versionName=1.1.0`, `versionCode=2`, and **no** `DEBUGGABLE` in
+   `flags=`.
+
+4. **Installed binary signature.** Pull the installed base APK and verify it,
+   not just the file you uploaded:
+
+   ```bash
+   APK_PATH=$(adb shell pm path ru.mangapoisk.reborn | sed 's/package://' | tr -d '\r')
+   adb pull "$APK_PATH" /tmp/installed-base.apk
+   apksigner verify --print-certs /tmp/installed-base.apk
+   sha256sum /tmp/installed-base.apk
+   ```
+
+   Expected certificate SHA-256
+   `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`;
+   record the installed APK SHA-256 (it should equal
+   `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`).
+
+5. **Launch with logcat and check the API host.**
+
+   ```bash
+   adb logcat -c
+   adb shell am start -n ru.mangapoisk.reborn/.MainActivity
+   sleep 8
+   adb logcat -d > /tmp/mangapoisk-qa.log
+   grep -E '85\.192\.37\.58|CapacitorHttp|chromium' /tmp/mangapoisk-qa.log
+   ```
+
+   Expected: requests go to `https://85.192.37.58.nip.io:8443/api/v1`; no
+   request contains `85.192.37.58:8088`; no `CleartextNotPermitted` or
+   `ERR_CLEARTEXT_NOT_PERMITTED` lines.
+
+6. **WebView origin.** The Capacitor WebView origin must be
+   `https://localhost`, not `http://localhost`. Check the Chromium lines in the
+   same logcat, or open `chrome://inspect` on the workstation and inspect the
+   `ru.mangapoisk.reborn` WebView.
+
+7. **Smoke matrix.** Mark each item pass/fail in #35:
+   - cold start: home renders (hero, continue reading, popular, sources strip);
+   - catalogue: pagination, source filter, sort;
+   - search: query returns results, open a manga from results;
+   - manga detail: chapter list, bookmark toggle;
+   - reader: open a chapter, next/previous chapter, vertical and horizontal
+     modes, page progress persists after back/reopen;
+   - library: bookmark appears, continue reading and history work;
+   - auth: login, kill and reopen the app, refresh succeeds; a stale session may
+     return one 401 on `/auth/refresh`, but the app must recover or ask to log
+     in, not crash;
+   - downloads: download one chapter, progress reaches `done`, chapter opens
+     from the library.
+
+8. **Offline behavior.**
+
+   ```bash
+   adb shell cmd connectivity airplane-mode enable
+   ```
+
+   Open a downloaded chapter, the library and settings; kill and reopen the
+   app. No crash, local bookmarks/history/progress remain. Then disable airplane
+   mode:
+
+   ```bash
+   adb shell cmd connectivity airplane-mode disable
+   ```
+
+9. **TLS sanity.** No certificate warning or API failure on the HTTPS host;
+   device date/time is correct. If TLS fails, check the certificate chain and
+   device clock before filing an API bug. `85.192.37.58.nip.io` must resolve to
+   `85.192.37.58`.
+
+10. **Sign-off.** Attach the installed APK SHA-256, certificate fingerprint,
+    logcat excerpt and the pass/fail matrix to #35. Only then publish the draft
+    release and verify
+    `https://github.com/geekAmis/mangapoiskAPI/releases/latest/download/mangapoisk-reborn.apk`
+    downloads the same SHA-256. On any failure, keep the release in draft and
+    attach the exact failing logcat lines.
 
 ### Verification performed
 
@@ -473,7 +723,9 @@ the packaged config has `"androidScheme": "https"`, `"cleartext": false` and
 |---|---|
 | `assembleDebug` | **SUCCESS** — `app/build/outputs/apk/debug/app-debug.apk` |
 | `assembleRelease` (R8/resources shrink) | **SUCCESS** — `app/build/outputs/apk/release/app-release-unsigned.apk` |
-| Capacitor `assembleDebug` / `assembleRelease` | **SUCCESS** — `ru.mangapoisk.reborn` 1.1.0 (versionCode 2); bundle/API config verified HTTPS-only; release APK unsigned |
+| Capacitor `assembleDebug` / `assembleRelease` | **SUCCESS** — `ru.mangapoisk.reborn` 1.1.0 (versionCode 2); bundle/API config verified HTTPS-only; release APK built unsigned, then signed with the production key |
+| `apksigner verify` (signed 1.1.0) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8` |
+| Draft release asset | **UPLOADED** — `mangapoisk-reborn.apk` on draft `MangaPoisk Reborn 1.1.0`; not published pending on-device QA |
 | Kotlin compile | Success (Kotlin 2.0.21, JVM 17) |
 | Resource/manifest validation | Success (AAPT2 via assemble) |
 | Lint | `lintDebug` passes with no errors after the `NewApi` style fix |
@@ -508,7 +760,9 @@ rule and then succeeded.
    `blur_adult_posters` server setting is not consumed.
 9. **Chapter list pagination** beyond `MangaDetailOut.chapters` (capped at 500
    by the API) is not implemented.
-10. **Release APK is unsigned.** Add signing config for distribution.
+10. **Release APK signing is manual.** The 1.1.0 APK is signed with the
+    production key outside Gradle and uploaded to the draft release, but
+    publication is blocked on the on-device QA checklist above.
 11. **No offline catalogue/home.** Offline support covers downloaded chapters,
     local bookmarks, history and settings.
 12. **No localization beyond Russian.** All strings are externalized, so adding

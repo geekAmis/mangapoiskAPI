@@ -45,6 +45,14 @@ data.txt
 *.pem
 *.key
 
+# Android release signing material must never be committed
+*.jks
+*.keystore
+*.p12
+*.bks
+keystore.properties
+signing.properties
+
 # Local agent/editor skill instructions are not part of the product
 Skill.md
 skill.md
