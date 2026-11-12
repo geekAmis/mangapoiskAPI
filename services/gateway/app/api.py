@@ -3,13 +3,20 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from manga_common.auth import constant_time_compare, create_access_token
-from manga_common.errors import NotFoundError, UnauthorizedError, UpstreamError, ValidationError
+from manga_common.errors import (
+    NotFoundError,
+    RateLimitError,
+    UnauthorizedError,
+    UpstreamError,
+    ValidationError,
+)
 from manga_common.schemas import (
     BookmarkCreate,
     BookmarkOut,
@@ -53,6 +60,35 @@ from .clients import CatalogClient, ControlClient, LibraryClient, MediaClient, P
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1")
 
+# Five failed admin logins per IP per five minutes.  The generic middleware
+# limit is intentionally generous for readers; admin auth needs its own gate.
+_ADMIN_WINDOW_SECONDS = 300.0
+_ADMIN_MAX_FAILURES = 5
+_admin_failures: dict[str, list[float]] = {}
+
+
+def _admin_failure_times(ip: str) -> list[float]:
+    now = time.monotonic()
+    recent = [stamp for stamp in _admin_failures.get(ip, []) if now - stamp < _ADMIN_WINDOW_SECONDS]
+    if recent:
+        _admin_failures[ip] = recent
+    else:
+        _admin_failures.pop(ip, None)
+    return recent
+
+
+def _check_admin_login_rate(ip: str) -> None:
+    if len(_admin_failure_times(ip)) >= _ADMIN_MAX_FAILURES:
+        raise RateLimitError(
+            "Слишком много попыток входа. Попробуйте через несколько минут.",
+            code="admin_rate_limited",
+        )
+
+
+def _record_admin_failure(ip: str) -> None:
+    _admin_failure_times(ip).append(time.monotonic())
+    _admin_failures[ip] = _admin_failures.get(ip, [])[-20:]
+
 
 def clients(request: Request) -> tuple[CatalogClient, ParserClient, LibraryClient, MediaClient]:
     state = request.app.state
@@ -64,9 +100,12 @@ def _authorization(request: Request) -> str:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # nginx overwrites X-Real-IP with the peer address.  Never trust the first
+    # X-Forwarded-For element: it is client-controlled and would let a caller
+    # reset rate-limit buckets at will.
+    real_ip = request.headers.get("X-Real-IP", "").strip()
+    if real_ip:
+        return real_ip
     return request.client.host if request.client else "unknown"
 
 
@@ -809,11 +848,15 @@ async def _apply_registry(target: Any, registry: dict[str, Any]) -> dict[str, st
 @router.post("/admin/login", response_model=AdminToken)
 async def admin_login(request: Request, payload: AdminLoginRequest) -> AdminToken:
     settings = request.app.state.settings
+    client_ip = _client_ip(request)
+    _check_admin_login_rate(client_ip)
     if not (
         constant_time_compare(payload.username, settings.admin_username)
         and constant_time_compare(payload.password, settings.admin_password)
     ):
+        _record_admin_failure(client_ip)
         raise UnauthorizedError("Неверный логин или пароль администратора", code="admin_invalid")
+    _admin_failures.pop(client_ip, None)
     token, expires_in = create_access_token(
         settings,
         subject="admin",

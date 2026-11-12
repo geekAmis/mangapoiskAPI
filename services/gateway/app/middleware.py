@@ -45,10 +45,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
         if request.method == "OPTIONS" or not request.url.path.startswith("/api/"):
             return await call_next(request)
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        ip = forwarded.split(",")[0].strip() if forwarded else (
-            request.client.host if request.client else "unknown"
-        )
+        real_ip = request.headers.get("X-Real-IP", "").strip()
+        ip = real_ip or (request.client.host if request.client else "unknown")
         window = int(time.time() // 60)
         key = f"rl:{ip}:{window}"
         used = await self.cache.get_json(key) or 0

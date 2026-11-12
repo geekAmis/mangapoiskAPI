@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # Admin panel / server manager.  Change these in production.
     admin_username: str = "admin"
     admin_password: str = "change-me-admin-password"
-    admin_token_minutes: int = 480
+    admin_token_minutes: int = 60
     control_secret_key: str = "dev-control-secret-change-me"
     control_public_url: str = "http://localhost:8005"
     deploy_source_url: str = (
