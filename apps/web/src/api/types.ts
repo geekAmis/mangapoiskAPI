@@ -218,6 +218,10 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface AuthProvidersOut {
+  yandex: boolean;
+}
+
 export interface BookmarkOut {
   id: UUID;
   manga_id: UUID;

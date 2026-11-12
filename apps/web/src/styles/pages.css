@@ -1232,6 +1232,77 @@
 .auth-form .btn--primary {
   margin-top: 5px;
 }
+/* --- Yandex OAuth --- */
+.auth-oauth {
+  margin-top: 16px;
+}
+.auth-oauth__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.auth-oauth__divider::before,
+.auth-oauth__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.btn--yandex {
+  background: #fff;
+  color: #16181c;
+  border-color: #e3e5e8;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+.btn--yandex:hover {
+  background: #f4f5f6;
+  border-color: #d5d8dc;
+}
+.btn--yandex:disabled {
+  opacity: 0.62;
+}
+.auth-oauth__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fc3f1d;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.auth-finish {
+  text-align: center;
+}
+.auth-finish__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.auth-finish__icon--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.auth-finish__actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
 .auth-switch {
   margin-top: 18px;
   padding-top: 16px;

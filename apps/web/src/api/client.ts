@@ -1,8 +1,10 @@
+import { Capacitor } from '@capacitor/core';
 import { useAuthStore } from '../stores/auth';
 import type {
   AnalyticsEventIn,
   AnalyticsIngestOut,
   ApiErrorBody,
+  AuthProvidersOut,
   BookmarkOut,
   ChapterDetailOut,
   ChapterListParams,
@@ -46,6 +48,16 @@ import type {
 
 const configuredBase = import.meta.env.VITE_API_BASE?.trim();
 export const API_BASE = (configuredBase || '/api/v1').replace(/\/+$/, '');
+const IS_NATIVE_APP = Capacitor.isNativePlatform();
+
+/** Absolute top-level URL for the Yandex OAuth start endpoint. */
+export function yandexStartUrl(nextPath = '/'): string {
+  const params = new URLSearchParams({ next: nextPath });
+  // Capacitor must return to its bundled https://localhost SPA instead of the
+  // remote production web origin, otherwise the tokens land in another origin.
+  if (IS_NATIVE_APP) params.set('client', 'app');
+  return `${API_BASE}/auth/yandex/start?${params.toString()}`;
+}
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -373,6 +385,21 @@ export const api = {
 
   login: (body: LoginRequest) =>
     request<TokenPair>('/auth/login', { method: 'POST', body, auth: false, skipRefresh: true }),
+
+  authProviders: (signal?: AbortSignal) =>
+    request<AuthProvidersOut>('/auth/providers', {
+      auth: false,
+      skipRefresh: true,
+      signal,
+    }),
+
+  yandexExchange: (code: string) =>
+    request<TokenPair>('/auth/yandex/exchange', {
+      method: 'POST',
+      body: { code },
+      auth: false,
+      skipRefresh: true,
+    }),
 
   refresh: (refreshToken: string) =>
     request<TokenPair>('/auth/refresh', {

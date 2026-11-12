@@ -47,6 +47,22 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     refresh_token_days: int = 30
 
+    # Yandex ID OAuth 2.0 (#67).  The provider is enabled only when all three
+    # values are present; empty values keep the password login untouched and
+    # make /auth/yandex/start return 503.  Never expose the secret to clients.
+    yandex_client_id: str | None = None
+    yandex_client_secret: str | None = None
+    yandex_redirect_uri: str | None = None
+    yandex_authorize_url: str = "https://oauth.yandex.ru/authorize"
+    yandex_token_url: str = "https://oauth.yandex.ru/token"
+    yandex_profile_url: str = "https://login.yandex.ru/info"
+    yandex_scope: str = "login:email login:info login:avatar"
+    yandex_state_ttl_seconds: int = 600
+    yandex_handoff_ttl_seconds: int = 60
+    # Capacitor WebView origin used after the OAuth callback.  The mobile shell
+    # serves the bundled SPA from https://localhost (androidScheme=https).
+    yandex_app_return_url: str = "https://localhost"
+
     cors_origins: str = "http://localhost:5173,http://localhost:8080,http://localhost:3000"
 
     database_url: str = "sqlite+aiosqlite:///./data/service.db"
@@ -123,6 +139,33 @@ class Settings(BaseSettings):
             raise ValueError("must be an absolute http(s) URL")
         return value
 
+    @field_validator("yandex_client_id", "yandex_client_secret", mode="before")
+    @classmethod
+    def _strip_yandex_secret(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("yandex_redirect_uri", mode="before")
+    @classmethod
+    def _normalize_yandex_redirect_uri(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        value = value.strip().rstrip("/")
+        if not value:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("YANDEX_REDIRECT_URI must be an absolute http(s) URL")
+        return value
+
+    @field_validator("yandex_app_return_url")
+    @classmethod
+    def _normalize_yandex_app_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https", "capacitor"} or not parsed.netloc:
+            raise ValueError("YANDEX_APP_RETURN_URL must be an absolute app URL")
+        return value
+
     @model_validator(mode="after")
     def _require_https_public_urls(self) -> Settings:
         if not self.is_production:
@@ -132,6 +175,8 @@ class Settings(BaseSettings):
             for field in ("public_web_url", "public_api_url")
             if urlparse(getattr(self, field)).scheme != "https"
         ]
+        if self.yandex_redirect_uri and urlparse(self.yandex_redirect_uri).scheme != "https":
+            insecure.append("yandex_redirect_uri")
         if insecure:
             names = ", ".join(field.upper() for field in insecure)
             raise ValueError(f"production requires HTTPS public URLs: {names}")
@@ -149,6 +194,27 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def yandex_oauth_enabled(self) -> bool:
+        """True only when every Yandex OAuth setting is present."""
+
+        return bool(
+            self.yandex_client_id
+            and self.yandex_client_secret
+            and self.yandex_redirect_uri
+        )
+
+    @property
+    def yandex_oauth_partial(self) -> bool:
+        """True when the owner configured only some of the three values."""
+
+        configured = [
+            bool(self.yandex_client_id),
+            bool(self.yandex_client_secret),
+            bool(self.yandex_redirect_uri),
+        ]
+        return any(configured) and not all(configured)
 
     @staticmethod
     def _is_placeholder_secret(value: str) -> bool:

@@ -3,6 +3,12 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
+from manga_common.schemas import (
+    YandexCredentialsOut,
+    YandexIntegrationOut,
+    YandexIntegrationTestOut,
+    YandexIntegrationUpdate,
+)
 from manga_common.security import require_internal_token
 from pydantic import BaseModel, Field
 
@@ -14,6 +20,7 @@ from .ads import (
     AdSecretOut,
     AdsService,
 )
+from .integrations import IntegrationsService
 from .repository import audit_out, list_audit
 from .schemas import (
     AuditOut,
@@ -41,6 +48,49 @@ def get_service(request: Request) -> ControlService:
 
 def get_ads_service(request: Request) -> AdsService:
     return request.app.state.ads
+
+
+def get_integrations_service(request: Request) -> IntegrationsService:
+    return request.app.state.integrations
+
+
+@router.get("/integrations/yandex", response_model=YandexIntegrationOut)
+async def get_yandex_integration(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexIntegrationOut:
+    return await integrations.get_yandex()
+
+
+@router.put("/integrations/yandex", response_model=YandexIntegrationOut)
+async def update_yandex_integration(
+    payload: YandexIntegrationUpdate,
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexIntegrationOut:
+    return await integrations.update_yandex(payload)
+
+
+@router.delete("/integrations/yandex")
+async def delete_yandex_integration(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> dict[str, bool]:
+    await integrations.delete_yandex()
+    return {"ok": True}
+
+
+@router.post("/integrations/yandex/test", response_model=YandexIntegrationTestOut)
+async def test_yandex_integration(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexIntegrationTestOut:
+    return await integrations.test_yandex()
+
+
+@router.get("/integrations/yandex/credentials", response_model=YandexCredentialsOut)
+async def yandex_credentials(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexCredentialsOut:
+    """Internal-only plaintext bundle for the gateway; never proxied publicly."""
+
+    return await integrations.yandex_credentials()
 
 
 @router.get("/ads", response_model=list[AdProviderOut])

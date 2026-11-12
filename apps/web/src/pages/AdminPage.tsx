@@ -29,6 +29,7 @@ import { AdminLogin } from '../components/admin/AdminLogin';
 import { AdminServerCard } from '../components/admin/AdminServerCard';
 import { AdsPanel } from '../components/admin/AdsPanel';
 import { CollectionsPanel } from '../components/admin/CollectionsPanel';
+import { YandexIntegrationPanel } from '../components/admin/YandexIntegrationPanel';
 import { CrawlerStatusPanel } from '../components/admin/CrawlerStatusPanel';
 import { ObservabilityPanel } from '../components/admin/ObservabilityPanel';
 import { DeployModal } from '../components/admin/DeployModal';
@@ -72,6 +73,8 @@ const AUDIT_LABELS: Record<string, string> = {
   'ads.provider_deleted': 'Удалена рекламная интеграция',
   'ads.secret_set': 'Рекламный ключ сохранён',
   'ads.secret_deleted': 'Рекламный ключ удалён',
+  'integration.yandex.updated': 'Обновлена интеграция Яндекс ID',
+  'integration.yandex.deleted': 'Удалена интеграция Яндекс ID',
 };
 
 function detailsSummary(entry: AdminAuditEntry): string {
@@ -1026,6 +1029,8 @@ export default function AdminPage() {
         <AdsPanel />
 
         <CollectionsPanel />
+
+        <YandexIntegrationPanel />
 
         <section className="admin-panel" aria-labelledby="admin-audit-title">
           <div className="admin-panel__head">

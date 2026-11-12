@@ -12,6 +12,7 @@ from sqlalchemy import text, update
 from .ads import AdsService
 from .api import router
 from .config import ControlSettings
+from .integrations import IntegrationsService
 from .models import DeploymentJob
 from .service import ControlService
 
@@ -64,6 +65,9 @@ async def lifespan(app: FastAPI):
     app.state.engine = engine
     app.state.service = service
     app.state.ads = AdsService(settings, session_factory, box=service.box)
+    app.state.integrations = IntegrationsService(
+        settings, session_factory, box=service.box
+    )
 
     async def db_ready() -> bool:
         return await ping(engine)

@@ -11,6 +11,7 @@ import MangaPage from './pages/MangaPage';
 import LibraryPage from './pages/LibraryPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import YandexFinishPage from './pages/YandexFinishPage';
 import ProfilePage from './pages/ProfilePage';
 import PublicProfilePage from './pages/PublicProfilePage';
 import SourcesPage from './pages/SourcesPage';
@@ -96,6 +97,7 @@ export default function App() {
 
       <Route path="login" element={<LoginPage />} />
       <Route path="register" element={<RegisterPage />} />
+      <Route path="auth/yandex/finish" element={<YandexFinishPage />} />
       <Route path="read/:chapterId" element={readerElement} />
       <Route path="reader/:chapterId" element={readerElement} />
       <Route path="offline/read/:mangaId/:chapterId" element={offlineReaderElement} />

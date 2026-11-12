@@ -274,9 +274,16 @@ after archiving); metadata and covers are not evicted.
 | POST | `/api/v1/auth/refresh` | `{refresh_token}` |
 | POST | `/api/v1/auth/logout` | `{refresh_token}` |
 | GET | `/api/v1/auth/me` | Bearer token |
+| GET | `/api/v1/auth/providers` | public `{yandex: bool}` |
+| GET | `/api/v1/auth/yandex/start?next=/library` | 302 to Yandex; 503 when disabled |
+| GET | `/api/v1/auth/yandex/callback` | Yandex redirect target (302 to SPA) |
+| POST | `/api/v1/auth/yandex/exchange` | `{code}` one-time handoff → `TokenPair` |
 
 `TokenPair`: `{access_token, refresh_token, token_type:"bearer", expires_in,
 user:{id,email,display_name,role,created_at}}`.
+
+Yandex OAuth details, scopes and the production redirect URI are documented in
+[`AUTH_YANDEX.md`](AUTH_YANDEX.md).
 
 Access token lifetime: 30 minutes.  Refresh token: 30 days, rotated on use.
 Send `Authorization: Bearer <access_token>`.
@@ -381,6 +388,8 @@ unaffected.
 | PUT | `/api/v1/admin/collections/{id}/order` | `{manga_ids:[...]}` |
 | GET | `/api/v1/admin/collections/audit?limit=100` | editorial audit trail |
 | GET | `/api/v1/admin/analytics/surfaces?days=30` | impression/click/CTR by surface |
+| GET/PUT/DELETE | `/api/v1/admin/integrations/yandex` | masked Yandex OAuth settings / set / delete |
+| POST | `/api/v1/admin/integrations/yandex/test` | presence/shape check, no secret echo |
 | GET | `/api/v1/admin/sources/{code}/cookie` | cookie status only (never the value) |
 | PUT | `/api/v1/admin/sources/{code}/cookie` | set/replace a cookie; `{cookie:""}` clears it |
 | POST | `/api/v1/admin/sources/{code}/cookie/har` | extract and store a cookie from an uploaded `.har` |
@@ -451,6 +460,7 @@ network in production and should not be exposed publicly.
 
 - `POST /internal/auth/register|login|refresh|logout`
 - `GET /internal/auth/me`
+- `GET|POST /internal/auth/yandex/{status,start,callback,deny,exchange}`
 - `GET/POST/DELETE /internal/users/{user_id}/bookmarks...`
 - `GET/PUT /internal/users/{user_id}/progress...`
 - `GET/PUT /internal/users/{user_id}/settings`

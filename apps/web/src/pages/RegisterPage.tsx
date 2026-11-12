@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { Icon } from '../components/Icon';
 import { DancingSpinner } from '../components/DancingLoader';
 import { AuthLayout } from '../components/AuthLayout';
+import { YandexAuthButton } from '../components/YandexAuthButton';
 import { authErrorMessage } from '../lib/errors';
 import { safeNextPath } from '../lib/format';
 import { useSeo } from '../lib/seo';
@@ -324,6 +325,8 @@ export default function RegisterPage() {
             <span>Пароль передаётся по HTTPS и хранится только в виде Argon2id-хэша.</span>
           </div>
         </form>
+
+        <YandexAuthButton nextPath={nextPath} />
 
         <div className="auth-switch">
           Уже есть аккаунт? <Link to={loginHref}>Войти</Link>

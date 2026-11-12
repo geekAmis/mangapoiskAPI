@@ -531,6 +531,45 @@ export interface AdminAdProviderInput {
   hide_for_donors: boolean;
   require_consent: boolean;
 }
+export interface AdminIntegrationSecret {
+  configured: boolean;
+  hint: string;
+  updated_at: string | null;
+}
+
+export interface AdminYandexIntegration {
+  provider: string;
+  enabled: boolean;
+  configured: boolean;
+  client_id: AdminIntegrationSecret;
+  client_secret: AdminIntegrationSecret;
+  redirect_uri: string | null;
+  redirect_uri_updated_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminYandexIntegrationUpdate {
+  enabled?: boolean;
+  client_id?: string;
+  client_secret?: string;
+  redirect_uri?: string;
+}
+
+export interface AdminYandexTestCheck {
+  name: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface AdminYandexTest {
+  ok: boolean;
+  configured: boolean;
+  enabled: boolean;
+  checks: AdminYandexTestCheck[];
+  redirect_uri: string | null;
+  message: string;
+}
+
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -816,6 +855,20 @@ export const adminApi = {
       `/analytics/surfaces?days=${encodeURIComponent(String(days))}`,
       { signal },
     ),
+  getYandexIntegration: (signal?: AbortSignal) =>
+    adminRequest<AdminYandexIntegration>('/integrations/yandex', { signal }),
+
+  updateYandexIntegration: (payload: AdminYandexIntegrationUpdate) =>
+    adminRequest<AdminYandexIntegration>('/integrations/yandex', {
+      method: 'PUT',
+      body: payload,
+    }),
+
+  deleteYandexIntegration: () =>
+    adminRequest<{ ok: boolean }>('/integrations/yandex', { method: 'DELETE' }),
+
+  testYandexIntegration: () =>
+    adminRequest<AdminYandexTest>('/integrations/yandex/test', { method: 'POST' }),
 
   listAds: (signal?: AbortSignal) => adminRequest<AdminAdProvider[]>('/ads', { signal }),
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import secrets
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .models import (
     AnalyticsEvent,
     Bookmark,
+    OAuthHandoffCode,
+    OAuthState,
     ReadingDay,
     ReadingProgress,
     RefreshToken,
@@ -70,19 +73,150 @@ async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
     return await session.scalar(select(User).where(User.email == email.lower().strip()))
 
 
+async def get_user_by_yandex_id(session: AsyncSession, yandex_id: str) -> User | None:
+    return await session.scalar(select(User).where(User.yandex_id == yandex_id))
+
+
 async def create_user(
-    session: AsyncSession, *, email: str, password_hash: str, display_name: str
+    session: AsyncSession,
+    *,
+    email: str,
+    password_hash: str,
+    display_name: str,
+    yandex_id: str | None = None,
+    auth_provider: str = "password",
 ) -> User:
     user = User(
         email=email.lower().strip(),
         password_hash=password_hash,
         display_name=display_name.strip(),
+        yandex_id=yandex_id,
+        auth_provider=auth_provider,
     )
     session.add(user)
     await session.flush()
     session.add(UserSettings(user_id=user.id, data={}))
     await session.flush()
     return user
+
+
+async def create_oauth_state(
+    session: AsyncSession,
+    *,
+    provider: str,
+    state_hash: str,
+    browser_hash: str | None,
+    return_url: str,
+    next_path: str,
+    expires_at: datetime,
+) -> OAuthState:
+    state = OAuthState(
+        provider=provider,
+        state_hash=state_hash,
+        browser_hash=browser_hash,
+        return_url=return_url,
+        next_path=next_path,
+        expires_at=expires_at,
+    )
+    session.add(state)
+    await session.flush()
+    return state
+
+
+async def consume_oauth_state(
+    session: AsyncSession,
+    *,
+    provider: str,
+    state_hash: str,
+    browser_hash: str | None,
+) -> OAuthState | None:
+    """Atomically consume a state row, or return ``None`` if it is unusable."""
+
+    state = await session.scalar(
+        select(OAuthState).where(
+            OAuthState.provider == provider, OAuthState.state_hash == state_hash
+        )
+    )
+    if state is None:
+        return None
+    now = datetime.now(UTC)
+    expires_at = as_utc(state.expires_at)
+    if state.used_at is not None or expires_at is None or expires_at <= now:
+        return None
+    if state.browser_hash and (
+        not browser_hash or not secrets.compare_digest(state.browser_hash, browser_hash)
+    ):
+        return None
+    result = await session.execute(
+        update(OAuthState)
+        .where(OAuthState.id == state.id, OAuthState.used_at.is_(None))
+        .values(used_at=now)
+    )
+    if not result.rowcount:
+        return None
+    await session.flush()
+    return state
+
+
+async def purge_expired_oauth_artifacts(session: AsyncSession) -> None:
+    """Best-effort cleanup; rows are tiny and this never blocks a login."""
+
+    cutoff = datetime.now(UTC) - timedelta(days=1)
+    await session.execute(delete(OAuthState).where(OAuthState.expires_at < cutoff))
+    await session.execute(
+        delete(OAuthHandoffCode).where(OAuthHandoffCode.expires_at < cutoff)
+    )
+
+
+async def create_oauth_handoff(
+    session: AsyncSession,
+    *,
+    provider: str,
+    code_hash: str,
+    user_id: uuid.UUID,
+    expires_at: datetime,
+    user_agent: str | None = None,
+    ip_address: str | None = None,
+) -> OAuthHandoffCode:
+    handoff = OAuthHandoffCode(
+        provider=provider,
+        code_hash=code_hash,
+        user_id=user_id,
+        expires_at=expires_at,
+        user_agent=(user_agent or "")[:512] or None,
+        ip_address=(ip_address or "")[:64] or None,
+    )
+    session.add(handoff)
+    await session.flush()
+    return handoff
+
+
+async def consume_oauth_handoff(
+    session: AsyncSession, *, provider: str, code_hash: str
+) -> OAuthHandoffCode | None:
+    """Atomically consume a handoff code exactly once."""
+
+    handoff = await session.scalar(
+        select(OAuthHandoffCode).where(
+            OAuthHandoffCode.provider == provider,
+            OAuthHandoffCode.code_hash == code_hash,
+        )
+    )
+    if handoff is None:
+        return None
+    now = datetime.now(UTC)
+    expires_at = as_utc(handoff.expires_at)
+    if handoff.used_at is not None or expires_at is None or expires_at <= now:
+        return None
+    result = await session.execute(
+        update(OAuthHandoffCode)
+        .where(OAuthHandoffCode.id == handoff.id, OAuthHandoffCode.used_at.is_(None))
+        .values(used_at=now)
+    )
+    if not result.rowcount:
+        return None
+    await session.flush()
+    return handoff
 
 
 async def create_refresh_token(
