@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.types import JSON
 
 from .normalization import genres_key, status_key
+from .search import build_search_fields
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
 
@@ -67,6 +68,16 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     adult: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     genres: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     genres_key: Mapped[str | None] = mapped_column(Text, nullable=True, default="")
+    # Denormalised, Python-normalised search document.  See ``search.py``:
+    # it contains original text, Russian/Latin transliterations, consonant
+    # skeletons and genre/media synonyms.  Keeping it in plain TEXT makes the
+    # same ranking work on PostgreSQL and SQLite.
+    search_title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_alt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_names: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_meta: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_blob: Mapped[str] = mapped_column(Text, nullable=False, default="")
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     group_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -90,6 +101,21 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         genres = list(value or [])
         self.genres_key = genres_key(genres)
         return genres
+
+    def refresh_search_fields(self) -> None:
+        """Recompute the denormalised search document from current fields."""
+
+        fields = build_search_fields(
+            title=self.title,
+            title_en=self.title_en,
+            title_alt=self.title_alt,
+            genres=self.genres or [],
+            content_type=self.content_type,
+            description=self.description,
+            metadata=self.metadata_json or {},
+        )
+        for name, value in fields.items():
+            setattr(self, name, value)
 
 
 class Chapter(Base, UUIDPrimaryKey, TimestampMixin):

@@ -38,6 +38,7 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 |---|---|---|
 | GET | `/api/v1/manga` | local catalogue list/search |
 | GET | `/api/v1/manga/search` | search; `live=true` also asks parser |
+| GET | `/api/v1/manga/suggest` | instant local suggestions; never asks parser |
 | GET | `/api/v1/manga/{id}` | manga detail + chapters |
 | GET | `/api/v1/manga/{id}/chapters` | paginated chapter list |
 | GET | `/api/v1/manga/{id}/variants` | same title across sources + translator counts |
@@ -58,6 +59,35 @@ updated_at`.
 
 Query: `q` (required, min 1), `source` (optional), `live` (default `false`),
 `page`, `limit`.  Response extends pagination with `"live": true|false`.
+Search is accent/`ё`-insensitive, tolerant to one- or two-character typos,
+understands Russian/Latin transliteration and genre/media synonyms, and ranks
+exact titles above alternative titles, genres and descriptions.  The live
+fallback is an explicit submit path; keystrokes must use `/manga/suggest`.
+
+### `GET /api/v1/manga/suggest`
+
+Query: `q` (required, min 1), `limit` (default 6, max 12).  Uses only the local
+index and therefore makes zero parser requests.  Response:
+
+```json
+{
+  "query": "чензо мен",
+  "items": [
+    {
+      "id": "…",
+      "title": "Человек-бензопила",
+      "title_en": "Chainsaw Man",
+      "poster_url": "…",
+      "year": 2018,
+      "source": "mangapoisk",
+      "reason": "alternative"
+    }
+  ],
+  "total": 1
+}
+```
+
+`reason` is one of `title`, `alternative`, `genre`, `description`.
 
 ### `GET /api/v1/manga/{id}`
 

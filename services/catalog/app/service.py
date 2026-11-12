@@ -15,6 +15,8 @@ from manga_common.schemas import (
     MangaVariantOut,
     MangaVariantsOut,
     PageOut,
+    SearchSuggestionOut,
+    SuggestResponse,
     TranslatorOut,
 )
 from manga_common.source_models import MangaDetail, SourceInfo
@@ -39,6 +41,7 @@ from .repository import (
     pending_enrichment,
     stale_manga,
     stats,
+    suggest_manga,
     update_chapter_pages,
     upsert_crawl_state,
     upsert_manga_detail,
@@ -59,6 +62,7 @@ from .schemas import (
     PendingEnrichmentOut,
     RefreshResult,
 )
+from .search import suggestion_reason
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +261,25 @@ class CatalogService:
                 limit=limit,
                 has_next=(page - 1) * limit + limit < total,
             )
+
+    async def suggest(self, query: str, *, limit: int = 6) -> SuggestResponse:
+        """Instant local suggestions; this method has no parser dependency."""
+
+        async with self.session_factory() as session:
+            rows = await suggest_manga(session, query, limit=limit)
+            items = [
+                SearchSuggestionOut(
+                    id=row.id,
+                    title=row.title,
+                    title_en=row.title_en,
+                    poster_url=row.poster_url,
+                    year=row.year,
+                    source=row.source,
+                    reason=suggestion_reason(reason),
+                )
+                for row, reason in rows
+            ]
+            return SuggestResponse(query=query, items=items, total=len(items))
 
     async def chapters(
         self, manga_id: uuid.UUID, *, query: str | None = None, page: int = 1, limit: int = 200

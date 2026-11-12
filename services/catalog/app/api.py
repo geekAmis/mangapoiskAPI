@@ -9,6 +9,7 @@ from manga_common.schemas import (
     MangaOut,
     MangaVariantsOut,
     SourceOut,
+    SuggestResponse,
 )
 from manga_common.security import require_internal_token
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
@@ -100,6 +101,17 @@ async def manga_list(
         page=page,
         limit=limit,
     )
+
+
+@router.get("/manga/suggest", response_model=SuggestResponse)
+async def manga_suggest(
+    q: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=6, ge=1, le=12),
+    service: CatalogService = Depends(get_service),
+) -> SuggestResponse:
+    """Local-only instant suggestions.  Kept separate from live search."""
+
+    return await service.suggest(q, limit=limit)
 
 
 @router.get("/manga/search", response_model=MangaListResponse)

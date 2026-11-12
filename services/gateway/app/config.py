@@ -11,6 +11,7 @@ class GatewaySettings(Settings):
     port: int = 8000
     gateway_rate_limit_per_minute: int = 240
     gateway_search_limit_per_minute: int = 60
+    gateway_suggest_limit_per_minute: int = 300
     gateway_import_limit_per_minute: int = 10
     live_search_max_sources: int = 4
     live_search_import_limit: int = 12

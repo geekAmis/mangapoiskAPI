@@ -46,6 +46,7 @@ from manga_common.schemas import (
     RegisterRequest,
     SearchResponse,
     SourceOut,
+    SuggestResponse,
     TokenPair,
     UserOut,
 )
@@ -497,6 +498,23 @@ async def _live_search(
     imported = await asyncio.gather(*(import_one(item) for item in summaries))
     items = [item for item in imported if item is not None]
     return items, len(items)
+
+
+@router.get("/manga/suggest", response_model=SuggestResponse)
+async def manga_suggest(
+    request: Request,
+    q: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=6, ge=1, le=12),
+) -> SuggestResponse:
+    """Instant suggestions from the local index only.
+
+    This endpoint deliberately has no ``live`` flag and never calls the parser,
+    unlike ``/manga/search`` which keeps a controlled fallback for an explicit
+    submit.
+    """
+
+    catalog, _, _, _ = clients(request)
+    return await catalog.suggest(q, limit=limit)
 
 
 @router.get("/manga/search", response_model=SearchResponse)
