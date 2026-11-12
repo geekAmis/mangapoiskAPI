@@ -1202,6 +1202,142 @@ html[data-admin="true"] .toast-region {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* Media storage / LRU */
+.admin-storage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+}
+.admin-storage-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.admin-storage-card--warning {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--border));
+}
+.admin-storage-card--critical {
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+}
+.admin-storage-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.admin-storage-card h3 {
+  margin: 0 0 4px;
+  font-size: 0.94rem;
+}
+.admin-storage-card header span {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+.admin-storage-level {
+  flex: none;
+}
+.admin-storage-level--ok {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: var(--success-soft);
+  color: var(--success);
+}
+.admin-storage-level--warning {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.admin-storage-level--critical {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.admin-storage-level--unbounded {
+  color: var(--text-muted);
+}
+.admin-usage {
+  position: relative;
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+.admin-usage__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 240ms ease;
+}
+.admin-usage__fill--warning {
+  background: var(--warning);
+}
+.admin-usage__fill--critical {
+  background: var(--danger);
+}
+.admin-usage__fill--unbounded {
+  background: var(--border-strong);
+}
+.admin-storage-card__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+}
+.admin-storage-card__meta strong {
+  font-size: 1.05rem;
+}
+.admin-storage-card__meta span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.admin-storage-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px 14px;
+  margin: 14px 0 0;
+}
+.admin-storage-facts div {
+  min-width: 0;
+}
+.admin-storage-facts dt {
+  color: var(--text-faint);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.admin-storage-facts dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+.admin-storage-warnings {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.admin-storage-warnings p {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+.admin-storage-footnote {
+  margin: 12px 0 0;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
 .admin-moderation-empty {
   margin: 0;
   color: var(--text-muted);

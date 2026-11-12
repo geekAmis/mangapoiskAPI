@@ -28,6 +28,7 @@ import { Skeleton } from '../components/Skeleton';
 import { AdminLogin } from '../components/admin/AdminLogin';
 import { AdminServerCard } from '../components/admin/AdminServerCard';
 import { DeployModal } from '../components/admin/DeployModal';
+import { MediaStoragePanel } from '../components/admin/MediaStoragePanel';
 import { ServerFormModal } from '../components/admin/ServerFormModal';
 import { formatDateTime, formatInt } from '../lib/format';
 import { extractHarCookie } from '../lib/har';
@@ -752,6 +753,8 @@ export default function AdminPage() {
             <small>последние 100 записей</small>
           </div>
         </div>
+
+        <MediaStoragePanel />
 
         <section className="admin-panel" aria-labelledby="admin-servers-title">
           <div className="admin-panel__head">

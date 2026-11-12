@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
         archive_dir=settings.archive_root,
         threshold_bytes=settings.archive_db_threshold_bytes,
         max_bytes=settings.archive_max_bytes,
+        prune_interval_seconds=settings.archive_prune_interval_seconds,
     )
     app.state.cache = cache
     app.state.exports = exports
@@ -43,7 +44,12 @@ async def lifespan(app: FastAPI):
     add_ready_check(app, "archives", archives.ready)
     await archives.startup()
     await archives.prune()
+    await cache.prune()
     await exports.cleanup()
+    # Sweep even when no new archive/image is written: idle volumes would
+    # otherwise stay above their caps until the next request.
+    cache.start_periodic_prune()
+    archives.start_periodic_prune()
     logger.info("media service ready")
     try:
         yield

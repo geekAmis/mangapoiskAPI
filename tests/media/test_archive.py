@@ -264,3 +264,209 @@ async def test_archive_is_idempotent(tmp_path: Path) -> None:
         assert first.chapter_id == third.chapter_id
     finally:
         await manager.close()
+
+
+def _set_accessed(db_path: Path, chapter_id: uuid.UUID, value: str) -> None:
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE chapter_archives SET last_accessed_at = ? WHERE chapter_id = ?",
+            (value, str(chapter_id)),
+        )
+
+
+def _integrity(db_path: Path) -> str:
+    with sqlite3.connect(db_path) as connection:
+        return str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+
+
+@pytest.mark.asyncio
+async def test_archive_lru_evicts_oldest_zip_and_keeps_pages_readable(
+    tmp_path: Path,
+) -> None:
+    cache = FakeCache(tmp_path / "cache")
+    db_path = tmp_path / "archives.db"
+    manager = ArchiveManager(
+        cache,
+        db_path=db_path,
+        archive_dir=tmp_path / "chapter-archives",
+        threshold_bytes=1,
+    )
+    chapters = [uuid.uuid4() for _ in range(3)]
+    states: dict[uuid.UUID, object] = {}
+    try:
+        for chapter_id in chapters:
+            await manager.create(
+                ArchiveRequest(
+                    chapter_id=chapter_id,
+                    source="test-source",
+                    pages=_pages(),
+                )
+            )
+            states[chapter_id] = await _wait(manager, chapter_id)
+
+        stats = await manager.stats()
+        manager.max_bytes = stats.done_bytes - 1
+        _set_accessed(db_path, chapters[0], "2020-01-01T00:00:00+00:00")
+        _set_accessed(db_path, chapters[1], "2021-01-01T00:00:00+00:00")
+        _set_accessed(db_path, chapters[2], "2022-01-01T00:00:00+00:00")
+        oldest_path = Path(str(states[chapters[0]].archive_path))  # type: ignore[attr-defined]
+        assert oldest_path.exists()
+
+        result = await manager.prune()
+
+        assert result.removed == 1
+        assert await manager.metadata(chapters[0]) is None
+        assert await manager.page(chapters[0], 1) is None
+        assert not oldest_path.exists()
+        assert _integrity(db_path) == "ok"
+
+        for chapter_id in chapters[1:]:
+            state = await manager.metadata(chapter_id)
+            assert state is not None and state.status == "done"
+            page = await manager.page(chapter_id, 1)
+            assert page is not None
+            assert page.data == cache.files["https://example.com/1.jpg"].read_bytes()
+
+        after = await manager.stats()
+        assert after.done == 2
+        assert after.evictions == 1
+        assert after.last_pruned_at is not None
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_archive_lru_evicts_db_blobs_without_corruption(tmp_path: Path) -> None:
+    cache = FakeCache(tmp_path / "cache")
+    db_path = tmp_path / "archives.db"
+    manager = ArchiveManager(
+        cache,
+        db_path=db_path,
+        archive_dir=tmp_path / "chapter-archives",
+        threshold_bytes=1024 * 1024,
+    )
+    chapters = [uuid.uuid4() for _ in range(2)]
+    try:
+        for chapter_id in chapters:
+            await manager.create(
+                ArchiveRequest(
+                    chapter_id=chapter_id,
+                    source="test-source",
+                    pages=_pages(),
+                )
+            )
+            await _wait(manager, chapter_id)
+
+        stats = await manager.stats()
+        manager.max_bytes = stats.done_bytes - 1
+        _set_accessed(db_path, chapters[0], "2020-01-01T00:00:00+00:00")
+        _set_accessed(db_path, chapters[1], "2021-01-01T00:00:00+00:00")
+
+        result = await manager.prune()
+
+        assert result.removed == 1
+        assert await manager.metadata(chapters[0]) is None
+        assert await manager.page(chapters[0], 1) is None
+        remaining = await manager.page(chapters[1], 1)
+        assert remaining is not None
+        assert remaining.data == cache.files["https://example.com/1.jpg"].read_bytes()
+        assert _integrity(db_path) == "ok"
+        with sqlite3.connect(db_path) as connection:
+            old_blobs = connection.execute(
+                "SELECT COUNT(*) FROM page_blobs WHERE chapter_id = ?",
+                (str(chapters[0]),),
+            ).fetchone()[0]
+            new_blobs = connection.execute(
+                "SELECT COUNT(*) FROM page_blobs WHERE chapter_id = ?",
+                (str(chapters[1]),),
+            ).fetchone()[0]
+        assert old_blobs == 0
+        assert new_blobs == 3
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_archive_dry_run_keeps_rows_and_files(tmp_path: Path) -> None:
+    cache = FakeCache(tmp_path / "cache")
+    db_path = tmp_path / "archives.db"
+    manager = ArchiveManager(
+        cache,
+        db_path=db_path,
+        archive_dir=tmp_path / "chapter-archives",
+        threshold_bytes=1,
+    )
+    chapters = [uuid.uuid4() for _ in range(2)]
+    try:
+        paths: list[Path] = []
+        for chapter_id in chapters:
+            await manager.create(
+                ArchiveRequest(
+                    chapter_id=chapter_id,
+                    source="test-source",
+                    pages=_pages(),
+                )
+            )
+            state = await _wait(manager, chapter_id)
+            paths.append(Path(str(state.archive_path)))  # type: ignore[union-attr]
+
+        stats = await manager.stats()
+        manager.max_bytes = stats.done_bytes - 1
+        _set_accessed(db_path, chapters[0], "2020-01-01T00:00:00+00:00")
+        _set_accessed(db_path, chapters[1], "2021-01-01T00:00:00+00:00")
+
+        result = await manager.prune(dry_run=True)
+
+        assert result.dry_run is True
+        assert result.removed == 1
+        assert await manager.metadata(chapters[0]) is not None
+        assert paths[0].exists()
+        assert await manager.page(chapters[0], 1) is not None
+        dry_stats = await manager.stats()
+        assert dry_stats.evictions == 0
+        assert dry_stats.last_pruned_at is None
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_archive_periodic_prune_runs_without_new_writes(tmp_path: Path) -> None:
+    cache = FakeCache(tmp_path / "cache")
+    db_path = tmp_path / "archives.db"
+    manager = ArchiveManager(
+        cache,
+        db_path=db_path,
+        archive_dir=tmp_path / "chapter-archives",
+        threshold_bytes=1,
+    )
+    chapters = [uuid.uuid4() for _ in range(2)]
+    try:
+        for chapter_id in chapters:
+            await manager.create(
+                ArchiveRequest(
+                    chapter_id=chapter_id,
+                    source="test-source",
+                    pages=_pages(),
+                )
+            )
+            await _wait(manager, chapter_id)
+
+        stats = await manager.stats()
+        manager.max_bytes = stats.done_bytes - 1
+        _set_accessed(db_path, chapters[0], "2020-01-01T00:00:00+00:00")
+        _set_accessed(db_path, chapters[1], "2021-01-01T00:00:00+00:00")
+
+        task = manager.start_periodic_prune(interval_seconds=0.02)
+        assert task is not None
+        for _ in range(100):
+            if await manager.metadata(chapters[0]) is None:
+                break
+            await asyncio.sleep(0.02)
+
+        assert await manager.metadata(chapters[0]) is None
+        remaining = await manager.metadata(chapters[1])
+        assert remaining is not None and remaining.status == "done"
+        periodic = await manager.stats()
+        assert periodic.evictions >= 1
+    finally:
+        await manager.close()
