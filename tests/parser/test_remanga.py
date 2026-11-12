@@ -233,6 +233,114 @@ async def test_catalogue_pages_and_mapping(settings, cache, client) -> None:
         assert page1_route.call_count == 1
 
 
+async def test_catalogue_page_999_caps_advertised_next_page(settings, cache, client) -> None:
+    payload = copy.deepcopy(CATALOG)
+    payload["next"] = "/api/v2/search/catalog/?page=1000&count=30"
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(
+            f"{API}/api/v2/search/catalog/",
+            params={
+                "page": 999,
+                "count": 30,
+                "ordering": "-rating",
+                "unstrict_search_fields": "categories",
+            },
+        ).mock(return_value=json_response(payload))
+        adapter = RemangaAdapter(client, settings, cache)
+
+        result = await adapter.catalogue(999)
+
+        assert result.page == 999
+        assert result.has_next is False
+        assert route.call_count == 1
+
+
+async def test_catalogue_page_limit_422_is_end_of_catalogue(settings, cache, client) -> None:
+    body = {
+        "detail": [
+            {
+                "loc": ["page"],
+                "msg": "Input should be less than 1000",
+                "type": "less_than",
+            }
+        ]
+    }
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(
+            f"{API}/api/v2/search/catalog/",
+            params={
+                "page": 999,
+                "count": 30,
+                "ordering": "-rating",
+                "unstrict_search_fields": "categories",
+            },
+        ).mock(return_value=json_response(body, status_code=422))
+        adapter = RemangaAdapter(client, settings, cache)
+
+        result = await adapter.catalogue(999)
+
+        assert result.items == []
+        assert result.has_next is False
+        assert route.call_count == 1
+
+
+async def test_catalogue_beyond_hard_cap_does_not_hit_upstream(
+    settings, cache, client
+) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(f"{API}/api/v2/search/catalog/").mock(
+            side_effect=AssertionError("page beyond the cap must not hit upstream")
+        )
+        adapter = RemangaAdapter(client, settings, cache)
+
+        result = await adapter.catalogue(1000)
+
+    assert result.items == []
+    assert result.has_next is False
+    assert route.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {
+            "detail": [
+                {
+                    "loc": ["ordering"],
+                    "msg": "Input should be a valid ordering",
+                    "type": "literal_error",
+                }
+            ]
+        },
+        {
+            "detail": [
+                {
+                    "loc": ["page"],
+                    "msg": "Input should be greater than or equal to 1",
+                    "type": "greater_than_equal",
+                }
+            ]
+        },
+    ],
+    ids=["ordering", "page-min"],
+)
+async def test_catalogue_genuine_422_still_raises(settings, cache, client, body) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        router.get(
+            f"{API}/api/v2/search/catalog/",
+            params={
+                "page": 1,
+                "count": 30,
+                "ordering": "-rating",
+                "unstrict_search_fields": "categories",
+            },
+        ).mock(return_value=json_response(body, status_code=422))
+        adapter = RemangaAdapter(client, settings, cache)
+
+        with pytest.raises(UpstreamError):
+            await adapter.catalogue(1)
+
+
 async def test_catalogue_rejects_unsupported_ordering(settings, cache, client) -> None:
     adapter = RemangaAdapter(client, settings, cache)
     with pytest.raises(ValidationError) as error:

@@ -70,6 +70,10 @@ _SITE_BASE = "https://remanga.org"
 _MANGA_PATH = "manga"
 _MAX_CHAPTER_PAGES = 50
 _CATALOG_PAGE_SIZE = 30
+# The public API rejects ``page >= 1000`` with HTTP 422
+# (``Input should be less than 1000``), even though page 999 still advertises a
+# ``next`` link.  Page 999 is therefore the last valid catalogue page.
+_MAX_CATALOGUE_PAGE = 999
 _CATALOGUE_ORDERINGS = frozenset({"-rating", "-id", "-score", "-views", "-count_chapters"})
 # The scheduler speaks a source-agnostic ``sort`` vocabulary; map it onto the
 # ordering values accepted by the Remanga catalogue endpoint.
@@ -220,6 +224,7 @@ class RemangaAdapter(BaseAdapter):
     )
     allowed_hosts = frozenset({"remanga.org", "www.remanga.org", "api.remanga.org"})
     max_concurrency = 1
+    max_catalogue_pages = _MAX_CATALOGUE_PAGE
     default_headers: ClassVar[dict[str, str]] = {
         "Accept": "application/json, text/plain, */*",
         "Origin": _SITE_BASE,
@@ -434,6 +439,41 @@ class RemangaAdapter(BaseAdapter):
         candidate = (parse_qs(parsed.query).get("page") or [None])[0]
         return parse_int(candidate)
 
+    @staticmethod
+    def _is_catalogue_page_limit_error(exc: UpstreamError) -> bool:
+        """True when the upstream rejected ``page`` because it is past the cap.
+
+        Remanga answers ``page=1000`` with
+        ``{"detail":[{"loc":["page"],"msg":"Input should be less than 1000",
+        "type":"less_than"}]}``.  Only that exact field/validator combination is
+        an end-of-catalogue signal; a malformed ordering, a bad ``count`` or a
+        genuine ``page=1`` validation error must still surface as a failure.
+        """
+
+        details = exc.details
+        if not isinstance(details, dict) or details.get("status_code") not in (422, "422"):
+            return False
+        body = details.get("body")
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except ValueError:
+                return False
+        if not isinstance(body, dict):
+            return False
+        detail = body.get("detail")
+        if not isinstance(detail, list):
+            return False
+        for entry in detail:
+            if not isinstance(entry, dict):
+                continue
+            loc = entry.get("loc")
+            if not isinstance(loc, (list, tuple)) or list(loc) != ["page"]:
+                continue
+            if entry.get("type") == "less_than":
+                return True
+        return False
+
     async def _fetch_chapters(
         self,
         branch_id: int,
@@ -515,15 +555,24 @@ class RemangaAdapter(BaseAdapter):
         page: int,
         ordering: str,
     ) -> tuple[list[MangaSummary], bool]:
-        payload = await self.request_json(
-            f"{_API_BASE}/api/v2/search/catalog/",
-            params={
-                "page": page,
-                "count": _CATALOG_PAGE_SIZE,
-                "ordering": ordering,
-                "unstrict_search_fields": "categories",
-            },
-        )
+        if self.max_catalogue_pages is not None and page > self.max_catalogue_pages:
+            # Past the hard upstream cap there is nothing left to fetch.  This
+            # also recovers a persisted cursor that was already stuck at 1000.
+            return [], False
+        try:
+            payload = await self.request_json(
+                f"{_API_BASE}/api/v2/search/catalog/",
+                params={
+                    "page": page,
+                    "count": _CATALOG_PAGE_SIZE,
+                    "ordering": ordering,
+                    "unstrict_search_fields": "categories",
+                },
+            )
+        except UpstreamError as exc:
+            if self._is_catalogue_page_limit_error(exc):
+                return [], False
+            raise
         if not isinstance(payload, dict):
             raise UpstreamError(
                 "Remanga: catalogue returned an unexpected payload",
@@ -537,7 +586,11 @@ class RemangaAdapter(BaseAdapter):
             )
             if summary is not None
         ]
-        return items, payload.get("next") is not None
+        next_page = self._next_page(payload.get("next"))
+        has_next = next_page is not None and (
+            self.max_catalogue_pages is None or next_page <= self.max_catalogue_pages
+        )
+        return items, has_next
 
     # ------------------------------------------------------------------
     # Public adapter API

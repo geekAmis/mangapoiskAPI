@@ -95,9 +95,18 @@ async def request_with_retry(
             if response.status_code == 429:
                 raise RateLimitError("Upstream rate limit reached", details=url)
             if response.status_code >= 400:
+                details: dict[str, Any] = {
+                    "url": url,
+                    "status_code": response.status_code,
+                }
+                if response.status_code == 422:
+                    # Keep a bounded validation body so adapters can tell a
+                    # documented end-of-catalogue rejection (Remanga page cap)
+                    # from a genuine request validation error.
+                    details["body"] = response.text[:2000]
                 raise UpstreamError(
                     f"Upstream returned HTTP {response.status_code}",
-                    details={"url": url, "status_code": response.status_code},
+                    details=details,
                 )
             return response
         await asyncio.sleep(min(settings.scraper_backoff_seconds * (2**attempt) + random.random(), 30))

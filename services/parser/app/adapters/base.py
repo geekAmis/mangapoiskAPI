@@ -205,6 +205,9 @@ class BaseAdapter:
     info: SourceInfo
     allowed_hosts: frozenset[str] = frozenset()
     max_concurrency: int = 2
+    # Last page accepted by the upstream catalogue, when the source publishes a
+    # hard cap.  ``None`` means the adapter follows ``has_next`` unmodified.
+    max_catalogue_pages: int | None = None
     default_headers: ClassVar[dict[str, str]] = {}
 
     def __init__(
