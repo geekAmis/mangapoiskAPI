@@ -23,3 +23,15 @@ For a physical device on the same network, use the server IP.  For the emulator,
 The WebView allows cleartext only for local/development servers; see
 `android/app/src/main/res/xml/network_security_config.xml` after `cap add
 android`.
+
+## Notifications
+
+Android System WebView (used by Capacitor) does not expose the Web Push API:
+`PushManager` is missing, and real background delivery requires a native FCM
+integration (`@capacitor/push-notifications`, `POST_NOTIFICATIONS` permission on
+Android 13+, a notification channel, and a server-side FCM sender). This build
+does **not** fake native push. New chapters are shown in the in-app bell while
+the app is running; the profile screen detects the native platform and disables
+the Web Push switch with an explanation. See
+[`docs/NOTIFICATIONS.md`](../../docs/NOTIFICATIONS.md) for the full limitation
+and the future native-push task.

@@ -79,6 +79,40 @@ class CommentsClient(InternalClient):
             "POST", "/internal/notifications/read", json={"ids": ids}, headers=headers
         )
 
+    async def follows(self, headers: dict[str, str]) -> list[dict[str, Any]]:
+        return await self.request("GET", "/internal/follows", headers=headers)
+
+    async def follow(
+        self, payload: dict[str, Any], headers: dict[str, str]
+    ) -> dict[str, Any]:
+        return await self.request(
+            "POST", "/internal/follows", json=payload, headers=headers
+        )
+
+    async def unfollow(self, manga_id: str, headers: dict[str, str]) -> dict[str, Any]:
+        return await self.request(
+            "DELETE", f"/internal/follows/{manga_id}", headers=headers
+        )
+
+    async def follow_status(
+        self, manga_id: str, headers: dict[str, str]
+    ) -> dict[str, Any]:
+        return await self.request(
+            "GET", f"/internal/follows/{manga_id}", headers=headers
+        )
+
+    async def notification_settings(self, headers: dict[str, str]) -> dict[str, Any]:
+        return await self.request(
+            "GET", "/internal/notifications/settings", headers=headers
+        )
+
+    async def save_notification_settings(
+        self, payload: dict[str, Any], headers: dict[str, str]
+    ) -> dict[str, Any]:
+        return await self.request(
+            "PUT", "/internal/notifications/settings", json=payload, headers=headers
+        )
+
     async def admin_comments(
         self,
         *,
