@@ -22,6 +22,11 @@ On `primary-85` and `jump-83`:
 apt-get install -y restic sqlite3
 ```
 
+`sqlite3` must be **3.27 or newer** for `VACUUM INTO` (production runs 3.46.1).
+On an older build the backup script logs a warning and falls back to the
+online `.backup` API, so keep the package current before relying on the
+non-restarting copy path.
+
 The encrypted restic repository lives on `jump-83` at
 `/srv/mangapoisk-backups/restic`.  The backup account and SSH key are described
 in `docs/OPS.md` §4.1.

@@ -3,9 +3,13 @@
 #
 # Installed on primary-85 as /usr/local/sbin/mangapoisk-backup.sh.
 # The restic repository lives on jump-83 (off-host) and is encrypted at rest.
-# It snapshots SQLite databases with the online backup API, verifies every
-# snapshot with PRAGMA integrity_check, and records row counts in MANIFEST.txt
-# for the restore drill.
+#
+# SQLite copies use VACUUM INTO instead of the online backup API.  VACUUM INTO
+# holds one read transaction for the whole copy, so continuous crawler writes
+# cannot restart it (the .backup API restarts whenever the source changes and
+# can loop forever on a busy writer).  Every copy is verified with
+# PRAGMA integrity_check and row counts are recorded in MANIFEST.txt for the
+# restore drill.  SQLite builds without VACUUM INTO fall back to .backup.
 set -Eeuo pipefail
 
 DATA_ROOT="${DATA_ROOT:-/opt/mangapoisk-reborn/data}"
@@ -19,6 +23,10 @@ RESTIC_BIN="${RESTIC_BIN:-/usr/bin/restic}"
 HOST_LABEL="${HOST_LABEL:-primary-85}"
 
 DB_NAMES=(catalog library comments control archives)
+SQLITE_TIMEOUT_MS="${SQLITE_TIMEOUT_MS:-60000}"
+SQLITE_ATTEMPTS="${SQLITE_ATTEMPTS:-3}"
+PROGRESS_INTERVAL="${PROGRESS_INTERVAL:-30}"
+WAL_TRUNCATE_MIN_BYTES="${WAL_TRUNCATE_MIN_BYTES:-67108864}"
 
 umask 077
 install -d -m 700 "$STATE_DIR"
@@ -35,9 +43,40 @@ if ! flock -n 9; then
     exit 0
 fi
 
+PROGRESS_PID=""
+PROGRESS_LABEL=""
+PROGRESS_METHOD=""
+PROGRESS_DST=""
+LAST_ERR=""
+TOTAL_START=$(date +%s)
+
+stop_progress() {
+    if [ -n "$PROGRESS_PID" ]; then
+        kill "$PROGRESS_PID" 2>/dev/null || true
+        wait "$PROGRESS_PID" 2>/dev/null || true
+        PROGRESS_PID=""
+    fi
+}
+
+start_progress() {
+    PROGRESS_LABEL="$1"
+    PROGRESS_METHOD="$2"
+    PROGRESS_DST="$3"
+    [ "$PROGRESS_INTERVAL" -gt 0 ] || return 0
+    (
+        while sleep "$PROGRESS_INTERVAL"; do
+            [ -f "$PROGRESS_DST" ] || continue
+            size=$(stat -c%s "$PROGRESS_DST" 2>/dev/null || echo 0)
+            log "sqlite progress $PROGRESS_LABEL method=$PROGRESS_METHOD dst_size=$size"
+        done
+    ) &
+    PROGRESS_PID=$!
+}
+
 cleanup() {
     rc=$?
     trap - EXIT
+    stop_progress
     if [ "${KEEP_STAGE:-0}" != "1" ]; then
         rm -rf "$STAGE"
     fi
@@ -48,17 +87,62 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# True when the SQLite error means this build does not understand VACUUM INTO.
+is_vacuum_unsupported() {
+    printf '%s' "$1" | grep -qiE 'unrecognized token|syntax error|near "INTO"'
+}
+
+# run_copy <method> <src> <dst>
+# Returns 0 on success, 2 when VACUUM INTO is unsupported, 1 on exhausted
+# retries.  LAST_ERR is set for the caller.
+run_copy() {
+    method="$1"
+    src="$2"
+    dst="$3"
+    attempt=1
+    while [ "$attempt" -le "$SQLITE_ATTEMPTS" ]; do
+        rm -f "$dst" "$dst-wal" "$dst-shm"
+        LAST_ERR=""
+        start_progress "$(basename "$src" .db)" "$method" "$dst"
+        rc=0
+        if [ "$method" = "vacuum_into" ]; then
+            sqlite3 -cmd ".timeout $SQLITE_TIMEOUT_MS" "$src" "VACUUM INTO '$dst';" 2>"$STAGE/.sqlite-err" || rc=$?
+        else
+            sqlite3 -cmd ".timeout $SQLITE_TIMEOUT_MS" "$src" ".backup '$dst'" 2>"$STAGE/.sqlite-err" || rc=$?
+        fi
+        stop_progress
+        if [ "$rc" -eq 0 ]; then
+            rm -f "$STAGE/.sqlite-err"
+            return 0
+        fi
+        LAST_ERR=$(tr '\n' ' ' < "$STAGE/.sqlite-err" 2>/dev/null || true)
+        rm -f "$STAGE/.sqlite-err"
+        if [ "$method" = "vacuum_into" ] && is_vacuum_unsupported "$LAST_ERR"; then
+            return 2
+        fi
+        log "sqlite $method retry $attempt/$SQLITE_ATTEMPTS for $(basename "$src" .db) rc=$rc err=$LAST_ERR"
+        attempt=$((attempt + 1))
+        if [ "$attempt" -le "$SQLITE_ATTEMPTS" ]; then
+            sleep 10
+        fi
+    done
+    return 1
+}
+
 log "backup start host=$HOST_LABEL repo=$RESTIC_REPOSITORY"
 [ -r "$RESTIC_PASSWORD_FILE" ] || fail "missing restic password file: $RESTIC_PASSWORD_FILE"
 [ -x "$RESTIC_BIN" ] || fail "missing restic binary: $RESTIC_BIN"
 [ -d "$DATA_ROOT" ] || fail "missing data root: $DATA_ROOT"
 command -v sqlite3 >/dev/null || fail "sqlite3 is required"
+log "sqlite3=$(sqlite3 --version | awk '{print $1}') vacuum_into=yes"
 
 rm -rf "$STAGE"
 install -d -m 700 "$STAGE/db" "$STAGE/config"
 
-# Consistent SQLite copies.  The online backup API is safe while services are
-# writing; a busy timeout plus retries handles short writer locks.
+# Consistent SQLite copies.  VACUUM INTO takes one read transaction for the
+# whole copy, so it is safe while services are writing and does not restart on
+# source changes.  A passive checkpoint first keeps the WAL from growing more
+# than necessary during the copy; it never blocks writers and may be a no-op.
 for name in "${DB_NAMES[@]}"; do
     src="$DATA_ROOT/$name.db"
     dst="$STAGE/db/$name.db"
@@ -67,22 +151,71 @@ for name in "${DB_NAMES[@]}"; do
         continue
     fi
 
-    ok=0
-    for attempt in 1 2 3; do
-        if sqlite3 -cmd '.timeout 60000' "$src" ".backup '$dst'"; then
-            ok=1
-            break
-        fi
-        log "sqlite backup retry $attempt for $name"
-        sleep 10
-    done
-    [ "$ok" -eq 1 ] || fail "sqlite backup failed for $name"
+    db_start=$(date +%s)
+    src_size=$(stat -c%s "$src")
+    src_wal=0
+    if [ -f "$src-wal" ]; then
+        src_wal=$(stat -c%s "$src-wal")
+    fi
+    log "sqlite start $name src_size=$src_size src_wal=$src_wal method=vacuum_into"
 
-    check=$(sqlite3 -cmd '.timeout 60000' "$dst" 'PRAGMA integrity_check;') ||
+    if ! sqlite3 -cmd ".timeout $SQLITE_TIMEOUT_MS" "$src" 'PRAGMA wal_checkpoint(PASSIVE);' >/dev/null 2>&1; then
+        log "warn: wal_checkpoint(PASSIVE) failed for $name (continuing)"
+    fi
+
+    method="vacuum_into"
+    copy_rc=0
+    run_copy "$method" "$src" "$dst" || copy_rc=$?
+    if [ "$copy_rc" -eq 2 ]; then
+        log "WARN: VACUUM INTO unsupported by sqlite3 $(sqlite3 --version | awk '{print $1}') for $name ($LAST_ERR); falling back to .backup"
+        method="backup_api"
+        copy_rc=0
+        run_copy "$method" "$src" "$dst" || copy_rc=$?
+    fi
+    [ "$copy_rc" -eq 0 ] || fail "sqlite $method failed for $name after $SQLITE_ATTEMPTS attempts: $LAST_ERR"
+
+    copy_seconds=$(( $(date +%s) - db_start ))
+    dst_size=$(stat -c%s "$dst")
+    log "sqlite copied $name method=$method dst_size=$dst_size copy_duration=${copy_seconds}s"
+
+    check_start=$(date +%s)
+    check=$(sqlite3 -cmd ".timeout $SQLITE_TIMEOUT_MS" "$dst" 'PRAGMA integrity_check;') ||
         fail "integrity query failed for $name"
     [ "$check" = "ok" ] || fail "integrity_check failed for $name: $check"
-    log "sqlite ok $name size=$(stat -c%s "$dst")"
+    check_seconds=$(( $(date +%s) - check_start ))
+    total_seconds=$(( $(date +%s) - db_start ))
+    log "sqlite ok $name method=$method size=$dst_size copy_duration=${copy_seconds}s integrity_duration=${check_seconds}s total_duration=${total_seconds}s integrity=ok"
 done
+
+# Weekly best-effort WAL truncation for the high-write catalog database.  The
+# checkpoint uses a 60 s busy timeout: if crawler readers keep the WAL open it
+# returns busy and we simply retry next week.  It never truncates while a
+# writer holds the WAL, so live writers are not blocked beyond the timeout.
+WEEK=$(date -u +%G-%V)
+if [ -f "$DATA_ROOT/catalog.db" ]; then
+    wal_now=0
+    if [ -f "$DATA_ROOT/catalog.db-wal" ]; then
+        wal_now=$(stat -c%s "$DATA_ROOT/catalog.db-wal")
+    fi
+    if [ "$(cat "$STATE_DIR/last-wal-truncate" 2>/dev/null || true)" = "$WEEK" ]; then
+        log "wal_checkpoint(TRUNCATE) catalog.db already done week=$WEEK wal_size=$wal_now"
+    elif [ "$wal_now" -lt "$WAL_TRUNCATE_MIN_BYTES" ]; then
+        log "wal_checkpoint(TRUNCATE) catalog.db skipped week=$WEEK wal_size=$wal_now below_threshold=$WAL_TRUNCATE_MIN_BYTES"
+        echo "$WEEK" > "$STATE_DIR/last-wal-truncate"
+    else
+        log "wal_checkpoint(TRUNCATE) catalog.db start week=$WEEK wal_size=$wal_now"
+        if sqlite3 -cmd ".timeout $SQLITE_TIMEOUT_MS" "$DATA_ROOT/catalog.db" 'PRAGMA wal_checkpoint(TRUNCATE);'; then
+            wal_after=0
+            if [ -f "$DATA_ROOT/catalog.db-wal" ]; then
+                wal_after=$(stat -c%s "$DATA_ROOT/catalog.db-wal")
+            fi
+            echo "$WEEK" > "$STATE_DIR/last-wal-truncate"
+            log "wal_checkpoint(TRUNCATE) catalog.db done week=$WEEK wal_size_after=$wal_after"
+        else
+            log "warn: wal_checkpoint(TRUNCATE) catalog.db busy/failed; retry next run"
+        fi
+    fi
+fi
 
 # Critical configuration.  Secrets are inside the encrypted restic repository.
 cp -a "$APP_ROOT/.env" "$STAGE/config/app.env" 2>/dev/null || true
@@ -130,11 +263,20 @@ BACKUP_ARGS=(
     --exclude '*.tmp'
     --exclude '*.part'
 )
-[ -d "$DATA_ROOT/chapter-archives" ] && BACKUP_ARGS+=("$DATA_ROOT/chapter-archives")
+if [ -d "$DATA_ROOT/chapter-archives" ]; then
+    BACKUP_ARGS+=("$DATA_ROOT/chapter-archives")
+fi
 BACKUP_ARGS+=("$STAGE")
 
+restic_out=$(mktemp)
 log "restic backup"
-"${RESTIC[@]}" "${BACKUP_ARGS[@]}"
+if ! "${RESTIC[@]}" "${BACKUP_ARGS[@]}" 2>&1 | tee "$restic_out"; then
+    rm -f "$restic_out"
+    fail "restic backup failed"
+fi
+SNAPSHOT_ID=$(sed -n 's/^snapshot \([0-9a-f]\{8\}\) saved$/\1/p' "$restic_out" | tail -1)
+rm -f "$restic_out"
+log "restic snapshot=${SNAPSHOT_ID:-unknown}"
 
 # Retention: 7 daily + 4 weekly + 3 monthly.  Prune at most once per UTC day so
 # the six-hourly timer does not rewrite the repository on every run.
@@ -146,11 +288,10 @@ if [ "$(cat "$STATE_DIR/last-prune" 2>/dev/null || true)" != "$TODAY" ]; then
 fi
 
 # Weekly repository verification, 2% of pack data.
-WEEK=$(date -u +%G-%V)
 if [ "$(cat "$STATE_DIR/last-check" 2>/dev/null || true)" != "$WEEK" ]; then
     log "restic check --read-data-subset=2%"
     "${RESTIC[@]}" check --read-data-subset=2%
     echo "$WEEK" > "$STATE_DIR/last-check"
 fi
 
-log "backup OK"
+log "backup OK snapshot=${SNAPSHOT_ID:-unknown} total_duration=$(( $(date +%s) - TOTAL_START ))s"

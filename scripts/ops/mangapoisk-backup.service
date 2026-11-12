@@ -10,4 +10,4 @@ User=root
 ExecStart=/usr/local/sbin/mangapoisk-backup.sh
 Nice=10
 IOSchedulingClass=idle
-TimeoutStartSec=3h
+TimeoutStartSec=6h
