@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { MangaOut } from '../api/types';
 import { chaptersLabel, formatRelative, sourceLabel } from '../lib/format';
+import { mangaPath } from '../lib/mangaRoute';
 import { useReaderStore } from '../stores/reader';
 import { Icon } from './Icon';
 import { Poster } from './Poster';
@@ -27,7 +28,7 @@ export function MangaCard({ manga, action, eager = false, compact = false, onCli
     >
       <div className="manga-card__cover-wrap">
         <Link
-          to={`/manga/${manga.id}`}
+          to={mangaPath(manga)}
           className="manga-card__cover"
           aria-label={`${manga.title}${manga.adult ? ', 18+' : ''}`}
         >
@@ -53,7 +54,7 @@ export function MangaCard({ manga, action, eager = false, compact = false, onCli
         {action ? <div className="manga-card__action">{action}</div> : null}
       </div>
       <div className="manga-card__body">
-        <Link to={`/manga/${manga.id}`} className="manga-card__title">
+        <Link to={mangaPath(manga)} className="manga-card__title">
           {manga.title}
         </Link>
         <div className="manga-card__meta">

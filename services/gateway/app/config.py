@@ -27,3 +27,9 @@ class GatewaySettings(Settings):
     alert_db_lock_per_minute: float = 5.0
     alert_enrichment_backlog: int = 10_000
     alert_archive_usage_percent: float = 80.0
+
+    # Crawler prerender.  HTML is cached briefly; catalog errors/timeouts
+    # always fall back to a generic card or the SPA instead of a 5xx.
+    seo_prerender_cache_seconds: float = 60.0
+    seo_prerender_timeout_seconds: float = 4.0
+    seo_prerender_cache_max_items: int = 512

@@ -27,6 +27,7 @@ from manga_common.schemas import (
     TranslatorOut,
 )
 from manga_common.source_models import MangaDetail, SourceInfo
+from manga_common.text import build_url_slug
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config import CatalogSettings
@@ -136,6 +137,10 @@ def _cover_out(cover) -> CoverOut:  # type: ignore[no-untyped-def]
 
 def _manga_out(manga, covers=None) -> MangaOut:  # type: ignore[no-untyped-def]
     payload = MangaOut.model_validate(manga)
+    if not payload.url_slug:
+        from .repository import ensure_url_slug
+
+        payload.url_slug = ensure_url_slug(manga)
     payload.description_missing = not bool((manga.description or "").strip())
     payload.description_fallback = DESCRIPTION_FALLBACK if payload.description_missing else None
     payload.genre_slugs = genre_slugs(manga.genres or [])
@@ -632,6 +637,7 @@ class CatalogService:
                         poster_url=row.poster_url,
                         year=row.year,
                         source=row.source,
+                        url_slug=row.url_slug or build_url_slug(row.title),
                         reason=suggestion_reason(reason),
                     )
                     for row, reason in rows
@@ -813,8 +819,10 @@ class CatalogService:
                 return [
                     SitemapEntryOut(
                         id=row[0],
-                        last_chapter_at=row[1],
-                        updated_at=row[2],
+                        url_slug=row[1],
+                        title=row[2] or "",
+                        last_chapter_at=row[3],
+                        updated_at=row[4],
                     )
                     for row in rows
                 ]

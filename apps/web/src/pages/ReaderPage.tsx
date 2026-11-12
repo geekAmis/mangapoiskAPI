@@ -33,6 +33,7 @@ import {
   sourceLabel,
 } from '../lib/format';
 import { useDebouncedCallback, useReducedMotion } from '../lib/hooks';
+import { mangaPath, mangaPathFromId } from '../lib/mangaRoute';
 import { absoluteUrl, useSeo } from '../lib/seo';
 import { recordLocalReadingDay, saveLocalProgress } from '../lib/progress';
 import { queryKeys } from '../lib/queryClient';
@@ -188,7 +189,7 @@ export default function ReaderPage() {
         ? `${manga.title}: ${chapterHeading(chapter)} — читать онлайн на русском в MangaPoisk Reborn.`
         : 'Читалка MangaPoisk Reborn: главы манги и манхвы с удобными режимами чтения.',
     // Chapter pages are not useful landing pages; the title page is canonical.
-    canonical: manga ? absoluteUrl(`/manga/${manga.id}`) : null,
+    canonical: manga ? absoluteUrl(mangaPath(manga)) : null,
     robots: 'noindex,follow',
   });
 
@@ -826,7 +827,10 @@ export default function ReaderPage() {
                 )}
                 Обновить главу
               </button>
-              <Link to={`/manga/${chapter.manga_id}`} className="btn btn--outline">
+              <Link
+                to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
+                className="btn btn--outline"
+              >
                 <Icon name="arrow-left" size={16} />
                 К оглавлению
               </Link>
@@ -857,7 +861,7 @@ export default function ReaderPage() {
       <header className={`reader-header${headerHidden ? ' is-hidden' : ''}`}>
         <div className="reader-header__inner">
           <Link
-            to={`/manga/${chapter.manga_id}`}
+            to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
             className="reader-header__titles"
             aria-label={`К оглавлению «${manga?.title ?? 'манги'}»`}
             title="К оглавлению"
@@ -925,7 +929,7 @@ export default function ReaderPage() {
               <Icon name={isFullscreen ? 'minimize' : 'maximize'} size={19} />
             </button>
             <Link
-              to={`/manga/${chapter.manga_id}`}
+              to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
               className="btn btn--ghost btn--icon reader-header__close"
               aria-label="Закрыть читалку"
               title="Закрыть читалку"
@@ -1472,7 +1476,7 @@ export default function ReaderPage() {
               {formatInt(chaptersForSheet.length)} из {formatInt(manga?.chapters.length ?? 0)}
             </span>
             <Link
-              to={`/manga/${chapter.manga_id}`}
+              to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
               className="btn btn--outline btn--sm"
               onClick={() => setChaptersOpen(false)}
             >

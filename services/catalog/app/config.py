@@ -27,6 +27,11 @@ class CatalogSettings(Settings):
     search_backfill_lease_seconds: int = 120
     search_backfill_yield_seconds: float = 0.01
     search_backfill_max_retries: int = 5
+    # Public URL slugs are additive and backfilled in the background.  The
+    # UUID remains the routing key, so a missing slug never hides a title.
+    url_slug_backfill_enabled: bool = True
+    url_slug_backfill_batch_size: int = 500
+    url_slug_backfill_yield_seconds: float = 0.05
 
     @property
     def catalog_dsn(self) -> str:

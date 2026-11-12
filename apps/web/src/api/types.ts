@@ -69,7 +69,10 @@ export interface MangaOut {
   id: UUID;
   source: string;
   source_id: string;
+  /** Source-owned slug; not used in public URLs. */
   slug: string | null;
+  /** Cosmetic transliterated slug for `/manga/{id}-{url_slug}`. */
+  url_slug?: string | null;
   title: string;
   title_en: string | null;
   title_alt: string | null;
@@ -164,6 +167,7 @@ export interface SearchSuggestionOut {
   poster_url: string | null;
   year: number | null;
   source: string;
+  url_slug?: string | null;
   reason: SearchSuggestionReason;
 }
 

@@ -76,6 +76,9 @@ class MangaOut(ORMModel):
     source: str
     source_id: str
     slug: str | None = None
+    # Cosmetic, transliterated slug used by the public URL
+    # ``/manga/{id}-{url_slug}``.  ``slug`` above is source-owned.
+    url_slug: str | None = None
     title: str
     title_en: str | None = None
     title_alt: str | None = None
@@ -128,6 +131,8 @@ class SitemapEntryOut(BaseModel):
     """Minimal catalogue row used by the gateway sitemap collector."""
 
     id: UUID
+    url_slug: str | None = None
+    title: str = ""
     last_chapter_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -168,6 +173,7 @@ class SearchSuggestionOut(BaseModel):
     poster_url: str | None = None
     year: int | None = None
     source: str
+    url_slug: str | None = None
     reason: str = "title"
 
 

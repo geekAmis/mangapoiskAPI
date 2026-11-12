@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { SearchSuggestionOut } from '../api/types';
 import { useDebouncedValue, useOnClickOutside } from '../lib/hooks';
+import { mangaPath } from '../lib/mangaRoute';
 import {
   clearSearchHistory,
   isPrivateSearchMode,
@@ -37,6 +38,7 @@ type SuggestionOption =
       kind: 'title';
       key: string;
       id: string;
+      urlSlug: string | null;
       title: string;
       subtitle: string;
       posterUrl: string | null;
@@ -143,6 +145,7 @@ export function SearchBox({
     kind: 'title',
     key: `title:${item.id}`,
     id: item.id,
+    urlSlug: item.url_slug ?? null,
     title: item.title,
     subtitle: titleSubtitle(item),
     posterUrl: item.poster_url,
@@ -193,7 +196,7 @@ export function SearchBox({
     close();
     inputRef.current?.focus();
     if (option.kind === 'title') {
-      navigate(`/manga/${option.id}`);
+      navigate(mangaPath({ id: option.id, url_slug: option.urlSlug }));
       return;
     }
     setLocal(option.query);

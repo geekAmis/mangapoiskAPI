@@ -90,6 +90,9 @@ gateway inside the compose network.
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | optional notifications |
 | `MEDIA_ALLOWED_HOSTS` | optional comma-separated image CDN allowlist |
 | `PUBLIC_WEB_URL`, `PUBLIC_API_URL` | links in notifications/docs; production refuses `http://` |
+| `WEB_INTERNAL_URL` | internal nginx/static URL the gateway uses to proxy the SPA `index.html` for humans (e.g. `http://127.0.0.1:8088`) |
+| `GOOGLE_SITE_VERIFICATION`, `YANDEX_VERIFICATION` | meta verification tokens; empty omits the tag |
+| `URL_SLUG_BACKFILL_ENABLED`, `URL_SLUG_BACKFILL_BATCH_SIZE`, `URL_SLUG_BACKFILL_YIELD_SECONDS` | batched background slug backfill for existing catalogues |
 | `DEPLOY_HEALTH_TIMEOUT_SECONDS` | per-service health wait after restart (default `600`, allowed 30–7200) |
 | `DEPLOY_HEALTH_POLL_SECONDS` | health poll interval (default `2`) |
 | `DEPLOY_READ_TIMEOUT_SECONDS` | maximum silent SSH output before the job is failed (default `900`) |

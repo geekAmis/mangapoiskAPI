@@ -106,6 +106,13 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
     public_web_url: str = "http://localhost:8080"
     public_api_url: str = "http://localhost:8000"
+    # Search Console / Yandex Webmaster verification tokens.  Empty values
+    # omit the corresponding meta tag from the SPA and prerendered HTML.
+    google_site_verification: str | None = None
+    yandex_verification: str | None = None
+    # Internal web host used by the gateway to proxy the SPA index.html for
+    # humans.  Empty falls back to PUBLIC_WEB_URL/index.html.
+    web_internal_url: str | None = None
 
     @field_validator("public_web_url", "public_api_url")
     @classmethod

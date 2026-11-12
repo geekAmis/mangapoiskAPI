@@ -23,6 +23,7 @@ import {
   statusLabel,
 } from '../lib/format';
 import { useDebouncedValue } from '../lib/hooks';
+import { mangaPath } from '../lib/mangaRoute';
 import { SEO_SITE_NAME, absoluteUrl, useSeo } from '../lib/seo';
 import { queryKeys } from '../lib/queryClient';
 import { toast } from '../stores/toast';
@@ -222,10 +223,13 @@ export default function CataloguePage() {
     `/catalogue${canonicalQuery ? `?${canonicalQuery}` : ''}`,
   );
 
-  // Search result pages are thin by nature; empty filtered pages and API
-  // errors must not be indexed either.  The catalogue itself stays indexable.
+  // The owner decision for #38: an empty query (`?q=`), an empty result set
+  // and API errors are noindex; a non-empty search result page is indexable.
+  // The catalogue itself stays indexable.
+  const emptyQueryParam = searchParams.has('q') && q.trim() === '';
   const thinResult =
-    Boolean(q) ||
+    emptyQueryParam ||
+    (Boolean(q) && Boolean(catalogueQuery.data) && total === 0) ||
     (Boolean(catalogueQuery.data) && total === 0 && (hasFilters || page > 1)) ||
     catalogueQuery.isError;
   const title = q
@@ -629,7 +633,7 @@ function LiveSearchDialog({
                 className="live-result"
                 onClick={() => {
                   onClose();
-                  navigate(`/manga/${manga.id}`);
+                  navigate(mangaPath(manga));
                 }}
               >
                 <span className="live-result__poster">
@@ -695,7 +699,7 @@ function ImportDialog({
       );
       void queryClient.invalidateQueries({ queryKey: ['manga'] });
       onClose();
-      navigate(`/manga/${result.manga.id}`);
+      navigate(mangaPath(result.manga));
     },
     onError: (mutationError: unknown) => {
       setError(humanizeError(mutationError, 'Не удалось импортировать мангу. Проверьте ссылку и источник.'));

@@ -9,6 +9,7 @@ from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
+from manga_common.text import build_url_slug
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,13 @@ async def _collect_entries_for_app(app) -> list[tuple[str, str | None]]:  # type
                 lastmod = _lastmod(getattr(row, "last_chapter_at", None)) or _lastmod(
                     getattr(row, "updated_at", None)
                 )
-                entries.append((f"{base}/manga/{row.id}", lastmod))
+                # The sitemap must only advertise the canonical slug URL.
+                # Legacy rows still missing a stored slug get the same
+                # deterministic transliteration the catalog read path uses.
+                slug = getattr(row, "url_slug", None) or build_url_slug(
+                    getattr(row, "title", None)
+                )
+                entries.append((f"{base}/manga/{row.id}-{slug}", lastmod))
             return entries
 
     page = 1
@@ -126,10 +133,16 @@ async def _collect_entries_for_app(app) -> list[tuple[str, str | None]]:  # type
             # exist.  The API can legitimately return zero before an import.
             if (getattr(manga, "chapters_count", 0) or 0) <= 0:
                 continue
+            # 18+ titles are deliberately excluded from the sitemap.
+            if getattr(manga, "adult", False):
+                continue
             lastmod = _lastmod(
                 getattr(manga, "last_chapter_at", None)
             ) or _lastmod(getattr(manga, "updated_at", None))
-            entries.append((f"{base}/manga/{manga.id}", lastmod))
+            slug = getattr(manga, "url_slug", None) or build_url_slug(
+                getattr(manga, "title", None)
+            )
+            entries.append((f"{base}/manga/{manga.id}-{slug}", lastmod))
 
         if not getattr(response, "has_next", False):
             break
