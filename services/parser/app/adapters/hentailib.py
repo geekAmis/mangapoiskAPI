@@ -211,6 +211,7 @@ class HentaiLibAdapter(BaseAdapter):
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        fallback_on_404: bool = False,
     ) -> Any:
         """Request a hapi.hentaicdn.org endpoint with API-host fallback."""
 
@@ -226,7 +227,10 @@ class HentaiLibAdapter(BaseAdapter):
                         **self._site_headers(self._active_base),
                     },
                 )
-            except NotFoundError:
+            except NotFoundError as exc:
+                if fallback_on_404:
+                    last_error = exc
+                    continue
                 raise
             except (UpstreamError, UpstreamTimeoutError) as exc:
                 last_error = exc
@@ -350,6 +354,7 @@ class HentaiLibAdapter(BaseAdapter):
         payload = await self._api_json(
             "/manga",
             params={"q": query, "page": page, "limit": 20},
+            fallback_on_404=True,
         )
         if not isinstance(payload, dict):
             raise UpstreamError(
@@ -408,6 +413,7 @@ class HentaiLibAdapter(BaseAdapter):
                 "limit": page_limit,
                 "sort_by": upstream_sort,
             },
+            fallback_on_404=True,
         )
         if not isinstance(payload, dict):
             raise UpstreamError(
