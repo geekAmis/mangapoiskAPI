@@ -25,6 +25,7 @@ import type {
   RegisterRequest,
   SearchResponse,
   SourceOut,
+  SuggestResponse,
   TokenPair,
   UserOut,
 } from './types';
@@ -298,6 +299,14 @@ export const api = {
         page: params.page,
         limit: params.limit,
       },
+      auth: false,
+      signal,
+    }),
+
+  /** Local-index suggestions for the search combobox. */
+  suggestManga: (q: string, limit = 6, signal?: AbortSignal) =>
+    request<SuggestResponse>('/manga/suggest', {
+      query: { q, limit },
       auth: false,
       signal,
     }),
