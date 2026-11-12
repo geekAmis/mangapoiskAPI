@@ -3,12 +3,8 @@ from __future__ import annotations
 import logging
 
 from manga_common.db import Base
-from sqlalchemy import select, text, update
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
-
-from .models import Manga
-from .normalization import genres_key, status_key
-from .search import build_search_fields
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +85,21 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                     await connection.execute(
                         text(f"ALTER TABLE manga ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
                     )
+            if "search_indexed" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN search_indexed "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_pending "
+                    "ON manga (search_indexed) WHERE search_indexed = 0"
+                )
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
@@ -163,6 +172,12 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             await connection.execute(
                 text(
                     "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "search_indexed BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
                     "enrichment_attempts INTEGER NOT NULL DEFAULT 0"
                 )
             )
@@ -202,6 +217,12 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_pending "
+                    "ON manga (search_indexed) WHERE search_indexed = false"
+                )
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)")
@@ -256,76 +277,23 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                     except Exception as exc:  # pragma: no cover - server specific
                         logger.warning("could not create %s: %s", name, exc)
 
-        # Backfill filter keys and the denormalised search document.  This is
-        # intentionally done in Python: it works on both dialects and keeps the
-        # ranking identical to what write paths produce.
-        rows = (
-            await connection.execute(
-                select(
-                    Manga.id,
-                    Manga.title,
-                    Manga.title_en,
-                    Manga.title_alt,
-                    Manga.description,
-                    Manga.genres,
-                    Manga.content_type,
-                    Manga.metadata_json.label("metadata_json"),
-                    Manga.group_key,
-                    Manga.status,
-                    Manga.genres_key,
-                    Manga.status_key,
-                    Manga.search_blob,
-                )
-            )
-        ).all()
-        updated = 0
-        for row in rows:
-            expected_genres = genres_key(row.genres or [])
-            expected_status = status_key(row.status)
-            fields = build_search_fields(
-                title=row.title,
-                title_en=row.title_en,
-                title_alt=row.title_alt,
-                genres=row.genres or [],
-                content_type=row.content_type,
-                description=row.description,
-                metadata=row.metadata_json or {},
-            )
-            values = {
-                "genres_key": expected_genres,
-                "status_key": expected_status,
-                **fields,
-            }
-            if (
-                row.genres_key != expected_genres
-                or row.status_key != expected_status
-                or row.search_blob != values["search_blob"]
-            ):
-                await connection.execute(
-                    update(Manga).where(Manga.id == row.id).values(**values)
-                )
-                updated += 1
-        if updated:
-            logger.info("backfilled search/filter fields for %s catalogue entries", updated)
-
+        # Rows that already carry a normalized document from a previous v1.2
+        # deploy are marked indexed in one cheap statement.  Everything else
+        # is handled by the background worker; startup must never walk 78k
+        # rows in Python and hold the SQLite write lock for minutes.
         if dialect == "sqlite":
-            # The FTS mirror is rebuilt atomically with the migration: a stale
-            # mirror would make suggestions miss titles after a schema upgrade.
-            await connection.execute(text("DELETE FROM manga_search_fts"))
             await connection.execute(
                 text(
-                    "INSERT INTO manga_search_fts (manga_id, body) "
-                    "SELECT CAST(id AS TEXT), search_blob FROM manga"
+                    "UPDATE manga SET search_indexed = 1 "
+                    "WHERE search_indexed = 0 AND search_blob <> ''"
                 )
             )
-
-        # Covers created before grouping support need the denormalised key.
-        await connection.execute(
-            text(
-                "UPDATE manga_covers SET group_key = "
-                "(SELECT group_key FROM manga WHERE manga.id = manga_covers.manga_id) "
-                "WHERE group_key IS NULL"
+        else:
+            await connection.execute(
+                text(
+                    "UPDATE manga SET search_indexed = true "
+                    "WHERE search_indexed = false AND search_blob <> ''"
+                )
             )
-        )
 
     logger.info("catalogue runtime schema is up to date")

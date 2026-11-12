@@ -47,6 +47,7 @@ from .repository import (
     recommend_manga,
     record_enrichment_failure,
     rotate_enrichment,
+    search_backfill_stats,
     stale_manga,
     stats,
     suggest_manga,
@@ -76,6 +77,7 @@ from .schemas import (
     RefreshResult,
     RelationsIn,
     RelationsOut,
+    SearchBackfillStats,
 )
 from .search import suggestion_reason
 
@@ -515,6 +517,10 @@ class CatalogService:
     async def catalog_stats(self) -> CatalogStats:
         async with self.session_factory() as session:
             return await stats(session)
+
+    async def search_backfill(self) -> SearchBackfillStats | None:
+        async with self.session_factory() as session:
+            return await search_backfill_stats(session)
 
     async def genres(self) -> GenreListOut:
         async with self.session_factory() as session:

@@ -25,7 +25,15 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import Chapter, CrawlState, Manga, MangaCover, MangaRelation, Source
+from .models import (
+    Chapter,
+    CrawlState,
+    Manga,
+    MangaCover,
+    MangaRelation,
+    SearchBackfillState,
+    Source,
+)
 from .normalization import (
     GENRE_LABELS,
     canonical_genre,
@@ -34,7 +42,12 @@ from .normalization import (
     parse_genre_filter,
     status_key,
 )
-from .schemas import CatalogStats, EnrichmentSourceStats, SourceStats
+from .schemas import (
+    CatalogStats,
+    EnrichmentSourceStats,
+    SearchBackfillStats,
+    SourceStats,
+)
 from .search import (
     SearchQuery,
     analyze_query,
@@ -579,6 +592,31 @@ def _group_expr():
     return func.coalesce(func.nullif(Manga.group_key, ""), cast(Manga.id, String))
 
 
+def _legacy_search_text():
+    """Lower-cased legacy columns used while a row awaits normalization."""
+
+    return func.lower(
+        func.coalesce(Manga.title, "")
+        + " "
+        + func.coalesce(Manga.title_en, "")
+        + " "
+        + func.coalesce(Manga.title_alt, "")
+        + " "
+        + func.coalesce(Manga.description, "")
+    )
+
+
+def _legacy_filter(terms: list[str]):
+    # The fallback is intentionally narrow: it only touches rows the background
+    # worker has not normalized yet, and the partial ``search_indexed`` index
+    # keeps that set cheap to find.
+    legacy_text = _legacy_search_text()
+    return and_(
+        Manga.search_indexed.is_(False),
+        or_(*[legacy_text.contains(term, autoescape=True) for term in terms[:32]]),
+    )
+
+
 async def _search_filter(
     session: AsyncSession,
     query: SearchQuery,
@@ -589,18 +627,23 @@ async def _search_filter(
 
     dialect = session.get_bind().dialect.name
     if dialect == "sqlite" and await fts_available(session):
-        match = fts_match_query(query)
-        if not match:
-            return None
-        return text(
-            "id IN (SELECT manga_id FROM manga_search_fts "
-            "WHERE manga_search_fts MATCH :fts_query "
-            "ORDER BY bm25(manga_search_fts) LIMIT :fts_limit)"
-        ).bindparams(fts_query=match, fts_limit=candidate_limit)
+        has_rows = await session.scalar(text("SELECT 1 FROM manga_search_fts LIMIT 1"))
+        if has_rows:
+            match = fts_match_query(query)
+            if not match:
+                return None
+            return text(
+                "id IN (SELECT manga_id FROM manga_search_fts "
+                "WHERE manga_search_fts MATCH :fts_query "
+                "ORDER BY bm25(manga_search_fts) LIMIT :fts_limit)"
+            ).bindparams(fts_query=match, fts_limit=candidate_limit)
     terms = expansion_terms(query, dialect=dialect)
     if not terms:
         return None
-    return or_(*[Manga.search_blob.contains(term, autoescape=True) for term in terms])
+    blob_filter = or_(
+        *[Manga.search_blob.contains(term, autoescape=True) for term in terms]
+    )
+    return or_(blob_filter, _legacy_filter(terms))
 
 
 def _candidate_order(query: SearchQuery):
@@ -1204,6 +1247,36 @@ async def enrichment_stats(
     }
 
 
+def _aware(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+async def search_backfill_stats(session: AsyncSession) -> SearchBackfillStats | None:
+    state = await session.get(SearchBackfillState, 1)
+    if state is None:
+        return None
+    total = max(0, int(state.total or 0))
+    normalized = min(total, max(0, int(state.normalized or 0)))
+    remaining = max(0, total - normalized)
+    return SearchBackfillStats(
+        status=state.status,
+        total=total,
+        normalized=normalized,
+        remaining=remaining,
+        legacy_indexed=int(state.legacy_indexed or 0),
+        failed=int(state.failed or 0),
+        batch_size=int(state.batch_size or 0),
+        rate_per_second=state.rate_per_second,
+        eta_seconds=state.eta_seconds,
+        progress_percent=round(normalized / total * 100, 1) if total else 100.0,
+        started_at=_aware(state.started_at),
+        finished_at=_aware(state.finished_at),
+        last_error=state.last_error,
+    )
+
+
 async def stats(session: AsyncSession) -> CatalogStats:
     manga_total = int((await session.scalar(select(func.count(Manga.id)))) or 0)
     chapter_total = int((await session.scalar(select(func.count(Chapter.id)))) or 0)
@@ -1261,6 +1334,7 @@ async def stats(session: AsyncSession) -> CatalogStats:
         sources=sources,
         pending_enrichment=pending_total,
         retrying_enrichment=retrying_total,
+        search_backfill=await search_backfill_stats(session),
     )
 
 

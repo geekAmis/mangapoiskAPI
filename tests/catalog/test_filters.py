@@ -7,6 +7,11 @@ from manga_common.db import create_all, create_engine, create_session_factory
 from manga_common.source_models import MangaSummary
 from services.catalog.app.config import CatalogSettings
 from services.catalog.app.migrations import ensure_runtime_schema
+from services.catalog.app.search_backfill import (
+    BackfillConfig,
+    SearchBackfillWorker,
+    bootstrap_search_index,
+)
 from services.catalog.app.service import CatalogService
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -149,15 +154,27 @@ async def test_empty_summary_genres_do_not_erase_enriched_metadata(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_runtime_migration_backfills_filter_keys(tmp_path: Path) -> None:
+async def test_background_backfill_restores_filter_keys(tmp_path: Path) -> None:
     service, engine = await make_service(tmp_path, "migration.db")
     await service.import_summary(
         manga_summary("legacy", status="Онгоинг", genres=["Фэнтези", "Комедия"])
     )
     async with engine.begin() as connection:
-        await connection.execute(text("UPDATE manga SET status_key = NULL, genres_key = NULL"))
+        await connection.execute(
+            text(
+                "UPDATE manga SET status_key = NULL, genres_key = NULL, "
+                "search_blob = '', search_indexed = 0"
+            )
+        )
 
     await ensure_runtime_schema(engine)
+    await bootstrap_search_index(service.session_factory)
+    worker = SearchBackfillWorker(
+        service.session_factory,
+        BackfillConfig(batch_size=10, yield_seconds=0.0),
+        owner="filter-test",
+    )
+    await worker.run()
 
     by_status = await service.list(status="ongoing", include_empty=True)
     assert by_status.total == 1

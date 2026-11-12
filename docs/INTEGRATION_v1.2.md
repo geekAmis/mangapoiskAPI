@@ -64,11 +64,11 @@
 | Web unit | `npm run test:unit` | 4/4 PASS |
 | Mobile web build | `npm run build:www` (apps/mobile) | PASS, plain-HTTP fallback отсутствует |
 | Ops scripts syntax | `bash -n scripts/ops/*.sh` | PASS |
-| Search benchmark (SQLite) | `scripts/benchmark_search.py --titles 5000 --runs 7` | search p50 31.99 ms / p95 53.63 ms; suggest p50 25.44 ms / p95 40.78 ms |
+| Search benchmark (SQLite) | `scripts/benchmark_search.py --titles 5000 --runs 7` | search p50 25.37 ms / p95 40.43 ms; suggest p50 19.70 ms / p95 32.81 ms |
 
 Коммит-доказательство бенчмарка:
-`docs/benchmarks/search-sqlite-5000.json` (search p95 48.25 ms, suggest p95
-37.08 ms). Локальный прогон интеграции немного шумнее, но укладывается в
+`docs/benchmarks/search-sqlite-5000.json` (search p95 40.43 ms, suggest p95
+32.81 ms). Локальный прогон интеграции немного шумнее, но укладывается в
 требование p95 < 100 ms.
 
 ## 4. Совместная проверка фич
@@ -112,3 +112,33 @@
    390×844.
 7. Полный `pytest -m network` не запускался (сетевые тесты по умолчанию
    skipped).
+
+## 6. Hotfix #63 — startup backfill
+
+Ветка: `fix/catalog-migration-startup` от `b480407`.
+Production RC падал на 80-секундном health gate: старый
+`ensure_runtime_schema` перебирал 78 275 строк в Python (~2m43s) в одной
+транзакции.
+
+Исправление:
+
+- startup — только additive schema (колонки/индексы/FTS) + один
+  `UPDATE ... SET search_indexed = true WHERE search_blob <> ''`;
+- legacy-FTS bootstrap (~1.3 с на 78k) делает строки доступными до
+  нормализации;
+- `SearchBackfillWorker` — батчи 500 строк, WAL/busy_timeout, retry/backoff,
+  lease в `search_backfill_state`, прогресс в `/internal/search/backfill` и
+  `/internal/stats`, продолжение после рестарта без дублей;
+- поиск/подсказки во время миграции используют legacy-колонки и не дают 500.
+
+Замер на 78 275 строках: **lifespan 1.35 с** (было 123.6 с), процесс →
+`/health` **6.9 с**, фоновый backfill 163 с (~478 строк/с), повторный запуск
+0 строк.  JSON: `docs/benchmarks/migration-sqlite-78275.json`.
+
+Перед повторным деплоем:
+
+1. Бэкап `catalog.db` / `pg_dump` (OPS §9.1).
+2. Опционально `scripts/reindex_catalog.py` на остановленном каталоге.
+3. Deploy; контроль `/health` < 10 с и
+   `/internal/search/backfill` до `status=completed`.
+4. Rollback — OPS §9.4.

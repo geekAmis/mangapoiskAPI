@@ -33,6 +33,7 @@ from .schemas import (
     RefreshResult,
     RelationsIn,
     RelationsOut,
+    SearchBackfillStats,
     SourceSyncRequest,
 )
 from .service import CatalogService
@@ -373,6 +374,18 @@ async def maintenance_rotate_enrichment(
     service: CatalogService = Depends(get_service),
 ) -> dict[str, int]:
     return {"queued": await service.rotate_enrichment(source=source, limit=limit)}
+
+
+@router.get("/search/backfill", response_model=SearchBackfillStats)
+async def search_backfill(
+    service: CatalogService = Depends(get_service),
+) -> SearchBackfillStats:
+    from manga_common.errors import NotFoundError
+
+    state = await service.search_backfill()
+    if state is None:
+        raise NotFoundError("Search backfill state not found")
+    return state
 
 
 @router.get("/stats", response_model=CatalogStats)
