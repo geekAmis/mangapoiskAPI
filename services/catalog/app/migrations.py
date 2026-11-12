@@ -62,6 +62,10 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 )
             if "genres_key" not in manga_columns:
                 await connection.execute(text("ALTER TABLE manga ADD COLUMN genres_key TEXT"))
+            if "url_slug" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN url_slug VARCHAR(255)")
+                )
             if "enrichment_attempts" not in manga_columns:
                 await connection.execute(
                     text(
@@ -94,6 +98,9 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_url_slug ON manga (url_slug)")
             )
             await connection.execute(
                 text(
@@ -162,6 +169,9 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             await connection.execute(
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS genres_key TEXT")
             )
+            await connection.execute(
+                text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS url_slug VARCHAR(255)")
+            )
             for column in _SEARCH_COLUMNS:
                 await connection.execute(
                     text(
@@ -214,6 +224,9 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_url_slug ON manga (url_slug)")
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")

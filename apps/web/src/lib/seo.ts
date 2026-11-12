@@ -174,7 +174,9 @@ export function buildComicStoryJsonLd(input: ComicStoryInput): Record<string, un
   }
   const data: Record<string, unknown> = {
     '@context': 'https://schema.org',
-    '@type': 'ComicStory',
+    // ComicStory is the precise entity; Book is the broader type understood
+    // by more consumers (including some social/search validators).
+    '@type': ['ComicStory', 'Book'],
     name: input.name,
     url: input.url,
     inLanguage: 'ru',

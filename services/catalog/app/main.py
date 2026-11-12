@@ -19,6 +19,7 @@ from .search_backfill import (
     bootstrap_search_index,
 )
 from .service import CatalogService
+from .slug_backfill import run_slug_backfill_safe
 
 logger = logging.getLogger(__name__)
 settings = CatalogSettings()
@@ -74,6 +75,16 @@ async def lifespan(app: FastAPI):
     elif bootstrap:
         logger.info("search backfill disabled by configuration")
 
+    app.state.url_slug_backfill_task = None
+    if settings.url_slug_backfill_enabled:
+        app.state.url_slug_backfill_task = asyncio.create_task(
+            run_slug_backfill_safe(
+                session_factory,
+                batch_size=settings.url_slug_backfill_batch_size,
+                yield_seconds=settings.url_slug_backfill_yield_seconds,
+            )
+        )
+
     async def db_ready() -> bool:
         return await ping(engine)
 
@@ -97,6 +108,10 @@ async def lifespan(app: FastAPI):
         if backfill_task is not None:
             backfill_task.cancel()
             await asyncio.gather(backfill_task, return_exceptions=True)
+        slug_task = getattr(app.state, "url_slug_backfill_task", None)
+        if slug_task is not None:
+            slug_task.cancel()
+            await asyncio.gather(slug_task, return_exceptions=True)
         await parser.close()
         await engine.dispose()
 

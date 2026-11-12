@@ -16,6 +16,7 @@ from .config import GatewaySettings
 from .middleware import RateLimitMiddleware
 from .notifications_api import router as notifications_router
 from .notifier_client import NotifierClient
+from .prerender import router as prerender_router
 from .retention import router as retention_router
 from .routing import EndpointPool, reset_client_key, set_client_key
 from .seo import router as seo_router
@@ -136,6 +137,7 @@ app.include_router(router)
 app.include_router(retention_router)
 app.include_router(comments_router)
 app.include_router(seo_router)
+app.include_router(prerender_router)
 app.include_router(notifications_router)
 
 

@@ -52,10 +52,15 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 Query: `query`, `source`, `genre`, `year`, `status`, `sort` (`popular`, `rating`,
 `updated`, `title`, `new`), `page`, `limit`.
 
-`MangaOut` fields: `id, source, source_id, slug, title, title_en, title_alt,
-description, year, status, content_type, rating, rating_count, poster_url,
-adult, genres[], chapters_count, last_chapter_at, last_synced_at, created_at,
-updated_at`.
+`MangaOut` fields: `id, source, source_id, slug, url_slug, title, title_en,
+title_alt, description, year, status, content_type, rating, rating_count,
+poster_url, adult, genres[], chapters_count, last_chapter_at, last_synced_at,
+created_at, updated_at`.
+
+`slug` is source-owned and may be Cyrillic or change between imports. Public
+URLs use `url_slug` (`/manga/{id}-{url_slug}`); the UUID is the routing key and
+the slug is cosmetic. A legacy row may briefly expose a computed value before
+the background slug backfill stores it.
 
 ### `GET /api/v1/manga/search`
 
@@ -330,7 +335,8 @@ network in production and should not be exposed publicly.
 - `GET /internal/manga?...`, `GET /internal/manga/{id}`
 - `GET /internal/manga/by-source/{source}/{source_id}`
 - `GET /internal/manga/{id}/chapters`
-- `GET /internal/sitemap?limit=50000` (canonical title ids + lastmod for the gateway sitemap)
+- `GET /internal/sitemap?limit=50000` (canonical title id, `url_slug`, title and
+  lastmod for the gateway sitemap; adult titles are excluded)
 - `POST /internal/manga/import`
 - `PATCH /internal/manga/{id}/chapters/{chapter_id}/pages`
 - `POST /internal/maintenance/refresh?limit=5`

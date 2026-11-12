@@ -16,6 +16,11 @@ SemVer.
 ### Added
 
 - SEO: per-route metadata, JSON-LD, `robots.txt` and a dynamic sitemap (#38).
+- SEO v2 (#38): stable `/manga/{id}-{slug}` URLs with 301 from old/stale
+  slugs, transliterated `url_slug` with a batched background backfill,
+  gateway prerender for crawlers/social bots (HTML card + JSON-LD, humans keep
+  the SPA), server-side noindex for reader/search/admin/library, slug-only
+  sitemap excluding 18+, and env-driven Google/Yandex verification tags.
 
 ## [1.1.0] — 2026-11-12 (draft)
 

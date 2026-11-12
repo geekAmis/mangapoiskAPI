@@ -8,10 +8,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
+from manga_common.text import build_url_slug
 from sqlalchemy import (
     Integer,
     String,
     and_,
+    bindparam,
     case,
     cast,
     desc,
@@ -129,6 +131,18 @@ async def find_manga_by_source(
 
 def _clean(value: Any) -> Any:
     return value.strip() if isinstance(value, str) else value
+
+
+def ensure_url_slug(manga: Manga) -> str:
+    """Return the stored public slug, computing it for legacy rows.
+
+    The value is written on import and by the background backfill.  Read paths
+    only *compute* a fallback: mutating the ORM row here would mark it dirty and
+    could make a later autoflush rewrite ``updated_at`` (and therefore every
+    sitemap lastmod) just because somebody opened a legacy title.
+    """
+
+    return manga.url_slug or build_url_slug(manga.title)
 
 
 def compute_group_key(title: str | None) -> str:
@@ -366,6 +380,11 @@ async def upsert_manga_detail(
     manga.slug = detail.slug or manga.slug
     if detail.title and (not _weak_title(detail.title) or _weak_title(manga.title)):
         manga.title = detail.title
+    # Keep the public slug stable after the first assignment.  A title change
+    # must not silently move an indexed URL; the gateway 301s stale slugs to
+    # the stored one.
+    if not manga.url_slug:
+        manga.url_slug = build_url_slug(manga.title)
     manga.title_en = detail.title_en or manga.title_en
     manga.title_alt = detail.title_alt or manga.title_alt
     manga.description = detail.description or manga.description
@@ -462,6 +481,8 @@ async def upsert_manga_summary(
     manga.slug = summary.slug or manga.slug
     if summary.title and (not _weak_title(summary.title) or _weak_title(manga.title)):
         manga.title = summary.title
+    if not manga.url_slug:
+        manga.url_slug = build_url_slug(manga.title)
     manga.title_en = summary.title_en or manga.title_en
     manga.title_alt = summary.title_alt or manga.title_alt
     manga.description = summary.description or manga.description
@@ -904,19 +925,22 @@ async def list_manga(
 
 async def sitemap_entries(
     session: AsyncSession, *, limit: int = 50_000
-) -> list[tuple[uuid.UUID, datetime | None, datetime | None]]:
+) -> list[tuple[uuid.UUID, str | None, str, datetime | None, datetime | None]]:
     """One lightweight row per canonical title group for sitemap generation.
 
     The public sitemap used to call the paginated catalogue list ~65 times for
     a few thousand titles, which made a cold build take 79 s.  This query keeps
     the same group-dedup semantics but returns the whole set in one round trip:
-    only id and lastmod fields are selected, no cards/covers are serialized.
+    only id, slug/title and lastmod fields are selected, no cards/covers are
+    serialized.  Adult titles are excluded from the sitemap on purpose.
     """
 
     group_expr = _group_expr()
     ranked = (
         select(
             Manga.id.label("manga_id"),
+            Manga.url_slug.label("url_slug"),
+            Manga.title.label("title"),
             Manga.last_chapter_at.label("last_chapter_at"),
             Manga.updated_at.label("updated_at"),
             func.row_number()
@@ -930,12 +954,14 @@ async def sitemap_entries(
             )
             .label("row_number"),
         )
-        .where(*_manga_conditions())
+        .where(*_manga_conditions(), Manga.adult.is_(False))
         .subquery()
     )
     rows = await session.execute(
         select(
             ranked.c.manga_id,
+            ranked.c.url_slug,
+            ranked.c.title,
             ranked.c.last_chapter_at,
             ranked.c.updated_at,
         )
@@ -943,7 +969,7 @@ async def sitemap_entries(
         .order_by(desc(ranked.c.last_chapter_at), desc(ranked.c.updated_at))
         .limit(max(1, limit))
     )
-    return [(row[0], row[1], row[2]) for row in rows.all()]
+    return [(row[0], row[1], row[2], row[3], row[4]) for row in rows.all()]
 
 
 async def backfill_group_keys(session: AsyncSession) -> int:
@@ -959,6 +985,45 @@ async def backfill_group_keys(session: AsyncSession) -> int:
         manga.refresh_search_fields()
         await sync_search_fts(session, manga.id, manga.search_blob)
     await session.flush()
+    return len(rows)
+
+
+async def backfill_url_slugs(session: AsyncSession, *, batch_size: int = 500) -> int:
+    """Fill ``url_slug`` for legacy rows in one small transaction.
+
+    Idempotent and resumable: the next call simply selects the next rows whose
+    slug is still empty.  Keeping the batch bounded means a 78k-row catalogue
+    never holds the SQLite write lock for minutes during startup.
+    """
+
+    rows = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where((Manga.url_slug.is_(None)) | (Manga.url_slug == ""))
+                .order_by(Manga.id.asc())
+                .limit(max(1, batch_size))
+            )
+        ).all()
+    )
+    if not rows:
+        return 0
+    # Use a Core update with an explicit ``updated_at = updated_at`` so the
+    # TimestampMixin onupdate does not make every backfilled title look freshly
+    # modified to crawlers (and to the sitemap lastmod).
+    table = Manga.__table__
+    statement = (
+        table.update()
+        .where(table.c.id == bindparam("manga_id"))
+        .values(url_slug=bindparam("url_slug"), updated_at=table.c.updated_at)
+    )
+    await session.execute(
+        statement,
+        [
+            {"manga_id": manga.id, "url_slug": build_url_slug(manga.title)}
+            for manga in rows
+        ],
+    )
     return len(rows)
 
 

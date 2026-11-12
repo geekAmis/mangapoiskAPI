@@ -46,6 +46,7 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_manga_source_source_id"),
         Index("ix_manga_source_slug", "source", "slug"),
+        Index("ix_manga_url_slug", "url_slug"),
         Index("ix_manga_title", "title"),
         Index("ix_manga_group_key", "group_key"),
         Index("ix_manga_rating", "rating"),
@@ -66,7 +67,13 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         String(64), ForeignKey("sources.code", ondelete="RESTRICT"), nullable=False
     )
     source_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    # ``slug`` is the source-provided slug.  It is not used for public URLs:
+    # sources emit Cyrillic/romanised slugs and can change them at will.
     slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Stable, transliterated URL slug (``/manga/{id}-{url_slug}``).  The UUID
+    # remains the routing key; this column is cosmetic and SEO-facing.  It is
+    # nullable only while the background backfill walks an existing database.
+    url_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     title_en: Mapped[str | None] = mapped_column(String(512), nullable=True)
     title_alt: Mapped[str | None] = mapped_column(Text, nullable=True)

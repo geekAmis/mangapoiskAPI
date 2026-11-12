@@ -69,6 +69,24 @@ def slugify(value: str) -> str:
     return _SAFE_SLUG_RE.sub("-", transliterated).strip("-") or "manga"
 
 
+def build_url_slug(value: str | None, *, max_length: int = 180) -> str:
+    """Return the cosmetic public URL slug for a title.
+
+    The title is stripped of HTML, transliterated and limited to an ASCII
+    ``[a-z0-9-]`` string.  The UUID in ``/manga/{id}-{slug}`` is the routing
+    key, so two titles with the same name still get distinct URLs; the slug
+    never has to be globally unique.
+    """
+
+    text = strip_html(value)
+    if not text:
+        return "manga"
+    slug = slugify(text)
+    if max_length > 0:
+        slug = slug[:max_length].rstrip("-")
+    return slug or "manga"
+
+
 def host_of(url: str) -> str:
     return urlparse(url).netloc.lower()
 

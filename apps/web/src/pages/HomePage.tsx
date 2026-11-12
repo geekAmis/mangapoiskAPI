@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { mangaPath } from '../lib/mangaRoute';
 import { api } from '../api/client';
 import { AdSlot } from '../components/ads/AdSlot';
 import { EmptyState } from '../components/EmptyState';
@@ -55,7 +56,7 @@ function RankedList({
         <ol className="ml-rank__list">
           {items.slice(0, 6).map((item, index) => (
             <li key={item.id}>
-              <Link to={`/manga/${item.id}`} className="ml-rank__row">
+              <Link to={mangaPath(item)} className="ml-rank__row">
                 <span className="ml-rank__index">{index + 1}</span>
                 <span className="ml-rank__poster">
                   <Poster src={item.poster_url} alt="" />
