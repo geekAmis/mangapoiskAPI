@@ -575,6 +575,8 @@ Account enumeration, spam account creation, credential stuffing and inability to
 
 **Fix:** add `permissions: contents: read`, pin actions by SHA, lock Python deps (uv/pip-tools) and Docker digests, enable Dependabot, run `pip-audit`/`npm audit` in CI. **Status:** Code review.
 
+**Partial remediation (2026-11-13, #77):** Pillow 13.0.0 and cryptography 50.0.2 floors are pinned in the affected service requirements and the updated environment passes `pip-audit` with 0 known vulnerabilities; see `DEPENDENCIES.md`. Lock files, action SHA pinning, Dependabot and a CI audit gate remain open.
+
 #### L-04 — Compose defaults use weak internal credentials and no resource limits
 
 `docker-compose.yml:9` uses `POSTGRES_PASSWORD: manga`; Redis has no password (`:21-24`); no `read_only`, `cap_drop`, `security_opt` or resource limits. These services are on an internal network with no published ports, so this is Low for the compose deployment, but it becomes relevant if the network is shared or a port is accidentally published.  
