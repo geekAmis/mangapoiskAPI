@@ -209,6 +209,9 @@ measured p95 47 ms for the internal popular list.
   chapters through `upsert_manga_detail`.
 * The one-time first build takes the SQLite write lock.  Pre-build before deploy
   or run it outside peak traffic; normal restarts skip it.
+* Every import refreshes one group's card rows (a few small writes).  The
+  concurrent-read benchmark stays under 20 ms p95, but monitor crawler import
+  throughput after rollout.
 * `include_empty=true` listings still use the live grouped query.  They are
   internal/QA paths and are not part of the public catalogue p95 target.
 * PostgreSQL uses autovacuum/autoanalyze; the explicit maintenance statement
