@@ -9,6 +9,7 @@ from manga_common.service import add_ready_check, create_service_app
 
 from .api import router
 from .config import LibrarySettings
+from .migrations import ensure_runtime_schema
 from .service import LibraryService
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,12 @@ async def lifespan(app: FastAPI):
     engine = create_engine(settings.library_dsn, echo=settings.debug)
     session_factory = create_session_factory(engine)
     await create_all(engine)
+    await ensure_runtime_schema(engine)
+    if settings.yandex_oauth_partial:
+        logger.warning(
+            "Yandex OAuth is partially configured; set all of "
+            "YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET and YANDEX_REDIRECT_URI"
+        )
     service = LibraryService(settings, session_factory)
     app.state.engine = engine
     app.state.session_factory = session_factory

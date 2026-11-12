@@ -25,15 +25,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         search_limit: int = 60,
         suggest_limit: int = 300,
         import_limit: int = 10,
+        oauth_limit: int = 20,
     ) -> None:
         super().__init__(app)
         self.default_limit = default_limit
         self.search_limit = search_limit
         self.suggest_limit = suggest_limit
         self.import_limit = import_limit
+        self.oauth_limit = oauth_limit
         self.cache = MemoryCache(max_items=20_000)
 
     def _limit_for(self, path: str) -> int:
+        # OAuth endpoints are cheap but security-sensitive: a tighter bucket
+        # limits code guessing and state probing without affecting readers.
+        if path.endswith(
+            (
+                "/auth/yandex/start",
+                "/auth/yandex/callback",
+                "/auth/yandex/exchange",
+            )
+        ):
+            return self.oauth_limit
         if path.endswith("/manga/import"):
             return self.import_limit
         if path.endswith("/manga/suggest"):

@@ -122,6 +122,29 @@ def test_deployer_env_has_absolute_notifier_db_and_web_push_placeholders() -> No
     assert 'chmod 750 "$ROOT/data"' in template
 
 
+def test_deployer_preserves_yandex_oauth_env_across_redeploys() -> None:
+    settings = ControlSettings(
+        service_name="control-test",
+        deploy_root="/opt/mangapoisk-reborn",
+        control_secret_key="control-test-secret",
+    )
+    deployer = Deployer(settings, None, None, None, None)  # type: ignore[arg-type]
+    env = deployer._env_file(None, "85.192.37.58", {})
+
+    assert "YANDEX_CLIENT_ID=\n" in env
+    assert "YANDEX_CLIENT_SECRET=\n" in env
+    assert "YANDEX_REDIRECT_URI=\n" in env
+    assert "test-secret" not in env
+
+    template = deployer_module._SCRIPT_TEMPLATE
+    assert "PRESERVE_YANDEX_CLIENT_ID" in template
+    assert "PRESERVE_YANDEX_CLIENT_SECRET" in template
+    assert "PRESERVE_YANDEX_REDIRECT_URI" in template
+    assert "preserve_env YANDEX_CLIENT_ID" in template
+    assert "preserve_env YANDEX_CLIENT_SECRET" in template
+    assert "preserve_env YANDEX_REDIRECT_URI" in template
+
+
 def test_ssh_handle_cancellation_closes_channel() -> None:
     class FakeChannel:
         closed = False

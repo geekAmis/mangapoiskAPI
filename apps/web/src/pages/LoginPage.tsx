@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { Icon } from '../components/Icon';
 import { DancingSpinner } from '../components/DancingLoader';
 import { AuthLayout } from '../components/AuthLayout';
+import { YandexAuthButton } from '../components/YandexAuthButton';
 import { authErrorMessage } from '../lib/errors';
 import { safeNextPath } from '../lib/format';
 import { useSeo } from '../lib/seo';
@@ -169,6 +170,8 @@ export default function LoginPage() {
             )}
           </button>
         </form>
+
+        <YandexAuthButton nextPath={nextPath} />
 
         <div className="auth-switch">
           Нет аккаунта? <Link to={registerHref}>Создать бесплатно</Link>

@@ -38,6 +38,13 @@ from manga_common.schemas import (
     SuggestResponse,
     TokenPair,
     UserOut,
+    YandexCallbackOut,
+    YandexCredentialsOut,
+    YandexDenyOut,
+    YandexIntegrationOut,
+    YandexIntegrationTestOut,
+    YandexIntegrationUpdate,
+    YandexStartOut,
 )
 from manga_common.source_models import MangaSummary, SourceInfo
 
@@ -345,6 +352,28 @@ class LibraryClient(InternalClient):
         data = await self._auth("GET", "/internal/auth/me", authorization)
         return UserOut.model_validate(data)
 
+    async def yandex_status(self) -> bool:
+        data = await self.request("GET", "/internal/auth/yandex/status")
+        return bool(data.get("enabled")) if isinstance(data, dict) else False
+
+    async def yandex_start(self, payload: dict[str, Any]) -> YandexStartOut:
+        data = await self.request("POST", "/internal/auth/yandex/start", json=payload)
+        return YandexStartOut.model_validate(data)
+
+    async def yandex_callback(self, payload: dict[str, Any]) -> YandexCallbackOut:
+        data = await self.request("POST", "/internal/auth/yandex/callback", json=payload)
+        return YandexCallbackOut.model_validate(data)
+
+    async def yandex_deny(self, payload: dict[str, Any]) -> YandexDenyOut:
+        data = await self.request("POST", "/internal/auth/yandex/deny", json=payload)
+        return YandexDenyOut.model_validate(data)
+
+    async def yandex_exchange(self, code: str) -> TokenPair:
+        data = await self.request(
+            "POST", "/internal/auth/yandex/exchange", json={"code": code}
+        )
+        return TokenPair.model_validate(data)
+
     async def bookmarks(self, authorization: str) -> list[BookmarkOut]:
         data = await self._auth("GET", "/internal/me/bookmarks", authorization)
         return [BookmarkOut.model_validate(item) for item in data]
@@ -457,6 +486,31 @@ class ControlClient(InternalClient):
             json={"source_server_id": source_server_id},
             timeout=600.0,
         )
+
+    async def yandex_integration(self) -> YandexIntegrationOut:
+        data = await self.request("GET", "/internal/integrations/yandex")
+        return YandexIntegrationOut.model_validate(data)
+
+    async def update_yandex_integration(
+        self, payload: YandexIntegrationUpdate
+    ) -> YandexIntegrationOut:
+        data = await self.request(
+            "PUT",
+            "/internal/integrations/yandex",
+            json=payload.model_dump(exclude_unset=True),
+        )
+        return YandexIntegrationOut.model_validate(data)
+
+    async def delete_yandex_integration(self) -> None:
+        await self.request("DELETE", "/internal/integrations/yandex")
+
+    async def test_yandex_integration(self) -> YandexIntegrationTestOut:
+        data = await self.request("POST", "/internal/integrations/yandex/test")
+        return YandexIntegrationTestOut.model_validate(data)
+
+    async def yandex_credentials(self) -> YandexCredentialsOut:
+        data = await self.request("GET", "/internal/integrations/yandex/credentials")
+        return YandexCredentialsOut.model_validate(data)
 
     async def registry(self) -> dict[str, Any]:
         return await self.request("GET", "/internal/registry")

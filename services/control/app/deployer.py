@@ -407,6 +407,13 @@ fi
             f"PUBLIC_WEB_URL={public_web_url}",
             f"PUBLIC_API_URL={public_api_base}",
             f"CORS_ORIGINS={public_web_url},http://{public_host}:8088,http://localhost:5173,http://localhost:8080,capacitor://localhost,https://localhost",
+            # Empty placeholders keep the keys documented and visible.  The
+            # deploy script preserves values already present in the target
+            # /opt/mangapoisk-reborn/.env, so a redeploy never wipes the real
+            # Yandex credentials.
+            "YANDEX_CLIENT_ID=",
+            "YANDEX_CLIENT_SECRET=",
+            "YANDEX_REDIRECT_URI=",
             "SCRAPER_REQUESTS_PER_MINUTE=36",
             "SCRAPER_CACHE_TTL_SECONDS=600",
             "MEDIA_ALLOWED_HOSTS=static2.mangapoisk.me,img2.imglib.info,img3.cdnlibs.org,remanga.org,img3.reimg2.org,img-reserve.reimg2.org",
@@ -560,8 +567,31 @@ mv "$ROOT/src.new" "$ROOT/src"
 chmod -R a+rX "$ROOT/src"
 
 echo "== env =="
+# The shared .env is regenerated on every deploy.  Preserve the Yandex OAuth
+# credentials that only exist on the target host so a routine deploy never
+# disables the provider.  Values are read before the file is overwritten.
+PRESERVE_YANDEX_CLIENT_ID=""
+PRESERVE_YANDEX_CLIENT_SECRET=""
+PRESERVE_YANDEX_REDIRECT_URI=""
+if [ -f "$ROOT/.env" ]; then
+  PRESERVE_YANDEX_CLIENT_ID=$(grep -E '^YANDEX_CLIENT_ID=' "$ROOT/.env" | tail -n 1 | cut -d= -f2- || true)
+  PRESERVE_YANDEX_CLIENT_SECRET=$(grep -E '^YANDEX_CLIENT_SECRET=' "$ROOT/.env" | tail -n 1 | cut -d= -f2- || true)
+  PRESERVE_YANDEX_REDIRECT_URI=$(grep -E '^YANDEX_REDIRECT_URI=' "$ROOT/.env" | tail -n 1 | cut -d= -f2- || true)
+fi
 cat > "$ROOT/.env" <<'ENVEOF'
 @@ENV_FILE@@ENVEOF
+preserve_env() {
+  key="$1"
+  value="$2"
+  if [ -n "$value" ]; then
+    grep -v -E "^${key}=" "$ROOT/.env" > "$ROOT/.env.preserve" || true
+    mv "$ROOT/.env.preserve" "$ROOT/.env"
+    printf '%s=%s\n' "$key" "$value" >> "$ROOT/.env"
+  fi
+}
+preserve_env YANDEX_CLIENT_ID "$PRESERVE_YANDEX_CLIENT_ID"
+preserve_env YANDEX_CLIENT_SECRET "$PRESERVE_YANDEX_CLIENT_SECRET"
+preserve_env YANDEX_REDIRECT_URI "$PRESERVE_YANDEX_REDIRECT_URI"
 chmod 640 "$ROOT/.env"
 chown root:"$USER_NAME" "$ROOT/.env" || true
 @@ENV_EXTRAS@@

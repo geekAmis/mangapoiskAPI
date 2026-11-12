@@ -239,6 +239,126 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class AuthProvidersOut(BaseModel):
+    """Public feature flags for login buttons; no credentials are exposed."""
+
+    yandex: bool = False
+
+
+class YandexExchangeRequest(BaseModel):
+    code: str = Field(min_length=16, max_length=256)
+
+
+class YandexStatusOut(BaseModel):
+    enabled: bool
+
+
+class YandexCredentials(BaseModel):
+    """Internal-only credentials resolved by the gateway.
+
+    The secret uses ``repr=False`` so an accidental debug log of the model does
+    not print it.  This model is never returned by a public endpoint.
+    """
+
+    client_id: str = Field(max_length=128)
+    client_secret: str = Field(max_length=256, repr=False)
+    redirect_uri: str = Field(max_length=512)
+
+    @property
+    def complete(self) -> bool:
+        return bool(self.client_id and self.client_secret and self.redirect_uri)
+
+
+class YandexStartRequest(BaseModel):
+    return_url: str = Field(min_length=1, max_length=512)
+    next_path: str = Field(default="/", max_length=512)
+    browser_hash: str | None = Field(default=None, max_length=64)
+    credentials: YandexCredentials | None = None
+
+
+class YandexStartOut(BaseModel):
+    authorize_url: str
+
+
+class YandexCallbackRequest(BaseModel):
+    state: str = Field(min_length=16, max_length=256)
+    code: str = Field(min_length=1, max_length=512)
+    browser_hash: str | None = Field(default=None, max_length=64)
+    user_agent: str | None = Field(default=None, max_length=512)
+    ip_address: str | None = Field(default=None, max_length=64)
+    credentials: YandexCredentials | None = None
+
+
+class YandexCallbackOut(BaseModel):
+    handoff_code: str
+    redirect_url: str
+    expires_in: int
+    is_new_user: bool = False
+
+
+class YandexDenyRequest(BaseModel):
+    state: str = Field(min_length=16, max_length=256)
+    browser_hash: str | None = Field(default=None, max_length=64)
+
+
+class YandexDenyOut(BaseModel):
+    redirect_url: str
+
+
+class IntegrationSecretOut(BaseModel):
+    """Masked status of one encrypted integration value."""
+
+    configured: bool = False
+    hint: str = ""
+    updated_at: datetime | None = None
+
+
+class YandexIntegrationOut(BaseModel):
+    provider: str = "yandex"
+    enabled: bool = True
+    configured: bool = False
+    client_id: IntegrationSecretOut = Field(default_factory=IntegrationSecretOut)
+    client_secret: IntegrationSecretOut = Field(default_factory=IntegrationSecretOut)
+    # The redirect URI is a public callback address, not a secret.  Returning
+    # it lets the admin UI prefill the exact registered value.
+    redirect_uri: str | None = None
+    redirect_uri_updated_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class YandexIntegrationUpdate(BaseModel):
+    enabled: bool | None = None
+    client_id: str | None = Field(default=None, max_length=128)
+    client_secret: str | None = Field(default=None, max_length=256, repr=False)
+    redirect_uri: str | None = Field(default=None, max_length=512)
+
+
+class YandexIntegrationTestCheck(BaseModel):
+    name: str
+    ok: bool
+    message: str
+
+
+class YandexIntegrationTestOut(BaseModel):
+    ok: bool
+    configured: bool
+    enabled: bool
+    checks: list[YandexIntegrationTestCheck] = Field(default_factory=list)
+    redirect_uri: str | None = None
+    message: str = ""
+
+
+class YandexCredentialsOut(BaseModel):
+    """Internal credential bundle.  Never exposed by a public/admin route."""
+
+    source: Literal["db", "none"] = "none"
+    enabled: bool = False
+    client_id: str | None = None
+    client_secret: str | None = Field(default=None, repr=False)
+    redirect_uri: str | None = None
+    updated_at: datetime | None = None
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=16)
 

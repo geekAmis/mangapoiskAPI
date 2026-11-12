@@ -22,6 +22,14 @@ from manga_common.schemas import (
     StreakOut,
     TokenPair,
     UserOut,
+    YandexCallbackOut,
+    YandexCallbackRequest,
+    YandexDenyOut,
+    YandexDenyRequest,
+    YandexExchangeRequest,
+    YandexStartOut,
+    YandexStartRequest,
+    YandexStatusOut,
 )
 from manga_common.security import UserClaims, require_internal_token, require_user
 
@@ -94,6 +102,68 @@ async def me(
     service: LibraryService = Depends(get_service),
 ) -> UserOut:
     return await service.me(uuid.UUID(user.id))
+
+
+# ---------------------------------------------------------------------------
+# Yandex ID OAuth 2.0 (#67)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/auth/yandex/status", response_model=YandexStatusOut)
+async def yandex_status(service: LibraryService = Depends(get_service)) -> YandexStatusOut:
+    return YandexStatusOut(enabled=await service.yandex_status())
+
+
+@router.post("/auth/yandex/start", response_model=YandexStartOut)
+async def yandex_start(
+    payload: YandexStartRequest,
+    service: LibraryService = Depends(get_service),
+) -> YandexStartOut:
+    authorize_url = await service.yandex_start(
+        return_url=payload.return_url,
+        next_path=payload.next_path,
+        browser_hash=payload.browser_hash,
+        credentials=payload.credentials,
+    )
+    return YandexStartOut(authorize_url=authorize_url)
+
+
+@router.post("/auth/yandex/callback", response_model=YandexCallbackOut)
+async def yandex_callback(
+    payload: YandexCallbackRequest,
+    service: LibraryService = Depends(get_service),
+) -> YandexCallbackOut:
+    return await service.yandex_callback(
+        state=payload.state,
+        code=payload.code,
+        browser_hash=payload.browser_hash,
+        user_agent=payload.user_agent,
+        ip_address=payload.ip_address,
+        credentials=payload.credentials,
+    )
+
+
+@router.post("/auth/yandex/deny", response_model=YandexDenyOut)
+async def yandex_deny(
+    payload: YandexDenyRequest,
+    service: LibraryService = Depends(get_service),
+) -> YandexDenyOut:
+    return await service.yandex_deny(
+        state=payload.state,
+        browser_hash=payload.browser_hash,
+    )
+
+
+@router.post("/auth/yandex/exchange", response_model=TokenPair)
+async def yandex_exchange(
+    payload: YandexExchangeRequest,
+    request: Request,
+    service: LibraryService = Depends(get_service),
+) -> TokenPair:
+    user_agent, ip = _meta(request)
+    return await service.yandex_exchange(
+        code=payload.code, user_agent=user_agent, ip_address=ip
+    )
 
 
 @router.get("/me/bookmarks", response_model=list[BookmarkOut])

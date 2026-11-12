@@ -30,6 +30,14 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(64), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Yandex ID (OAuth 2.0).  NULL for password-only accounts; unique so one
+    # Yandex identity can never be attached to two local users.
+    yandex_id: Mapped[str | None] = mapped_column(
+        String(64), unique=True, index=True, nullable=True
+    )
+    auth_provider: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="password", server_default="password"
+    )
 
     refresh_tokens: Mapped[list[RefreshToken]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
@@ -53,6 +61,60 @@ class RefreshToken(Base, UUIDPrimaryKey):
     )
 
     user: Mapped[User] = relationship(back_populates="refresh_tokens")
+
+
+class OAuthState(Base, UUIDPrimaryKey):
+    """Single-use OAuth ``state`` value, stored hashed.
+
+    The row is bound to a browser flow cookie (``browser_hash``) so a state
+    captured from another browser cannot be replayed, and to the return URL so
+    the callback never trusts a client-supplied redirect target.
+    """
+
+    __tablename__ = "oauth_states"
+    __table_args__ = (
+        Index("ix_oauth_states_hash", "state_hash", unique=True),
+        Index("ix_oauth_states_expires_at", "expires_at"),
+    )
+
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="yandex")
+    state_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    browser_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    return_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    next_path: Mapped[str] = mapped_column(String(512), nullable=False, default="/")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OAuthHandoffCode(Base, UUIDPrimaryKey):
+    """Short-lived one-time code that exchanges OAuth completion for tokens.
+
+    Tokens never travel in a URL.  The callback stores this code, redirects the
+    browser to the SPA with it, and ``POST /auth/yandex/exchange`` consumes it
+    exactly once.
+    """
+
+    __tablename__ = "oauth_handoff_codes"
+    __table_args__ = (
+        Index("ix_oauth_handoff_codes_hash", "code_hash", unique=True),
+        Index("ix_oauth_handoff_codes_expires_at", "expires_at"),
+    )
+
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="yandex")
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Bookmark(Base, UUIDPrimaryKey, TimestampMixin):

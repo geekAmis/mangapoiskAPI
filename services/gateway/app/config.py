@@ -13,5 +13,6 @@ class GatewaySettings(Settings):
     gateway_search_limit_per_minute: int = 60
     gateway_suggest_limit_per_minute: int = 300
     gateway_import_limit_per_minute: int = 10
+    gateway_oauth_limit_per_minute: int = 20
     live_search_max_sources: int = 4
     live_search_import_limit: int = 12
