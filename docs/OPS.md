@@ -207,6 +207,10 @@ Backup scope:
 * Not backed up: `media-cache/` (regenerable), `data/replica/` (derived
   snapshots), `exports/` (transient).  This keeps the backup near 1 GB instead
   of >3 GB.
+* The timer runs on `primary-85` because it is the writer.  `jump-83` and
+  `aeza-2` hold replicated snapshots and fallback copies; after a promotion,
+  install/enable the same timer on the new writer and add its live data to the
+  scope.
 
 ### 4.2 Schedule and retention
 
@@ -294,6 +298,9 @@ longer and depends on OS/package installation.
 * `df -h /srv` on `jump-83` — repository space.
 * A failed backup does not stop services; it leaves the previous snapshot in
   place.  Escalate if two consecutive runs fail.
+* The repository is on a separate host but in the same provider/region.  For
+  geographic DR, replicate the restic repository to S3-compatible object
+  storage as a next step.
 
 ### 4.6 Off-host configuration copies
 
