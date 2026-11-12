@@ -1574,6 +1574,10 @@ button.chip:hover {
   white-space: nowrap;
   color: var(--text-muted);
 }
+.chapter-row__offline {
+  color: var(--success);
+  font-weight: 650;
+}
 .chapter-row__tail {
   display: grid;
   place-items: center;
@@ -1581,10 +1585,14 @@ button.chip:hover {
   width: 28px;
   color: var(--text-faint);
 }
-.chapter-row__export {
+.chapter-row__export,
+.chapter-row__download {
   align-self: center;
   flex: none;
   margin-right: 2px;
+}
+.chapter-row__download.is-done {
+  color: var(--success);
 }
 @media (max-width: 480px) {
   .chapter-row__index {
@@ -1746,7 +1754,8 @@ button.chip:hover {
     width: 44px;
     height: 44px;
   }
-  .chapter-row__export {
+  .chapter-row__export,
+  .chapter-row__download {
     width: 44px;
     height: 44px;
   }

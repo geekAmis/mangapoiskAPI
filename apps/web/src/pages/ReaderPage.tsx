@@ -40,9 +40,9 @@ import {
   type ReaderMode,
 } from '../stores/reader';
 import { toast } from '../stores/toast';
-import '../styles/offline-reader.css';
 
 const READER_PAGE_PREFIX = 'reader-page-';
+const TAP_AFTER_CLOSE_GUARD_MS = 420;
 const FOCUSABLE_SKIP = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 function pageRatio(page: PageOut): string {
@@ -85,6 +85,7 @@ export default function ReaderPage() {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const pagedMultiTouchRef = useRef(false);
   const tapTimerRef = useRef<number | null>(null);
+  const closedSettingsAtRef = useRef(0);
 
   const cancelPendingTap = useCallback(() => {
     if (tapTimerRef.current !== null) {
@@ -92,6 +93,14 @@ export default function ReaderPage() {
       tapTimerRef.current = null;
     }
   }, []);
+
+  const autoPausedBeforeSettingsRef = useRef(false);
+  const closeSettings = useCallback(() => {
+    closedSettingsAtRef.current = Date.now();
+    setSettingsOpen(false);
+    if (!autoPausedBeforeSettingsRef.current) setAutoPaused(false);
+  }, []);
+  const closeChapters = useCallback(() => setChaptersOpen(false), []);
 
   const chapterQuery = useQuery({
     queryKey: queryKeys.chapter(chapterId),
@@ -429,7 +438,10 @@ export default function ReaderPage() {
   };
 
   const openSettings = () => {
+    autoPausedBeforeSettingsRef.current = autoPaused;
     setAutoPaused(true);
+    setChromeHidden(false);
+    setChromeVisible(true);
     setSettingsOpen(true);
   };
 
@@ -473,6 +485,7 @@ export default function ReaderPage() {
   };
 
   const handleTap = (action: () => void) => {
+    if (Date.now() - closedSettingsAtRef.current < TAP_AFTER_CLOSE_GUARD_MS) return;
     if (Date.now() - lastSwipeAtRef.current < 450) return;
     dismissResumeOnInteraction();
     action();
@@ -630,8 +643,8 @@ export default function ReaderPage() {
           openSettings();
           break;
         case 'Escape':
-          setSettingsOpen(false);
-          setChaptersOpen(false);
+          closeSettings();
+          closeChapters();
           break;
         default:
           break;
@@ -747,26 +760,25 @@ export default function ReaderPage() {
         <div className="reader-header__inner">
           <Link
             to={`/manga/${chapter.manga_id}`}
-            className="reader-header__back"
-            aria-label="К оглавлению"
+            className="reader-header__titles"
+            aria-label={`К оглавлению «${manga?.title ?? 'манги'}»`}
             title="К оглавлению"
           >
-            <Icon name="arrow-left" size={20} />
-          </Link>
-
-          <div className="reader-header__titles">
-            <Link to={`/manga/${chapter.manga_id}`} className="reader-header__manga">
-              {manga?.title ?? 'MangaPoisk Reborn'}
-            </Link>
+            <span className="reader-header__manga">{manga?.title ?? 'MangaPoisk Reborn'}</span>
             <span className="reader-header__chapter" title={chapterHeading(chapter)}>
               {chapterHeading(chapter)}
             </span>
-            <span className="reader-header__meta" title={`${sourceLabel(chapter.source)} · ${chapter.translator || 'Без перевода'}`}>
+            <span
+              className="reader-header__meta"
+              title={`${sourceLabel(chapter.source)} · ${chapter.translator || 'Без перевода'}`}
+            >
               <span className="reader-header__source">{sourceLabel(chapter.source)}</span>
               <span aria-hidden="true">·</span>
-              <span className="reader-header__translator">{chapter.translator?.trim() || 'Без перевода'}</span>
+              <span className="reader-header__translator">
+                {chapter.translator?.trim() || 'Без перевода'}
+              </span>
             </span>
-          </div>
+          </Link>
 
           <span className="reader-header__counter" aria-hidden="true">
             <strong>{currentPage}</strong> / {totalPages}
@@ -786,6 +798,17 @@ export default function ReaderPage() {
             </button>
             <button
               type="button"
+              className="btn btn--ghost btn--icon"
+              onClick={openSettings}
+              aria-label="Настройки чтения"
+              aria-haspopup="dialog"
+              aria-expanded={settingsOpen}
+              title="Настройки (S)"
+            >
+              <Icon name="settings" size={19} />
+            </button>
+            <button
+              type="button"
               className={`btn btn--ghost btn--icon btn--desktop${autoScroll ? ' is-active' : ''}`}
               onClick={toggleAutoScroll}
               aria-label={autoScroll ? 'Остановить автопрокрутку' : 'Включить автопрокрутку'}
@@ -796,15 +819,6 @@ export default function ReaderPage() {
             </button>
             <button
               type="button"
-              className="btn btn--ghost btn--icon"
-              onClick={openSettings}
-              aria-label="Настройки чтения"
-              title="Настройки (S)"
-            >
-              <Icon name="settings" size={19} />
-            </button>
-            <button
-              type="button"
               className="btn btn--ghost btn--icon btn--desktop"
               onClick={() => void toggleFullscreen()}
               aria-label={isFullscreen ? 'Выйти из полного экрана' : 'Полный экран'}
@@ -812,6 +826,14 @@ export default function ReaderPage() {
             >
               <Icon name={isFullscreen ? 'minimize' : 'maximize'} size={19} />
             </button>
+            <Link
+              to={`/manga/${chapter.manga_id}`}
+              className="btn btn--ghost btn--icon reader-header__close"
+              aria-label="Закрыть читалку"
+              title="Закрыть читалку"
+            >
+              <Icon name="close" size={20} />
+            </Link>
           </div>
         </div>
         <div
@@ -985,6 +1007,8 @@ export default function ReaderPage() {
               className="reader-footer__counter"
               onClick={openChapters}
               aria-label="Выбрать главу"
+              aria-haspopup="dialog"
+              aria-expanded={chaptersOpen}
               title="Выбрать главу"
             >
               <strong>{currentPage}</strong> / {totalPages}
@@ -1023,25 +1047,6 @@ export default function ReaderPage() {
             </div>
           </div>
 
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon reader-footer__settings"
-            onClick={openSettings}
-            aria-label="Настройки чтения"
-            title="Настройки чтения"
-          >
-            <Icon name="settings" size={18} />
-          </button>
-
-          <Link
-            to={`/manga/${chapter.manga_id}`}
-            className="btn btn--ghost btn--icon reader-footer__toc"
-            aria-label={`К оглавлению «${manga?.title ?? 'манги'}»`}
-            title="К оглавлению"
-          >
-            <Icon name="book" size={18} />
-          </Link>
-
           <div className="reader-footer__side reader-footer__side--next">
             <button
               type="button"
@@ -1059,9 +1064,9 @@ export default function ReaderPage() {
 
       <Modal
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onClose={closeSettings}
         title="Настройки чтения"
-        description="Изменения применяются сразу и сохраняются в вашем профиле."
+        description="Изменения применяются сразу и сохраняются в настройках читалки."
         variant="sheet"
         footer={
           <>
@@ -1082,13 +1087,20 @@ export default function ReaderPage() {
             >
               Сбросить
             </button>
-            <button type="button" className="btn btn--primary" onClick={() => setSettingsOpen(false)}>
+            <button type="button" className="btn btn--primary" onClick={closeSettings}>
               Готово
             </button>
           </>
         }
       >
         <div className="reader-settings">
+          <section className="reader-settings__group">
+            <h3 className="reader-settings__title">
+              <Icon name="palette" size={14} /> Тема
+            </h3>
+            <ThemePicker compact />
+          </section>
+
           <section className="reader-settings__group">
             <h3 className="reader-settings__title">
               <Icon name="columns" size={14} /> Режим чтения
@@ -1280,13 +1292,6 @@ export default function ReaderPage() {
 
           <section className="reader-settings__group">
             <h3 className="reader-settings__title">
-              <Icon name="palette" size={14} /> Тема
-            </h3>
-            <ThemePicker compact />
-          </section>
-
-          <section className="reader-settings__group">
-            <h3 className="reader-settings__title">
               <Icon name="info" size={14} /> Горячие клавиши
             </h3>
             <div className="reader-settings__shortcuts">
@@ -1336,7 +1341,7 @@ export default function ReaderPage() {
 
       <Modal
         open={chaptersOpen}
-        onClose={() => setChaptersOpen(false)}
+        onClose={closeChapters}
         title="Главы"
         description={manga?.title ?? 'Список глав текущего тайтла'}
         variant="sheet"

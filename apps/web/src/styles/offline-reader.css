@@ -1,307 +1,113 @@
-/* Ссылка «К оглавлению» в нижней панели онлайн-читалки — видимая на мобильных. */
-.reader-footer__toc {
-  flex: none;
-  color: var(--text-muted);
-}
-.reader-footer__toc:hover {
-  color: var(--text);
-  background: var(--surface-2);
-}
-@media (max-width: 640px) {
-  .reader-footer__toc {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
-  }
-}
-
 /* ============================================================
-   Офлайн-читалка: тёмная оболочка, только локальные страницы
+   Офлайн-читалка
+   Использует общую оболочку .reader из reader.css, поэтому здесь
+   остаются только локальные акценты и состояния загрузки.
    ============================================================ */
 
 .offline-reader {
-  --offline-bg: #07090d;
-  --offline-panel: #0e1219;
-  --offline-panel-2: #141a24;
-  --offline-border: #232b38;
-  --offline-text: #edf1f8;
-  --offline-muted: #98a4b7;
-  --offline-accent: #ef5b6c;
-  position: relative;
   min-height: 100dvh;
-  padding-top: calc(56px + env(safe-area-inset-top));
-  padding-bottom: calc(78px + env(safe-area-inset-bottom));
-  background: var(--offline-bg);
-  color: var(--offline-text);
-  color-scheme: dark;
+  background: var(--reader-bg);
+  overflow-x: clip;
+  overscroll-behavior-y: none;
 }
-.offline-reader--loading,
+
+/* Индикатор «скачано» в шапке: та же позиция, что bookmark в онлайне. */
+.reader-header__offline-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  color: var(--success);
+}
+
+.reader-header__offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--success);
+  font-weight: 650;
+}
+
+.reader-header__close:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* --- Загрузка манифеста --- */
+.offline-reader--boot {
+  display: grid;
+  place-items: center;
+  padding: calc(var(--reader-header-h) + 24px) 16px calc(24px + env(safe-area-inset-bottom));
+}
+.offline-reader__boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 780px;
+}
+
+/* --- Ошибки манифеста / пустая глава --- */
 .offline-reader--message {
   display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 18px;
-  padding: 24px;
+  place-items: center;
+  padding: calc(var(--reader-header-h) + 24px) 16px calc(24px + env(safe-area-inset-bottom));
 }
-.offline-reader--message .empty-state,
 .offline-reader--message .error-state {
-  max-width: 520px;
-}
-.offline-reader__header {
-  position: fixed;
-  top: 0;
-  right: 0;
-  left: 0;
-  z-index: 80;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: calc(56px + env(safe-area-inset-top));
-  padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0
-    max(12px, env(safe-area-inset-left));
-  background: color-mix(in srgb, var(--offline-panel) 94%, transparent);
-  border-bottom: 1px solid var(--offline-border);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
-}
-.offline-reader__back {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  color: var(--offline-muted);
-  transition:
-    background var(--transition-fast),
-    color var(--transition-fast);
-}
-.offline-reader__back:hover {
-  background: var(--offline-panel-2);
-  color: var(--offline-text);
-}
-.offline-reader__titles {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  line-height: 1.22;
-}
-.offline-reader__manga {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--offline-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.offline-reader__manga:hover {
-  color: var(--offline-accent);
-}
-.offline-reader__chapter {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 0.86rem;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.offline-reader__meta {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--offline-muted);
-  font-size: 0.66rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.offline-reader__counter {
-  flex: none;
-  padding: 5px 9px;
-  border-radius: 8px;
-  background: var(--offline-panel-2);
-  color: var(--offline-muted);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-}
-.offline-reader__counter strong {
-  color: var(--offline-text);
-  font-weight: 750;
-}
-.offline-reader__header-progress {
-  position: fixed;
-  top: calc(56px + env(safe-area-inset-top));
-  right: 0;
-  left: 0;
-  z-index: 81;
-  height: 2px;
-  background: var(--offline-border);
-  pointer-events: none;
-}
-.offline-reader__header-progress span {
-  display: block;
-  height: 100%;
-  background: var(--offline-accent);
-  transition: width 120ms linear;
-}
-.offline-reader__main {
-  padding: 8px 0 10px;
-}
-.offline-reader__pages {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: min(100%, 900px);
-  margin-inline: auto;
-}
-.offline-reader__page {
-  margin: 0;
-  background: #0b0e13;
-}
-.offline-reader__frame {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  overflow: hidden;
-  background: #0b0e13;
-}
-.offline-reader__frame img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.offline-reader__page figcaption {
-  padding: 6px 12px 2px;
-  color: var(--offline-muted);
-  font-size: 0.67rem;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-.offline-reader__page-loading {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 160px;
-  overflow: hidden;
-  background: var(--offline-panel);
-}
-.offline-reader__page-loading span {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.045), transparent);
-  transform: translateX(-100%);
-  animation: shimmer 1.5s infinite;
-}
-.offline-reader__page-error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 160px;
-  padding: 18px;
-  color: var(--offline-muted);
-  font-size: 0.8rem;
-  text-align: center;
+  width: min(520px, 100%);
 }
 .offline-reader__empty {
   display: grid;
   place-items: center;
-  gap: 8px;
-  min-height: 60dvh;
+  gap: 10px;
+  min-height: calc(100dvh - var(--reader-header-h) - var(--reader-footer-h) - 40px);
   padding: 24px;
-  color: var(--offline-muted);
+  color: var(--text-muted);
   text-align: center;
 }
 .offline-reader__empty h2 {
-  color: var(--offline-text);
-  font-size: 1.2rem;
+  color: var(--text);
+  font-size: 1.18rem;
 }
-.offline-reader__footer {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 80;
-  padding-bottom: env(safe-area-inset-bottom);
-  background: color-mix(in srgb, var(--offline-panel) 96%, transparent);
-  border-top: 1px solid var(--offline-border);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+.offline-reader__empty p {
+  max-width: 420px;
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
-.offline-reader__footer-inner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: min(100%, 1000px);
-  min-height: 70px;
-  margin-inline: auto;
-  padding: 8px 12px;
+.offline-reader__empty .btn {
+  margin-top: 6px;
 }
-.offline-reader__nav {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  flex: none;
-  min-width: 48px;
-  min-height: 44px;
-  padding: 0 8px;
-  border-radius: 9px;
-  color: var(--offline-muted);
-  font-size: 0.75rem;
-  font-weight: 650;
+
+/* --- Карточки страниц в офлайне --- */
+.offline-reader .reader-page__frame {
+  border-color: rgba(255, 255, 255, 0.06);
 }
-button.offline-reader__nav:hover {
-  background: var(--offline-panel-2);
-  color: var(--offline-text);
+.offline-reader .reader-page__frame:not(.is-loaded) {
+  background: var(--surface);
 }
-.offline-reader__nav.is-disabled {
-  opacity: 0.32;
+.offline-reader .reader-page__error {
+  min-height: 180px;
 }
-.offline-reader__progress {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-.offline-reader__progress-text {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--offline-muted);
-  font-size: 0.7rem;
-  font-variant-numeric: tabular-nums;
-}
-.offline-reader__progress-text strong {
-  color: var(--offline-text);
-}
-.offline-reader__range {
-  width: 100%;
-  accent-color: var(--offline-accent);
-}
+
 @media (max-width: 640px) {
-  .offline-reader__meta {
-    display: none;
+  .offline-reader__empty {
+    padding: 20px 16px;
   }
-  .offline-reader__chapter {
-    font-size: 0.8rem;
+}
+
+@media (max-width: 420px) {
+  .reader-header__offline-badge {
+    width: 30px;
+    height: 30px;
   }
-  .offline-reader__nav span {
-    display: none;
+  .reader-header__offline {
+    gap: 3px;
   }
-  .offline-reader__nav {
-    min-width: 40px;
-    padding: 0 5px;
-  }
-  .offline-reader__footer-inner {
-    gap: 4px;
-    padding-inline: 6px;
-  }
-  .offline-reader__pages {
-    gap: 5px;
+  .offline-reader .reader-header__meta {
+    gap: 3px;
+    font-size: 0.6rem;
   }
 }

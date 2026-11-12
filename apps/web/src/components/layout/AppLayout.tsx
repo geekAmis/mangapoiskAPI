@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { OfflineBanner } from '../OfflineBanner';
 import { QueryCacheBridge } from '../QueryCacheBridge';
+import { AndroidApkBanner } from './AndroidApkBanner';
 import { Footer } from './Footer';
 import { Header } from './Header';
 import { MobileNav } from './MobileNav';
@@ -19,6 +20,7 @@ export function AppLayout() {
       </main>
       <Footer />
       <MobileNav />
+      <AndroidApkBanner />
     </div>
   );
 }

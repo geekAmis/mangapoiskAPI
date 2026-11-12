@@ -46,3 +46,40 @@ if (bootLoader) {
     });
   });
 }
+
+/**
+ * The service worker is production-only: Vite's dev server must never be
+ * shadowed by a stale app shell. Registration is deliberately deferred until
+ * the page has loaded so it cannot compete with the first render.
+ *
+ * The worker calls skipWaiting()/clients.claim() and drops caches from older
+ * versions on activate. We do not force a reload when a new worker takes
+ * control: an open chapter must not jump while the reader is in use.
+ */
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  const registerServiceWorker = () => {
+    void navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .then((registration) => {
+        // Check for updates on every launch and when the tab becomes visible,
+        // without altering the page that is currently reading.
+        void registration.update().catch(() => undefined);
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            void registration.update().catch(() => undefined);
+          }
+        });
+      })
+      .catch((error: unknown) => {
+        // Offline reading still works in the current session; only cold
+        // offline starts depend on the worker.
+        console.warn('[service-worker] registration failed', error);
+      });
+  };
+
+  if (document.readyState === 'complete') {
+    registerServiceWorker();
+  } else {
+    window.addEventListener('load', registerServiceWorker, { once: true });
+  }
+}

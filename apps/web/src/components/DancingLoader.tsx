@@ -5,8 +5,13 @@ const DANCES = Array.from(
   (_, index) => `/loading/dance-${String(index + 1).padStart(2, '0')}.gif`,
 );
 
-function pickDance(): string {
-  return DANCES[Math.floor(Math.random() * DANCES.length)];
+const BOOT_DANCES = Array.from(
+  { length: 16 },
+  (_, index) => `/loading/boot-${String(index + 1).padStart(2, '0')}.gif`,
+);
+
+function pickDance(from: string[] = DANCES): string {
+  return from[Math.floor(Math.random() * from.length)];
 }
 
 interface DancingLoaderProps {
@@ -40,7 +45,7 @@ interface DancingSpinnerProps {
  * It replaces the old circular CSS spinners: same footprint, but animated.
  */
 export function DancingSpinner({ size = 22, className }: DancingSpinnerProps) {
-  const [src] = useState(pickDance);
+  const [src] = useState(() => pickDance(BOOT_DANCES));
   return (
     <img
       src={src}

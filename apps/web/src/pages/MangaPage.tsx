@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, listItems } from '../api/client';
@@ -6,7 +6,6 @@ import type { ChapterOut, MangaVariantOut } from '../api/types';
 import { ChapterRow } from '../components/ChapterRow';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
-import { ExportDialog } from '../components/ExportDialog';
 import { Icon } from '../components/Icon';
 import { DancingSpinner } from '../components/DancingLoader';
 import { Modal } from '../components/Modal';
@@ -17,6 +16,7 @@ import { Skeleton } from '../components/Skeleton';
 import {
   cancelDownload,
   retryDownload,
+  startChapterDownload,
   startTitleDownload,
   useDownloadJobs,
 } from '../lib/downloadManager';
@@ -33,7 +33,7 @@ import {
 } from '../lib/format';
 import { useDocumentTitle } from '../lib/hooks';
 import { useOfflineTitle } from '../lib/offlineHooks';
-import { formatBytes, jobPercent, offlineTitleStats } from '../lib/offlineTypes';
+import { formatBytes, jobPercent, offlineTitleStats, type DownloadJobStatus } from '../lib/offlineTypes';
 import { queryKeys } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { useReaderStore } from '../stores/reader';
@@ -103,7 +103,6 @@ export default function MangaPage() {
   const deferredChapterSearch = useDeferredValue(chapterSearch);
   const [chapterSort, setChapterSort] = useState<ChapterSort>('desc');
   const [visibleChapters, setVisibleChapters] = useState(60);
-  const [exportChapter, setExportChapter] = useState<ChapterOut | null>(null);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [translationFilter, setTranslationFilter] = useState<string>(ALL_TRANSLATIONS);
@@ -162,6 +161,25 @@ export default function MangaPage() {
       ? deviceJob
       : null;
   const offlineStats = offlineTitle ? offlineTitleStats(offlineTitle) : null;
+  const offlineChapterIds = useMemo(
+    () => new Set((offlineTitle?.chapters ?? []).map((chapter) => chapter.id)),
+    [offlineTitle],
+  );
+  const chapterJobStatuses = useMemo(() => {
+    const statuses = new Map<string, DownloadJobStatus>();
+    for (const job of downloadJobs) {
+      if (job.mangaId !== activeVariantId || job.mode !== 'chapter') continue;
+      const chapterId = job.chapters[0]?.id;
+      if (chapterId) statuses.set(chapterId, job.status);
+    }
+    return statuses;
+  }, [downloadJobs, activeVariantId]);
+  const chapterJobNotices = useRef(new Map<string, DownloadJobStatus>());
+
+  const isChapterDownloading = (chapterId: string): boolean => {
+    const status = chapterJobStatuses.get(chapterId);
+    return status === 'queued' || status === 'running';
+  };
 
   // Полные данные выбранного источника (описание, жанры, главы).
   const activeMangaQuery = useQuery({
@@ -220,10 +238,12 @@ export default function MangaPage() {
   const warmMutation = useMutation({
     mutationFn: () => api.warmManga(activeVariant?.id ?? id),
     onSuccess: (result) => {
-      toast.success(`Сервер архивирует ${formatInt(result.queued)} глав. Можно читать дальше.`);
+      toast.success(
+        `Сервер готовит ${formatInt(result.queued)} глав для быстрого онлайн-чтения. На устройство ничего не скачивается.`,
+      );
     },
     onError: (error: unknown) => {
-      toast.error(humanizeError(error, 'Не удалось поставить главы в очередь архива.'));
+      toast.error(humanizeError(error, 'Не удалось запустить подготовку глав на сервере.'));
     },
   });
 
@@ -251,11 +271,29 @@ export default function MangaPage() {
     setChapterSearch('');
     setChapterSort('desc');
     setVisibleChapters(60);
-    setExportChapter(null);
     setChaptersOpen(false);
     setSelectedVariantId(null);
     setTranslationFilter(ALL_TRANSLATIONS);
   }, [id]);
+
+  // Одиночная глава скачивается в фоне: сообщаем о завершении или ошибке,
+  // когда задание меняет статус, а не только в момент нажатия кнопки.
+  useEffect(() => {
+    for (const job of downloadJobs) {
+      if (job.mangaId !== activeVariantId || job.mode !== 'chapter') continue;
+      const previous = chapterJobNotices.current.get(job.id);
+      chapterJobNotices.current.set(job.id, job.status);
+      if (previous !== 'queued' && previous !== 'running') continue;
+      if (job.status === 'done') {
+        const chapter = job.chapters[0];
+        toast.success(
+          `${chapter ? chapterHeading(chapter) : 'Глава'} сохранена на устройстве`,
+        );
+      } else if (job.status === 'error') {
+        toast.error(job.error ?? 'Не удалось скачать главу на устройстве');
+      }
+    }
+  }, [downloadJobs, activeVariantId]);
 
   useEffect(() => {
     setTranslationFilter(ALL_TRANSLATIONS);
@@ -321,11 +359,22 @@ export default function MangaPage() {
     ? `/reader/${playChapter.id}${playPage ? `?page=${playPage}` : ''}`
     : null;
   const playLoading = Boolean(bestVariant) && bestVariantId !== id && bestMangaQuery.isLoading;
-  const exportTarget = playChapter ?? firstChapter;
 
   const progressChapter = progress
     ? (chapters.find((chapter) => chapter.id === progress.chapter_id) ?? progress.chapter ?? null)
     : null;
+
+  // Одиночная загрузка всегда берёт главу выбранного источника, чтобы
+  // идентификатор тайтла в офлайн-манифесте совпадал с главой. Приоритет —
+  // текущая глава, затем последняя опубликованная.
+  const latestChapter = [...chapters].sort(compareChapters).at(-1) ?? null;
+  const chapterDownloadTarget = progressChapter ?? latestChapter ?? firstChapter;
+  const chapterDownloadDone = chapterDownloadTarget
+    ? offlineChapterIds.has(chapterDownloadTarget.id)
+    : false;
+  const chapterDownloadPending = chapterDownloadTarget
+    ? isChapterDownloading(chapterDownloadTarget.id)
+    : false;
 
   const viewManga = activeManga ?? manga;
   const displayTitle = activeVariant?.title ?? viewManga.title;
@@ -408,9 +457,6 @@ export default function MangaPage() {
       toast.info('Пока нет глав для скачивания на устройство');
       return;
     }
-    // Серверный архив остаётся в цепочке (нужна авторизация) и ускоряет
-    // последующие онлайн-чтения. Гостю устройство всё равно скачает страницы.
-    if (user) warmMutation.mutate();
     try {
       const job = await startTitleDownload({
         manga: target,
@@ -429,6 +475,35 @@ export default function MangaPage() {
       }
     } catch (error: unknown) {
       toast.error(humanizeError(error, 'Не удалось начать скачивание на устройство'));
+    }
+  };
+
+  const downloadChapter = async (chapter: ChapterOut) => {
+    if (chapter.is_external) {
+      toast.info('Эта глава открывается на сайте источника и не сохраняется офлайн');
+      return;
+    }
+    const target = activeManga ?? (activeVariantId === id ? manga : null);
+    if (!target) {
+      toast.error('Данные тайтла ещё не загружены — попробуйте через секунду');
+      return;
+    }
+    try {
+      const job = await startChapterDownload({
+        manga: target,
+        chapter,
+        mangaId: activeVariantId,
+        title: displayTitle,
+        poster: activeVariant?.poster_url ?? viewManga.poster_url,
+        source: activeVariant?.source ?? viewManga.source,
+      });
+      if (job) {
+        toast.success(`${chapterHeading(chapter)} скачивается на устройство`);
+      } else {
+        toast.info(`${chapterHeading(chapter)} уже на устройстве`);
+      }
+    } catch (error: unknown) {
+      toast.error(humanizeError(error, 'Не удалось скачать главу на устройство'));
     }
   };
 
@@ -494,15 +569,38 @@ export default function MangaPage() {
               <Icon name="bookmark" size={17} />
               {isBookmarked ? 'В библиотеке' : 'В закладки'}
             </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--block"
-              onClick={() => exportTarget && setExportChapter(exportTarget)}
-              disabled={!exportTarget}
-            >
-              <Icon name="download" size={17} />
-              Экспорт главы
-            </button>
+            {chapterDownloadTarget && chapterDownloadDone ? (
+              <Link
+                to={`/offline/read/${activeVariantId}/${chapterDownloadTarget.id}`}
+                className="btn btn--outline btn--block"
+              >
+                <Icon name="check" size={17} />
+                Читать главу офлайн
+              </Link>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--ghost btn--block"
+                onClick={() => chapterDownloadTarget && void downloadChapter(chapterDownloadTarget)}
+                disabled={
+                  !chapterDownloadTarget ||
+                  chapterDownloadTarget.is_external ||
+                  chapterDownloadPending
+                }
+                title={
+                  chapterDownloadTarget?.is_external
+                    ? 'Внешняя глава открывается на сайте источника'
+                    : 'Сохранить одну главу в офлайн-библиотеку устройства'
+                }
+              >
+                {chapterDownloadPending ? (
+                  <DancingSpinner size={17} />
+                ) : (
+                  <Icon name="download" size={17} />
+                )}
+                {chapterDownloadPending ? 'Скачиваем главу…' : 'Скачать главу на устройство'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -750,15 +848,6 @@ export default function MangaPage() {
             <div className="chapters-head__actions">
               <button
                 type="button"
-                className="btn btn--outline btn--sm"
-                onClick={() => exportTarget && setExportChapter(exportTarget)}
-                disabled={!exportTarget}
-              >
-                <Icon name="download" size={16} />
-                Скачать главу
-              </button>
-              <button
-                type="button"
                 className="btn btn--primary btn--sm"
                 onClick={() => void queueDeviceDownload()}
                 disabled={chapters.length === 0 || chaptersLoading || Boolean(activeDeviceJob)}
@@ -774,10 +863,10 @@ export default function MangaPage() {
                 className="btn btn--ghost btn--sm"
                 onClick={() => warmMutation.mutate()}
                 disabled={warmMutation.isPending}
-                title="Сервер скачает все главы в свой архив; потом они читаются без источника"
+                title="Подготовка на сервере: главы загрузятся в серверный кэш для быстрого онлайн-чтения. Это не скачивание файла на устройство."
               >
                 <Icon name="server" size={16} />
-                {warmMutation.isPending ? 'Готовим…' : 'На сервер'}
+                {warmMutation.isPending ? 'Готовим…' : 'Подготовить на сервере'}
               </button>
               <button
                 type="button"
@@ -890,7 +979,10 @@ export default function MangaPage() {
                       key={chapter.id}
                       chapter={chapter}
                       current={chapter.id === progress?.chapter_id}
-                      onExport={setExportChapter}
+                      downloaded={offlineChapterIds.has(chapter.id)}
+                      downloadStatus={chapterJobStatuses.get(chapter.id)}
+                      offlineHref={`/offline/read/${activeVariantId}/${chapter.id}`}
+                      onDownload={downloadChapter}
                     />
                   ))}
                 </div>
@@ -960,12 +1052,6 @@ export default function MangaPage() {
         </section>
       </div>
 
-      <ExportDialog
-        open={Boolean(exportChapter)}
-        onClose={() => setExportChapter(null)}
-        chapter={exportChapter}
-      />
-
       <Modal
         open={chaptersOpen}
         onClose={() => setChaptersOpen(false)}
@@ -1017,10 +1103,10 @@ export default function MangaPage() {
                 key={chapter.id}
                 chapter={chapter}
                 current={chapter.id === progress?.chapter_id}
-                onExport={(target) => {
-                  setChaptersOpen(false);
-                  setExportChapter(target);
-                }}
+                downloaded={offlineChapterIds.has(chapter.id)}
+                downloadStatus={chapterJobStatuses.get(chapter.id)}
+                offlineHref={`/offline/read/${activeVariantId}/${chapter.id}`}
+                onDownload={downloadChapter}
               />
             ))}
           </div>

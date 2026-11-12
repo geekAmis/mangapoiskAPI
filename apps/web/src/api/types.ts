@@ -10,8 +10,6 @@ export type MangaSort = 'popular' | 'rating' | 'updated' | 'title';
 export type MangaStatus = 'ongoing' | 'completed' | 'hiatus' | 'announced' | 'cancelled' | 'unknown';
 export type ReaderMode = 'vertical' | 'horizontal' | 'webtoon';
 export type PageFit = 'width' | 'height' | 'original';
-export type ExportFormat = 'cbz' | 'pdf' | 'html';
-export type ExportStatus = 'queued' | 'running' | 'done' | 'failed';
 
 export interface SourceOut {
   code: string;
@@ -199,18 +197,6 @@ export interface ReaderSettings {
   auto_scroll_speed: number;
   show_page_numbers: boolean;
   blur_adult_posters: boolean;
-}
-
-export interface ExportJobOut {
-  id: UUID;
-  status: ExportStatus;
-  format: string;
-  chapter_id: UUID;
-  progress: number;
-  total: number;
-  error: string | null;
-  download_url: string | null;
-  created_at: string | null;
 }
 
 export interface HealthOut {

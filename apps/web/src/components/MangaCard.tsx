@@ -11,15 +11,16 @@ interface MangaCardProps {
   manga: MangaOut;
   action?: ReactNode;
   eager?: boolean;
+  compact?: boolean;
 }
 
-export function MangaCard({ manga, action, eager = false }: MangaCardProps) {
+export function MangaCard({ manga, action, eager = false, compact = false }: MangaCardProps) {
   const blurAdultPosters = useReaderStore((state) => state.blurAdultPosters);
   const shouldBlur = manga.adult && blurAdultPosters;
   const meta = [manga.year ? String(manga.year) : null, chaptersLabel(manga.chapters_count)].filter(Boolean);
 
   return (
-    <article className="manga-card">
+    <article className={`manga-card${compact ? ' manga-card--compact' : ''}`}>
       <div className="manga-card__cover-wrap">
         <Link
           to={`/manga/${manga.id}`}

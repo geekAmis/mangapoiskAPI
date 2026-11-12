@@ -7,20 +7,36 @@ import {
   formatShortDate,
   pagesLabel,
 } from '../lib/format';
+import type { DownloadJobStatus } from '../lib/offlineTypes';
+import { DancingSpinner } from './DancingLoader';
 import { Icon } from './Icon';
 
 interface ChapterRowProps {
   chapter: ChapterOut;
   current?: boolean;
-  onExport?: (chapter: ChapterOut) => void;
+  /** Глава уже сохранена в офлайн-библиотеке устройства. */
+  downloaded?: boolean;
+  /** Текущий статус офлайн-загрузки главы, если задание существует. */
+  downloadStatus?: DownloadJobStatus;
+  offlineHref?: string;
+  onDownload?: (chapter: ChapterOut) => void;
 }
 
-export function ChapterRow({ chapter, current = false, onExport }: ChapterRowProps) {
+export function ChapterRow({
+  chapter,
+  current = false,
+  downloaded = false,
+  downloadStatus,
+  offlineHref,
+  onDownload,
+}: ChapterRowProps) {
   const heading = chapterHeading(chapter);
   const secondary = chapterSecondaryTitle(chapter);
   const date = chapter.published_at ? formatRelative(chapter.published_at) : '';
   const external = chapter.is_external && chapter.url;
   const mainClassName = `chapter-row__main${current ? ' is-current' : ''}`;
+  const downloading = downloadStatus === 'queued' || downloadStatus === 'running';
+  const failed = downloadStatus === 'error';
 
   const inner = (
     <>
@@ -43,6 +59,12 @@ export function ChapterRow({ chapter, current = false, onExport }: ChapterRowPro
               <span className="chapter-row__translator" title={`Перевод: ${chapter.translator}`}>
                 {chapter.translator}
               </span>
+            </>
+          ) : null}
+          {downloaded ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="chapter-row__offline">На устройстве</span>
             </>
           ) : null}
           {external ? (
@@ -76,15 +98,40 @@ export function ChapterRow({ chapter, current = false, onExport }: ChapterRowPro
           {inner}
         </Link>
       )}
-      {onExport && !external ? (
+      {downloaded && offlineHref ? (
+        <Link
+          className="btn btn--icon btn--ghost chapter-row__download is-done"
+          to={offlineHref}
+          aria-label={`${heading} — на устройстве, читать офлайн`}
+          title="На устройстве — читать офлайн"
+        >
+          <Icon name="check" size={17} />
+        </Link>
+      ) : onDownload && !external ? (
         <button
           type="button"
-          className="btn btn--icon btn--ghost chapter-row__export"
-          onClick={() => onExport(chapter)}
-          aria-label={`Скачать: ${heading}`}
-          title="Скачать главу"
+          className="btn btn--icon btn--ghost chapter-row__download"
+          onClick={() => onDownload(chapter)}
+          disabled={downloading}
+          aria-busy={downloading}
+          aria-label={
+            downloading
+              ? `${heading} — скачивается на устройство`
+              : `${heading} — скачать на устройство`
+          }
+          title={
+            downloading
+              ? 'Скачиваем на устройство…'
+              : failed
+                ? 'Повторить скачивание на устройство'
+                : 'Скачать на устройство'
+          }
         >
-          <Icon name="download" size={17} />
+          {downloading ? (
+            <DancingSpinner size={16} />
+          ) : (
+            <Icon name={failed ? 'refresh' : 'download'} size={17} />
+          )}
         </button>
       ) : null}
     </div>

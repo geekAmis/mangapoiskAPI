@@ -944,82 +944,6 @@
   font-size: 0.74rem;
 }
 
-.export-formats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.export-format {
-  display: grid;
-  gap: 4px;
-  padding: 12px 10px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--surface);
-  text-align: left;
-  transition:
-    border-color var(--transition-fast),
-    background var(--transition-fast);
-}
-.export-format:hover {
-  border-color: var(--border-strong);
-}
-.export-format.is-active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.export-format__name {
-  font-size: 0.86rem;
-  font-weight: 750;
-  letter-spacing: 0.03em;
-}
-.export-format__desc {
-  color: var(--text-faint);
-  font-size: 0.7rem;
-  line-height: 1.35;
-}
-.export-chapter {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 10px 12px;
-  border-radius: 9px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-.export-chapter svg {
-  flex: none;
-  color: var(--accent);
-}
-.export-status {
-  display: grid;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 13px;
-  border-radius: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-.export-status__line {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-.export-status__line strong {
-  color: var(--text);
-}
-.export-done {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--success);
-  font-size: 0.85rem;
-}
 
 /* ============================================================
    Библиотека
@@ -1954,6 +1878,13 @@
   }
   .manga-side-actions {
     align-content: start;
+    min-width: 0;
+  }
+  .manga-side-actions .btn {
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
   }
   .manga-poster-note {
     grid-column: 1 / -1;
@@ -1990,9 +1921,6 @@
     grid-column: 1 / -1;
   }
   .reader-defaults__grid {
-    grid-template-columns: 1fr;
-  }
-  .export-formats {
     grid-template-columns: 1fr;
   }
   .history-row {

@@ -5,8 +5,6 @@ import type {
   ChapterDetailOut,
   ChapterListParams,
   ChapterOut,
-  ExportFormat,
-  ExportJobOut,
   HealthOut,
   ImportMangaRequest,
   ImportMangaResponse,
@@ -303,20 +301,6 @@ export const api = {
     request<{ queued: number; manga_id: string }>(`/manga/${encodeURIComponent(mangaId)}/warm`, {
       method: 'POST',
     }),
-  createExport: (chapterId: string, format: ExportFormat) =>
-    request<ExportJobOut>(`/chapters/${encodeURIComponent(chapterId)}/exports`, {
-      method: 'POST',
-      query: { format },
-      auth: false,
-    }),
-
-  getExport: (jobId: string, signal?: AbortSignal) =>
-    request<ExportJobOut>(`/exports/${encodeURIComponent(jobId)}`, { auth: false, signal }),
-
-  exportDownloadUrl: (job: ExportJobOut) => {
-    if (job.download_url) return resolveApiUrl(job.download_url);
-    return buildUrl(`/exports/${encodeURIComponent(job.id)}/download`);
-  },
 
   register: (body: RegisterRequest) =>
     request<TokenPair>('/auth/register', { method: 'POST', body, auth: false, skipRefresh: true }),
