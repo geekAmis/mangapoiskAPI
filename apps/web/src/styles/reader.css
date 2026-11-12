@@ -704,14 +704,15 @@ html[data-reader="true"] body {
 .reader-resume {
   position: fixed;
   top: calc(var(--reader-header-h) + 12px);
-  left: 50%;
+  right: 0;
+  left: 0;
   z-index: 72;
   display: flex;
   align-items: center;
   gap: 12px;
   width: min(600px, calc(100vw - 24px));
+  margin-inline: auto;
   padding: 12px 12px 12px 16px;
-  transform: translateX(-50%);
   border: 1px solid var(--accent-border);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);

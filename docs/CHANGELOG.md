@@ -18,6 +18,14 @@ SemVer.
 - S3-compatible media storage.
 - More verified sources (MangaDex/ReadManga).
 
+### Fixed
+
+- Reader resume prompt (#81): “Продолжить со страницы N?” now appears only
+  after a 1.8 s idle grace period and only when the saved page is more than one
+  page ahead. Wheel, touch, scroll, page changes, page clicks and keyboard
+  navigation dismiss it immediately, so a slow progress response cannot show it
+  over a chapter the user has already started reading.
+
 ### Security
 
 - Bumped `Pillow` to `>=13.0.0,<14` in the media service and `cryptography` to

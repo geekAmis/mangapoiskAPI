@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:unit": "node tests/progress.test.mjs && node tests/profiles.test.mjs",
+    "test:unit": "vitest run tests/reader-resume.test.tsx tests/reader-resume-page.test.tsx && node tests/progress.test.mjs && node tests/profiles.test.mjs",
     "test:admin-tabs": "node --test tests/admin-tabs.test.mts",
     "typecheck": "tsc --noEmit"
   },
