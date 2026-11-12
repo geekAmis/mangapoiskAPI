@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from manga_common.schemas import ChapterOut, MangaDetailOut
+from manga_common.schemas import ChapterOut, MangaDetailOut, MangaOut
 from pydantic import BaseModel, Field
 
 
@@ -130,3 +130,30 @@ class ChapterDetailInternal(ChapterOut):
     prev_chapter_id: UUID | None = None
     next_chapter_id: UUID | None = None
     is_horizontal: bool = False
+
+
+class RecommendationRequest(BaseModel):
+    seed_manga_id: UUID | None = None
+    history_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    bookmark_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    exclude_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    limit: int = Field(default=12, ge=1, le=24)
+
+
+class RecommendationResult(BaseModel):
+    items: list[MangaOut] = Field(default_factory=list)
+    strategy: Literal["personalized", "popular", "related"] = "popular"
+
+
+class RelationIn(BaseModel):
+    to_manga_id: UUID
+    relation: Literal["series", "related"] = "related"
+    series_key: str | None = Field(default=None, max_length=180)
+
+
+class RelationsIn(BaseModel):
+    items: list[RelationIn] = Field(default_factory=list, max_length=50)
+
+
+class RelationsOut(BaseModel):
+    linked: int = 0

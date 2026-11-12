@@ -14,6 +14,7 @@ from .comments_api import router as comments_router
 from .comments_client import CommentsClient
 from .config import GatewaySettings
 from .middleware import RateLimitMiddleware
+from .retention import router as retention_router
 from .routing import EndpointPool, reset_client_key, set_client_key
 from .seo import router as seo_router
 
@@ -124,6 +125,7 @@ async def client_identity(request, call_next):  # type: ignore[no-untyped-def]
 
 
 app.include_router(router)
+app.include_router(retention_router)
 app.include_router(comments_router)
 app.include_router(seo_router)
 

@@ -8,6 +8,7 @@ from manga_common.schemas import (
     MangaListResponse,
     MangaOut,
     MangaVariantsOut,
+    RelatedMangaOut,
     SourceOut,
 )
 from manga_common.security import require_internal_token
@@ -24,7 +25,11 @@ from .schemas import (
     ImportResult,
     PagesPatch,
     PendingEnrichmentListOut,
+    RecommendationRequest,
+    RecommendationResult,
     RefreshResult,
+    RelationsIn,
+    RelationsOut,
     SourceSyncRequest,
 )
 from .service import CatalogService
@@ -158,6 +163,31 @@ async def home_updates(
     service: CatalogService = Depends(get_service),
 ) -> HomeUpdatesOut:
     return await service.home_updates(limit=limit)
+
+
+@router.post("/recommendations", response_model=RecommendationResult)
+async def recommendations(
+    payload: RecommendationRequest,
+    service: CatalogService = Depends(get_service),
+) -> RecommendationResult:
+    return await service.recommendations(payload)
+
+
+@router.get("/manga/{manga_id}/related", response_model=RelatedMangaOut)
+async def related_manga(
+    manga_id: uuid.UUID,
+    service: CatalogService = Depends(get_service),
+) -> RelatedMangaOut:
+    return await service.related(manga_id)
+
+
+@router.put("/manga/{manga_id}/relations", response_model=RelationsOut)
+async def link_relations(
+    manga_id: uuid.UUID,
+    payload: RelationsIn,
+    service: CatalogService = Depends(get_service),
+) -> RelationsOut:
+    return await service.link_relations(manga_id, payload)
 
 
 @router.get("/crawl-state", response_model=list[CrawlStateOut])
