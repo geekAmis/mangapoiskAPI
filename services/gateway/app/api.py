@@ -72,8 +72,6 @@ def _admin_failure_times(ip: str) -> list[float]:
     recent = [stamp for stamp in _admin_failures.get(ip, []) if now - stamp < _ADMIN_WINDOW_SECONDS]
     if recent:
         _admin_failures[ip] = recent
-    else:
-        _admin_failures.pop(ip, None)
     return recent
 
 
@@ -86,8 +84,9 @@ def _check_admin_login_rate(ip: str) -> None:
 
 
 def _record_admin_failure(ip: str) -> None:
-    _admin_failure_times(ip).append(time.monotonic())
-    _admin_failures[ip] = _admin_failures.get(ip, [])[-20:]
+    recent = _admin_failure_times(ip)
+    recent.append(time.monotonic())
+    _admin_failures[ip] = recent[-20:]
 
 
 def clients(request: Request) -> tuple[CatalogClient, ParserClient, LibraryClient, MediaClient]:
