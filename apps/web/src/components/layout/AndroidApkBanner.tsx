@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../Icon';
 
 const APK_URL =
@@ -8,6 +8,7 @@ const DISMISS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function AndroidApkBanner() {
   const [visible, setVisible] = useState(false);
+  const bannerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!/Android/i.test(navigator.userAgent)) return;
@@ -21,6 +22,38 @@ export function AndroidApkBanner() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  // Пока баннер виден, резервируем место под него в конце страницы —
+  // фиксированная плашка не должна перекрывать нижние действия. Высоту
+  // измеряем, чтобы padding совпадал с фактическим размером на 360/390px.
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const body = document.body;
+    const root = document.documentElement;
+    const banner = bannerRef.current;
+    body.classList.add('has-apk-banner');
+
+    const syncHeight = () => {
+      if (!banner) return;
+      root.style.setProperty(
+        '--apk-banner-height',
+        `${Math.ceil(banner.getBoundingClientRect().height)}px`,
+      );
+    };
+
+    syncHeight();
+    const observer =
+      typeof ResizeObserver === 'function' ? new ResizeObserver(syncHeight) : null;
+    if (banner && observer) observer.observe(banner);
+    window.addEventListener('resize', syncHeight);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', syncHeight);
+      body.classList.remove('has-apk-banner');
+      root.style.removeProperty('--apk-banner-height');
+    };
+  }, [visible]);
+
   if (!visible) return null;
 
   const dismiss = () => {
@@ -33,7 +66,12 @@ export function AndroidApkBanner() {
   };
 
   return (
-    <aside className="apk-banner" role="complementary" aria-label="Android-приложение">
+    <aside
+      ref={bannerRef}
+      className="apk-banner"
+      role="complementary"
+      aria-label="Android-приложение"
+    >
       <span className="apk-banner__mark" aria-hidden="true">
         <Icon name="download" size={20} />
       </span>

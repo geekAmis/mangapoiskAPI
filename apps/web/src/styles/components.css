@@ -1578,6 +1578,13 @@ button.chip:hover {
   color: var(--success);
   font-weight: 650;
 }
+/* Метаданные карточек и глав: не ниже 4.5:1 на всех темах, но всё ещё
+   тише основного текста. Затрагиваем только информационные подписи. */
+.manga-card__meta,
+.ml-rank__meta,
+.chapter-row__meta {
+  color: var(--text-muted);
+}
 .chapter-row__tail {
   display: grid;
   place-items: center;

@@ -46,9 +46,17 @@ const OFFLINE_PAGE_PREFIX = 'offline-reader-page-';
 const FOCUSABLE_SKIP = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 const TAP_AFTER_CLOSE_GUARD_MS = 420;
 
+const TALL_PAGE_RATIO = 2.2;
+
 function pageRatio(page: OfflinePage): string {
   if (page.width && page.height) return `${page.width} / ${page.height}`;
   return '2 / 3';
+}
+
+/** Tall webtoon strips get a full-width, vertically scrollable paged view. */
+function isTallPage(page: OfflinePage | null | undefined): boolean {
+  if (!page?.width || !page?.height) return false;
+  return page.height / page.width > TALL_PAGE_RATIO;
 }
 
 export default function OfflineReaderPage() {
@@ -640,6 +648,15 @@ function OfflineReader({
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
+  useEffect(() => {
+    if (mode !== 'horizontal') return;
+    const container = zoom.rootRef.current;
+    if (container) container.scrollTop = 0;
+  }, [currentPage, mode, chapter.id, zoom.rootRef]);
+
+  const currentPageData = pages[currentPage - 1];
+  const currentPageIsTall = isTallPage(currentPageData);
+
   const chaptersForSheet = useMemo(() => {
     const query = chapterFilter.trim().toLowerCase();
     if (!query) return chapters;
@@ -791,18 +808,19 @@ function OfflineReader({
       ) : (
         <main
           ref={zoom.rootRef}
-          className="reader-paged"
+          className={`reader-paged${currentPageIsTall ? ' reader-paged--tall' : ''}`}
           onTouchStart={onPagedTouchStart}
           onTouchEnd={onPagedTouchEnd}
           onClick={onPagedClick}
         >
           <div className="reader-paged__stage">
-            {pages[currentPage - 1] ? (
+            {currentPageData ? (
               <OfflinePagedImage
-                key={`${chapter.id}-${pages[currentPage - 1].number}`}
-                page={pages[currentPage - 1]}
+                key={`${chapter.id}-${currentPageData.number}`}
+                page={currentPageData}
                 index={currentPage}
                 fit={pageFit}
+                tall={currentPageIsTall}
                 title={title}
               />
             ) : null}
@@ -893,12 +911,13 @@ function OfflineReader({
               type="button"
               className="reader-footer__counter"
               onClick={openChapters}
-              aria-label="Выбрать скачанную главу"
+              aria-label={`Выбрать скачанную главу · страница ${currentPage} из ${totalPages}`}
               aria-haspopup="dialog"
               aria-expanded={chaptersOpen}
               title="Скачанные главы"
             >
               <strong>{currentPage}</strong> / {totalPages}
+              <Icon name="chevron-down" size={13} />
             </button>
             <input
               className="reader-slider"
@@ -1071,7 +1090,9 @@ function OfflineReader({
             </h3>
             <div className="setting-row" style={{ paddingTop: 0 }}>
               <div className="setting-row__main">
-                <span className="setting-row__label">Прокручивать автоматически</span>
+                <span className="setting-row__label" id="offline-autoscroll-toggle-label">
+                  Прокручивать автоматически
+                </span>
                 <span className="setting-row__desc">
                   {reducedMotion
                     ? 'Недоступно: в системе включено уменьшение движения'
@@ -1087,6 +1108,7 @@ function OfflineReader({
                     type="checkbox"
                     checked={autoScroll}
                     disabled={reducedMotion || mode !== 'vertical'}
+                    aria-labelledby="offline-autoscroll-toggle-label"
                     onChange={(event) => {
                       updatePrefs({ autoScroll: event.target.checked });
                       setAutoPaused(false);
@@ -1128,7 +1150,9 @@ function OfflineReader({
             </h3>
             <div className="setting-row" style={{ paddingTop: 0 }}>
               <div className="setting-row__main">
-                <span className="setting-row__label">Номера страниц</span>
+                <span className="setting-row__label" id="offline-page-numbers-toggle-label">
+                  Номера страниц
+                </span>
                 <span className="setting-row__desc">Подписи поверх страниц</span>
               </div>
               <div className="setting-row__control">
@@ -1137,6 +1161,7 @@ function OfflineReader({
                     className="switch__input"
                     type="checkbox"
                     checked={showPageNumbers}
+                    aria-labelledby="offline-page-numbers-toggle-label"
                     onChange={(event) => updatePrefs({ showPageNumbers: event.target.checked })}
                   />
                   <span className="switch__track">
@@ -1362,11 +1387,13 @@ function OfflinePagedImage({
   page,
   index,
   fit,
+  tall,
   title,
 }: {
   page: OfflinePage;
   index: number;
   fit: PageFit;
+  tall: boolean;
   title: string;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -1417,7 +1444,7 @@ function OfflinePagedImage({
       {url ? (
         <img
           key={attempt}
-          className={`reader-paged__image fit-${fit}${loaded ? ' is-loaded' : ''}`}
+          className={`reader-paged__image fit-${fit}${tall ? ' is-tall' : ''}${loaded ? ' is-loaded' : ''}`}
           src={url}
           alt={`Страница ${index} манги «${title}»`}
           width={page.width ?? undefined}

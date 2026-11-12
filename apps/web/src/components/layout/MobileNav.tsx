@@ -5,6 +5,7 @@ const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }>
   { to: '/', label: 'Главная', icon: 'home', end: true },
   { to: '/catalogue', label: 'Каталог', icon: 'grid' },
   { to: '/library', label: 'Библиотека', icon: 'bookmark' },
+  { to: '/sources', label: 'Источники', icon: 'compass' },
   { to: '/profile', label: 'Профиль', icon: 'user' },
 ];
 
@@ -24,6 +25,8 @@ export function MobileNav() {
               isActive || (item.to === '/catalogue' && isCataloguePath) ? ' is-active' : ''
             }`
           }
+          aria-label={item.label}
+          title={item.label}
           aria-current={item.to === '/catalogue' && isCataloguePath ? 'page' : undefined}
         >
           <span className="mobile-nav__icon">

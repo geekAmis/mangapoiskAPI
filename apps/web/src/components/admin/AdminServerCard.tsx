@@ -33,8 +33,11 @@ export function AdminServerCard({
   onToggleFallback,
   onHealth,
 }: AdminServerCardProps) {
-  const healthy = server.services.filter((service) => service.healthy).length;
-  const checked = server.services.filter((service) => service.code !== 'scheduler').length;
+  // Scheduler не имеет HTTP health-check: он не входит ни в числитель, ни
+  // в знаменатель. Replica — обычный HTTP-сервис и считается как все.
+  const httpServices = server.services.filter((service) => service.code !== 'scheduler');
+  const healthy = httpServices.filter((service) => service.healthy).length;
+  const checked = httpServices.length;
   const lastCheck = server.services
     .map((service) => service.checked_at)
     .filter((value): value is string => Boolean(value))

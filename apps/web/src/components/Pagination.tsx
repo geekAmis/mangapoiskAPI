@@ -24,6 +24,7 @@ export function Pagination({ page, hasNext, total, limit, onChange, disabled = f
         className="btn btn--outline pagination__button"
         onClick={() => onChange(page - 1)}
         disabled={!canGoBack || disabled}
+        aria-label="Предыдущая страница"
       >
         <Icon name="chevron-left" size={17} />
         <span>Назад</span>
@@ -37,6 +38,7 @@ export function Pagination({ page, hasNext, total, limit, onChange, disabled = f
         className="btn btn--outline pagination__button"
         onClick={() => onChange(page + 1)}
         disabled={!canGoForward || disabled}
+        aria-label="Следующая страница"
       >
         <span>Вперёд</span>
         <Icon name="chevron-right" size={17} />

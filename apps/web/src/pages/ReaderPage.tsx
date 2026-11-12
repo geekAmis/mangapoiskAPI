@@ -45,9 +45,21 @@ const READER_PAGE_PREFIX = 'reader-page-';
 const TAP_AFTER_CLOSE_GUARD_MS = 420;
 const FOCUSABLE_SKIP = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
+const TALL_PAGE_RATIO = 2.2;
+
 function pageRatio(page: PageOut): string {
   if (page.width && page.height) return `${page.width} / ${page.height}`;
   return '2 / 3';
+}
+
+/**
+ * Tall webtoon strips must not be contain-fitted in the paged reader: a
+ * 690×10000 page would becomes a few dozen pixels wide. They get their own
+ * full-width, vertically scrollable presentation instead.
+ */
+function isTallPage(page: PageOut | null | undefined): boolean {
+  if (!page?.width || !page?.height) return false;
+  return page.height / page.width > TALL_PAGE_RATIO;
 }
 
 export default function ReaderPage() {
@@ -654,7 +666,14 @@ export default function ReaderPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
+  useEffect(() => {
+    if (mode !== 'horizontal') return;
+    const container = zoom.rootRef.current;
+    if (container) container.scrollTop = 0;
+  }, [currentPage, mode, chapter?.id, zoom.rootRef]);
+
   const currentPageData = pages[currentPage - 1];
+  const currentPageIsTall = isTallPage(currentPageData);
   const showResume = Boolean(
     user &&
       resumePage &&
@@ -913,7 +932,7 @@ export default function ReaderPage() {
       ) : (
         <main
           ref={zoom.rootRef}
-          className="reader-paged"
+          className={`reader-paged${currentPageIsTall ? ' reader-paged--tall' : ''}`}
           onTouchStart={onPagedTouchStart}
           onTouchEnd={onPagedTouchEnd}
           onClick={onPagedClick}
@@ -924,6 +943,7 @@ export default function ReaderPage() {
                 key={`${chapter.id}-${currentPageData.number}`}
                 page={currentPageData}
                 fit={pageFit}
+                tall={currentPageIsTall}
                 alt={`Страница ${currentPage}${manga ? ` манги «${manga.title}»` : ''}`}
               />
             ) : null}
@@ -1006,12 +1026,13 @@ export default function ReaderPage() {
               type="button"
               className="reader-footer__counter"
               onClick={openChapters}
-              aria-label="Выбрать главу"
+              aria-label={`Выбрать главу · страница ${currentPage} из ${totalPages}`}
               aria-haspopup="dialog"
               aria-expanded={chaptersOpen}
               title="Выбрать главу"
             >
               <strong>{currentPage}</strong> / {totalPages}
+              <Icon name="chevron-down" size={13} />
             </button>
             <input
               className="reader-slider"
@@ -1190,7 +1211,9 @@ export default function ReaderPage() {
             </h3>
             <div className="setting-row" style={{ paddingTop: 0 }}>
               <div className="setting-row__main">
-                <span className="setting-row__label">Прокручивать автоматически</span>
+                <span className="setting-row__label" id="reader-autoscroll-toggle-label">
+                  Прокручивать автоматически
+                </span>
                 <span className="setting-row__desc">
                   {reducedMotion
                     ? 'Недоступно: в системе включено уменьшение движения'
@@ -1204,6 +1227,7 @@ export default function ReaderPage() {
                     type="checkbox"
                     checked={autoScroll}
                     disabled={reducedMotion || mode !== 'vertical'}
+                    aria-labelledby="reader-autoscroll-toggle-label"
                     onChange={(event) => {
                       updatePrefs({ autoScroll: event.target.checked });
                       setAutoPaused(false);
@@ -1240,7 +1264,9 @@ export default function ReaderPage() {
               <Icon name="settings" size={14} /> Отображение
             </h3>            <div className="setting-row" style={{ paddingTop: 0 }}>
               <div className="setting-row__main">
-                <span className="setting-row__label">Номера страниц</span>
+                <span className="setting-row__label" id="reader-page-numbers-toggle-label">
+                  Номера страниц
+                </span>
                 <span className="setting-row__desc">Подписи между страницами</span>
               </div>
               <div className="setting-row__control">
@@ -1249,6 +1275,7 @@ export default function ReaderPage() {
                     className="switch__input"
                     type="checkbox"
                     checked={showPageNumbers}
+                    aria-labelledby="reader-page-numbers-toggle-label"
                     onChange={(event) => updatePrefs({ showPageNumbers: event.target.checked })}
                   />
                   <span className="switch__track">
@@ -1259,7 +1286,9 @@ export default function ReaderPage() {
             </div>
             <div className="setting-row">
               <div className="setting-row__main">
-                <span className="setting-row__label">Размывать обложки 18+</span>
+                <span className="setting-row__label" id="reader-blur-adult-toggle-label">
+                  Размывать обложки 18+
+                </span>
                 <span className="setting-row__desc">Влияет на каталог и страницы тайтлов</span>
               </div>
               <div className="setting-row__control">
@@ -1268,6 +1297,7 @@ export default function ReaderPage() {
                     className="switch__input"
                     type="checkbox"
                     checked={blurAdultPosters}
+                    aria-labelledby="reader-blur-adult-toggle-label"
                     onChange={(event) => updatePrefs({ blurAdultPosters: event.target.checked })}
                   />
                   <span className="switch__track">
@@ -1494,10 +1524,12 @@ function ReaderPageImage({
 function PagedReaderImage({
   page,
   fit,
+  tall,
   alt,
 }: {
   page: PageOut;
   fit: PageFit;
+  tall: boolean;
   alt: string;
 }) {
   const [loaded, setLoaded] = useState(false);
@@ -1529,7 +1561,7 @@ function PagedReaderImage({
       {!loaded ? <div className="reader-paged__skeleton" aria-hidden="true" /> : null}
       <img
         key={attempt}
-        className={`reader-paged__image fit-${fit}${loaded ? ' is-loaded' : ''}`}
+        className={`reader-paged__image fit-${fit}${tall ? ' is-tall' : ''}${loaded ? ' is-loaded' : ''}`}
         src={resolveApiUrl(page.url)}
         alt={alt}
         width={page.width ?? undefined}

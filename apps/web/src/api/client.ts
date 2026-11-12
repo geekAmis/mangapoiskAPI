@@ -63,6 +63,38 @@ export function isApiError(value: unknown): value is ApiError {
   return value instanceof ApiError;
 }
 
+/* ------------------------------------------------------------------ */
+/* Подготовка глав на сервере                                          */
+/* ------------------------------------------------------------------ */
+
+export type PrepareChapterStatus = 'done' | 'pending' | 'error';
+
+export interface PrepareChapterState {
+  id: string;
+  status: PrepareChapterStatus;
+  page_count: number;
+  error: string | null;
+}
+
+export interface PrepareStatusOut {
+  manga_id: string;
+  total: number;
+  prepared: number;
+  pending: number;
+  failed: number;
+  /** Первые до пяти подготовленных глав — информационное поле. */
+  batch: string[];
+  chapters: PrepareChapterState[];
+  job_id?: string | null;
+  error?: string | null;
+}
+
+export interface PrepareStartOut {
+  job_id: string;
+  total: number;
+  chapter_ids: string[];
+}
+
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const base = `${API_BASE}${normalizedPath}`;
@@ -297,10 +329,13 @@ export const api = {
       `/chapters/${encodeURIComponent(chapterId)}/images/${encodeURIComponent(String(pageNumber))}`,
     ),
 
-  warmManga: (mangaId: string) =>
-    request<{ queued: number; manga_id: string }>(`/manga/${encodeURIComponent(mangaId)}/warm`, {
+  prepareManga: (mangaId: string) =>
+    request<PrepareStartOut>(`/manga/${encodeURIComponent(mangaId)}/prepare`, {
       method: 'POST',
     }),
+
+  getPrepareStatus: (mangaId: string, signal?: AbortSignal) =>
+    request<PrepareStatusOut>(`/manga/${encodeURIComponent(mangaId)}/prepare`, { signal }),
 
   register: (body: RegisterRequest) =>
     request<TokenPair>('/auth/register', { method: 'POST', body, auth: false, skipRefresh: true }),

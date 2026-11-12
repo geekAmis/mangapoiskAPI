@@ -381,6 +381,31 @@ html[data-reader="true"] body {
   max-width: 100%;
   max-height: 100%;
 }
+
+/*
+ * Tall webtoon strips (height / width > 2.2) are unreadable when contain-fit:
+ * a 690×10000 page becomes ~50 px wide. They instead take the full reader
+ * width and scroll vertically inside the paged container, while normal manga
+ * pages keep their usual contain-fit.
+ */
+.reader-paged--tall {
+  align-items: flex-start;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.reader-paged--tall .reader-paged__stage {
+  display: block;
+  height: auto;
+  min-height: 100%;
+}
+.reader-paged__image.is-tall {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: none;
+  margin-inline: auto;
+  object-fit: contain;
+}
 .reader-paged__skeleton {
   position: absolute;
   top: 50%;
@@ -568,6 +593,8 @@ html[data-reader="true"] body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
+  min-width: 44px;
   min-height: 44px;
   padding: 0 8px;
   border-radius: 8px;
@@ -586,6 +613,10 @@ html[data-reader="true"] body {
 .reader-footer__counter strong {
   color: var(--text);
   font-weight: 700;
+}
+.reader-footer__counter svg {
+  flex: none;
+  color: var(--text-faint);
 }
 .reader-slider {
   width: clamp(100px, 28vw, 300px);
@@ -1134,6 +1165,9 @@ html[data-reader="true"] .reader-settings__option {
 }
 
 @media (max-width: 640px) {
+  .reader {
+    --reader-footer-h: calc(72px + env(safe-area-inset-bottom));
+  }
   .reader-header__manga {
     font-size: 0.64rem;
   }
@@ -1152,7 +1186,7 @@ html[data-reader="true"] .reader-settings__option {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) 44px;
     gap: 2px;
-    height: 64px;
+    height: 72px;
     padding-inline: max(4px, env(safe-area-inset-left)) max(4px, env(safe-area-inset-right));
   }
   .reader-footer__side,
@@ -1178,7 +1212,7 @@ html[data-reader="true"] .reader-settings__option {
     min-width: 0;
   }
   .reader-footer__counter {
-    min-height: 24px;
+    min-height: 44px;
     padding: 0 4px;
     font-size: 0.7rem;
     line-height: 1.15;

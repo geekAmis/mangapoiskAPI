@@ -8,7 +8,7 @@ const mobile = path.resolve(here, '..');
 const web = path.resolve(mobile, '..', 'web');
 const dist = path.join(web, 'dist');
 const www = path.join(mobile, 'www');
-const apiBase = process.env.CAPACITOR_API_BASE || 'http://85.192.37.58:8088/api/v1';
+const apiBase = process.env.CAPACITOR_API_BASE || 'https://85.192.37.58.nip.io:8443/api/v1';
 
 console.log(`Building web with VITE_API_BASE=${apiBase}`);
 execSync('npm run build', {
