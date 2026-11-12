@@ -285,3 +285,86 @@ async def test_retention_query_builds_weekly_cohorts(tmp_path: Path) -> None:
     assert second.size == 1
     assert second.d1 == 0
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_surface_metrics_aggregate_impressions_and_clicks(tmp_path: Path) -> None:
+    service, engine, _ = await make_service(tmp_path)
+    now = datetime.now(UTC)
+    rows = [
+        {
+            "event": "impression",
+            "client_id": "device-a",
+            "surface": "collection_weekly-best",
+            "dedupe_key": "surface-a-1",
+            "created_at": now - timedelta(hours=2),
+        },
+        {
+            "event": "click",
+            "client_id": "device-a",
+            "surface": "collection_weekly-best",
+            "dedupe_key": "surface-a-2",
+            "created_at": now - timedelta(hours=1),
+        },
+        {
+            "event": "impression",
+            "client_id": "device-b",
+            "surface": "collection_weekly-best",
+            "dedupe_key": "surface-b-1",
+            "created_at": now - timedelta(hours=1),
+        },
+        {
+            "event": "impression",
+            "client_id": "device-b",
+            "surface": "manga_related",
+            "dedupe_key": "surface-b-2",
+            "created_at": now - timedelta(hours=1),
+        },
+        {
+            "event": "click",
+            "client_id": "device-c",
+            "surface": "manga_related",
+            "dedupe_key": "surface-c-1",
+            "created_at": now - timedelta(hours=1),
+        },
+        # Outside the requested window.
+        {
+            "event": "impression",
+            "client_id": "device-a",
+            "surface": "collection_weekly-best",
+            "dedupe_key": "surface-old",
+            "created_at": now - timedelta(days=45),
+        },
+        # Empty surface is ignored rather than grouped under "".
+        {
+            "event": "impression",
+            "client_id": "device-a",
+            "surface": "",
+            "dedupe_key": "surface-empty",
+            "created_at": now - timedelta(hours=1),
+        },
+    ]
+    async with service.session_factory() as session:
+        accepted, duplicates = await insert_analytics_events(session, rows)
+        await session.commit()
+    assert accepted == 7
+    assert duplicates == 0
+
+    result = await service.analytics_surfaces(days=30)
+    assert result.days == 30
+    by_surface = {item.surface: item for item in result.items}
+    assert set(by_surface) == {"collection_weekly-best", "manga_related"}
+    weekly = by_surface["collection_weekly-best"]
+    assert weekly.impressions == 2
+    assert weekly.clicks == 1
+    assert weekly.ctr == 0.5
+    related = by_surface["manga_related"]
+    assert related.impressions == 1
+    assert related.clicks == 1
+    assert related.ctr == 1.0
+    # Highest impression volume first, then alphabetical.
+    assert [item.surface for item in result.items] == [
+        "collection_weekly-best",
+        "manga_related",
+    ]
+    await engine.dispose()

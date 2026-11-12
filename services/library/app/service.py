@@ -18,6 +18,8 @@ from manga_common.schemas import (
     AnalyticsEventIn,
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
+    AnalyticsSurfaceOut,
+    AnalyticsSurfacesOut,
     BookmarkOut,
     ProgressMergeItem,
     ProgressMergeOut,
@@ -35,6 +37,7 @@ from .config import LibrarySettings
 from .models import User
 from .repository import (
     add_bookmark,
+    analytics_surface_totals,
     as_utc,
     create_refresh_token,
     create_user,
@@ -307,6 +310,34 @@ class LibraryService:
                 session, since=now - timedelta(days=max(1, min(days, 90)) + 30)
             )
         return compute_retention(events, days=days, now=now)
+
+    async def analytics_surfaces(self, days: int = 30) -> AnalyticsSurfacesOut:
+        """Aggregate impression/click/CTR without exposing device identifiers."""
+
+        now = datetime.now(UTC)
+        window = max(1, min(days, 90))
+        async with self.session_factory() as session:
+            rows = await analytics_surface_totals(
+                session, since=now - timedelta(days=window)
+            )
+        counters: dict[str, dict[str, int]] = {}
+        for surface, event, count in rows:
+            bucket = counters.setdefault(surface, {"impression": 0, "click": 0})
+            if event in bucket:
+                bucket[event] += count
+        items = [
+            AnalyticsSurfaceOut(
+                surface=surface,
+                impressions=bucket["impression"],
+                clicks=bucket["click"],
+                ctr=round(bucket["click"] / bucket["impression"], 4)
+                if bucket["impression"]
+                else 0.0,
+            )
+            for surface, bucket in counters.items()
+        ]
+        items.sort(key=lambda item: (-item.impressions, item.surface))
+        return AnalyticsSurfacesOut(days=window, generated_at=now, items=items)
 
     async def delete_progress(self, user_id: uuid.UUID, manga_id: uuid.UUID) -> bool:
         async with self.session_factory() as session:

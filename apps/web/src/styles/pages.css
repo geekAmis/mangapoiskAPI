@@ -556,6 +556,9 @@
 .manga-page {
   padding-top: clamp(22px, 3vw, 36px);
 }
+.manga-page--loading {
+  min-height: calc(100dvh - var(--header-height));
+}
 .breadcrumbs {
   display: flex;
   align-items: center;
@@ -2695,6 +2698,38 @@
 }
 .related-shelves .ml-panel {
   margin: 0;
+}
+.collection-shelves {
+  display: grid;
+  gap: 16px;
+}
+.collection-shelves .ml-panel {
+  margin: 0;
+}
+.collection-page__head {
+  align-items: flex-end;
+  gap: 16px;
+}
+.collection-page__head h1 {
+  margin: 6px 0 4px;
+}
+.collection-page__count {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.collection-page__grid {
+  margin-top: 20px;
+}
+@media (max-width: 640px) {
+  .collection-page__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .collection-shelves {
+    gap: 12px;
+  }
 }
 .reader-completion {
   padding: 20px clamp(12px, 3vw, 28px) calc(var(--reader-footer-h) + 28px);

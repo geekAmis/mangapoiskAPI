@@ -15,13 +15,15 @@ import { MangaGridSkeleton } from './Skeleton';
 import { useAuthStore } from '../stores/auth';
 import { useLocalProgress } from '../lib/useReading';
 
-function useImpression(
+function useImpression<T extends HTMLElement = HTMLElement>(
   surface: string,
   seedMangaId: string | undefined,
-): RefObject<HTMLElement | null> {
-  const ref = useRef<HTMLElement | null>(null);
+  enabled = true,
+): RefObject<T | null> {
+  const ref = useRef<T | null>(null);
   const seen = useRef(false);
   useEffect(() => {
+    if (!enabled) return;
     const element = ref.current;
     if (!element || seen.current) return;
     if (!('IntersectionObserver' in window)) {
@@ -41,8 +43,17 @@ function useImpression(
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [surface, seedMangaId]);
+  }, [surface, seedMangaId, enabled]);
   return ref;
+}
+
+/** Shared impression observer for non-shelf surfaces (collection pages). */
+export function useSurfaceImpression<T extends HTMLElement = HTMLElement>(
+  surface: string,
+  seedMangaId?: string,
+  enabled = true,
+): RefObject<T | null> {
+  return useImpression<T>(surface, seedMangaId, enabled);
 }
 
 export function MangaShelf({
@@ -53,6 +64,7 @@ export function MangaShelf({
   seedMangaId,
   action,
   loading = false,
+  skeletonCount = 6,
 }: {
   title: string;
   subtitle?: string;
@@ -61,6 +73,7 @@ export function MangaShelf({
   seedMangaId?: string;
   action?: ReactNode;
   loading?: boolean;
+  skeletonCount?: number;
 }) {
   const ref = useImpression(surface, seedMangaId);
   const id = `shelf-${surface.replace(/[^a-z0-9_-]/gi, '-')}`;
@@ -75,7 +88,7 @@ export function MangaShelf({
         {action}
       </header>
       {loading ? (
-        <MangaGridSkeleton count={6} />
+        <MangaGridSkeleton count={skeletonCount} />
       ) : (
         <div className="ml-grid">
           {items.map((manga) => (

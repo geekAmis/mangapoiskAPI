@@ -7,6 +7,7 @@ from manga_common.schemas import (
     AnalyticsEventsIn,
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
+    AnalyticsSurfacesOut,
     BookmarkCreate,
     BookmarkOut,
     LoginRequest,
@@ -199,6 +200,14 @@ async def analytics_retention(
     service: LibraryService = Depends(get_service),
 ) -> AnalyticsRetentionOut:
     return await service.analytics_retention(days)
+
+
+@router.get("/analytics/surfaces", response_model=AnalyticsSurfacesOut)
+async def analytics_surfaces(
+    days: int = Query(default=30, ge=1, le=90),
+    service: LibraryService = Depends(get_service),
+) -> AnalyticsSurfacesOut:
+    return await service.analytics_surfaces(days)
 
 
 @router.delete("/me/progress/{manga_id}", status_code=status.HTTP_204_NO_CONTENT)

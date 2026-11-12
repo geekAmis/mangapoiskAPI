@@ -11,6 +11,7 @@ from manga_common.service import add_ready_check, create_service_app
 
 from .api import router
 from .config import CatalogSettings
+from .discovery import seed_smart_collections
 from .migrations import ensure_runtime_schema
 from .parser_client import ParserClient
 from .search_backfill import (
@@ -31,6 +32,11 @@ async def lifespan(app: FastAPI):
     engine = create_engine(settings.catalog_dsn, echo=settings.debug)
     session_factory = create_session_factory(engine)
     await ensure_runtime_schema(engine)
+    async with session_factory() as session:
+        created = await seed_smart_collections(session)
+        await session.commit()
+    if created:
+        logger.info("seeded %s discovery collections", created)
     schema_elapsed = time.perf_counter() - started
     try:
         bootstrap = await bootstrap_search_index(

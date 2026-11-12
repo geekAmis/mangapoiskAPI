@@ -28,6 +28,7 @@ import { Skeleton } from '../components/Skeleton';
 import { AdminLogin } from '../components/admin/AdminLogin';
 import { AdminServerCard } from '../components/admin/AdminServerCard';
 import { AdsPanel } from '../components/admin/AdsPanel';
+import { CollectionsPanel } from '../components/admin/CollectionsPanel';
 import { CrawlerStatusPanel } from '../components/admin/CrawlerStatusPanel';
 import { DeployModal } from '../components/admin/DeployModal';
 import { MediaStoragePanel } from '../components/admin/MediaStoragePanel';
@@ -1017,6 +1018,8 @@ export default function AdminPage() {
         <CommentModerationPanel />
 
         <AdsPanel />
+
+        <CollectionsPanel />
 
         <section className="admin-panel" aria-labelledby="admin-audit-title">
           <div className="admin-panel__head">

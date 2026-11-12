@@ -9,6 +9,10 @@ from manga_common.schemas import (
     AnalyticsEventsIn,
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
+    AnalyticsSurfacesOut,
+    CollectionAuditOut,
+    CollectionListOut,
+    CollectionOut,
     ProgressMergeOut,
     ProgressMergeRequest,
     RecommendationListOut,
@@ -113,9 +117,65 @@ async def recommendations(
 
 
 @router.get("/manga/{manga_id}/related", response_model=RelatedMangaOut)
-async def related_manga(request: Request, manga_id: uuid.UUID) -> RelatedMangaOut:
+async def related_manga(
+    request: Request,
+    response: Response,
+    manga_id: uuid.UUID,
+    history: str | None = Query(default=None, max_length=4096),
+    limit: int = Query(default=12, ge=6, le=12),
+    user: Annotated[UserClaims | None, Depends(optional_user)] = None,
+) -> RelatedMangaOut:
+    """Explicit series/links plus a heuristic "similar" shelf.
+
+    Anonymous clients pass locally read ids via ``history``; for an account the
+    gateway adds server-side history so a read title never comes back as a
+    suggestion.  The response is private when personal history is involved.
+    """
+
+    catalog, library = _clients(request)
+    history_ids = _parse_ids(history)
+    if user is not None:
+        try:
+            items = await library.history(_authorization(request), limit=100)
+            history_ids = list(
+                dict.fromkeys([*history_ids, *(item.manga_id for item in items)])
+            )
+        except Exception as exc:
+            logger.debug("related history unavailable: %s", exc)
+    result = await catalog.related(
+        str(manga_id), history_ids=[str(item) for item in history_ids], limit=limit
+    )
+    response.headers["Cache-Control"] = (
+        "private, max-age=120" if user is not None else "public, max-age=120"
+    )
+    return result
+
+
+@router.get("/collections", response_model=CollectionListOut)
+async def collections(
+    request: Request,
+    response: Response,
+    limit: int = Query(default=12, ge=1, le=24),
+) -> CollectionListOut:
+    """Public discovery collections with a short, deterministic preview."""
+
     catalog, _ = _clients(request)
-    return await catalog.related(str(manga_id))
+    result = await catalog.collections(limit=limit)
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+    return result
+
+
+@router.get("/collections/{slug}", response_model=CollectionOut)
+async def collection(
+    request: Request,
+    response: Response,
+    slug: str,
+    limit: int = Query(default=24, ge=1, le=60),
+) -> CollectionOut:
+    catalog, _ = _clients(request)
+    result = await catalog.collection(slug, limit=limit)
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+    return result
 
 
 @router.put("/admin/manga/{manga_id}/relations")
@@ -135,6 +195,109 @@ async def link_relations(
     return await catalog.link_relations(
         str(manga_id), {"items": [item.model_dump(mode="json") for item in payload.items]}
     )
+
+
+@router.get("/admin/collections", response_model=CollectionListOut)
+async def admin_collections(
+    request: Request,
+    user: UserClaims = Depends(require_admin),
+) -> CollectionListOut:
+    catalog, _ = _clients(request)
+    return await catalog.admin_collections()
+
+
+@router.get("/admin/collections/audit", response_model=list[CollectionAuditOut])
+async def admin_collection_audit(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+    user: UserClaims = Depends(require_admin),
+) -> list[CollectionAuditOut]:
+    catalog, _ = _clients(request)
+    return await catalog.collection_audit(limit)
+
+
+@router.post("/admin/collections", response_model=CollectionOut)
+async def admin_create_collection(
+    request: Request,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> CollectionOut:
+    catalog, _ = _clients(request)
+    return await catalog.create_collection(payload)
+
+
+@router.patch("/admin/collections/{collection_id}", response_model=CollectionOut)
+async def admin_update_collection(
+    request: Request,
+    collection_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> CollectionOut:
+    catalog, _ = _clients(request)
+    return await catalog.update_collection(str(collection_id), payload)
+
+
+@router.delete("/admin/collections/{collection_id}")
+async def admin_delete_collection(
+    request: Request,
+    collection_id: uuid.UUID,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, bool]:
+    catalog, _ = _clients(request)
+    await catalog.delete_collection(str(collection_id))
+    return {"ok": True}
+
+
+@router.post("/admin/collections/{collection_id}/items", response_model=CollectionOut)
+async def admin_add_collection_item(
+    request: Request,
+    collection_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> CollectionOut:
+    catalog, _ = _clients(request)
+    manga_id = str(payload.get("manga_id") or "")
+    if not manga_id:
+        from manga_common.errors import ValidationError
+
+        raise ValidationError("Укажите manga_id")
+    return await catalog.add_collection_item(str(collection_id), manga_id)
+
+
+@router.delete(
+    "/admin/collections/{collection_id}/items/{manga_id}", response_model=CollectionOut
+)
+async def admin_remove_collection_item(
+    request: Request,
+    collection_id: uuid.UUID,
+    manga_id: uuid.UUID,
+    user: UserClaims = Depends(require_admin),
+) -> CollectionOut:
+    catalog, _ = _clients(request)
+    return await catalog.remove_collection_item(str(collection_id), str(manga_id))
+
+
+@router.put("/admin/collections/{collection_id}/order", response_model=CollectionOut)
+async def admin_reorder_collection(
+    request: Request,
+    collection_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> CollectionOut:
+    catalog, _ = _clients(request)
+    raw = payload.get("manga_ids")
+    manga_ids = [str(item) for item in raw] if isinstance(raw, list) else []
+    return await catalog.reorder_collection(str(collection_id), manga_ids)
+
+
+@router.get("/admin/analytics/surfaces", response_model=AnalyticsSurfacesOut)
+async def admin_analytics_surfaces(
+    request: Request,
+    days: int = Query(default=30, ge=1, le=90),
+    user: UserClaims = Depends(require_admin),
+) -> AnalyticsSurfacesOut:
+    _, library = _clients(request)
+    return await library.analytics_surfaces(days)
 
 
 @router.post("/library/progress/merge", response_model=ProgressMergeOut)

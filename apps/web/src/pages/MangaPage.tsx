@@ -405,7 +405,7 @@ export default function MangaPage() {
   if (!manga) {
     if (mangaQuery.isLoading) {
       return (
-        <div className="page container manga-page">
+        <div className="page container manga-page manga-page--loading">
           <Skeleton width="280px" height="14px" />
           <div className="manga-hero" style={{ marginTop: 28 }}>
             <div className="manga-poster-column">

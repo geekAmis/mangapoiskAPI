@@ -1,4 +1,12 @@
 import { API_BASE } from './client';
+import type {
+  AnalyticsSurfacesOut,
+  CollectionAuditOut,
+  CollectionKind,
+  CollectionListOut,
+  CollectionOut,
+  CollectionRule,
+} from './types';
 
 export const ADMIN_TOKEN_KEY = 'mp-admin-token';
 export const ADMIN_UNAUTHORIZED_EVENT = 'mp-admin-unauthorized';
@@ -233,6 +241,17 @@ export interface AdminCatalogueHealth {
     }>;
   };
   crawl_states: AdminCatalogueState[];
+}
+
+export interface AdminCollectionInput {
+  title: string;
+  slug?: string | null;
+  description?: string;
+  kind: CollectionKind;
+  rule?: CollectionRule | null;
+  enabled?: boolean;
+  position?: number;
+  limit?: number;
 }
 
 export interface AdminAuditEntry {
@@ -617,6 +636,53 @@ export const adminApi = {
 
   getAudit: (limit = 100, signal?: AbortSignal) =>
     adminRequest<AdminAuditEntry[]>(`/audit?limit=${encodeURIComponent(String(limit))}`, { signal }),
+
+  listCollections: (signal?: AbortSignal) =>
+    adminRequest<CollectionListOut>('/collections', { signal }),
+
+  createCollection: (payload: AdminCollectionInput) =>
+    adminRequest<CollectionOut>('/collections', { method: 'POST', body: payload }),
+
+  updateCollection: (id: string, payload: Partial<AdminCollectionInput>) =>
+    adminRequest<CollectionOut>(`/collections/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
+
+  deleteCollection: (id: string) =>
+    adminRequest<{ ok: boolean }>(`/collections/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  addCollectionItem: (id: string, mangaId: string) =>
+    adminRequest<CollectionOut>(`/collections/${encodeURIComponent(id)}/items`, {
+      method: 'POST',
+      body: { manga_id: mangaId },
+    }),
+
+  removeCollectionItem: (id: string, mangaId: string) =>
+    adminRequest<CollectionOut>(
+      `/collections/${encodeURIComponent(id)}/items/${encodeURIComponent(mangaId)}`,
+      { method: 'DELETE' },
+    ),
+
+  reorderCollection: (id: string, mangaIds: string[]) =>
+    adminRequest<CollectionOut>(`/collections/${encodeURIComponent(id)}/order`, {
+      method: 'PUT',
+      body: { manga_ids: mangaIds },
+    }),
+
+  getCollectionAudit: (limit = 100, signal?: AbortSignal) =>
+    adminRequest<CollectionAuditOut[]>(
+      `/collections/audit?limit=${encodeURIComponent(String(limit))}`,
+      { signal },
+    ),
+
+  getSurfaceMetrics: (days = 30, signal?: AbortSignal) =>
+    adminRequest<AnalyticsSurfacesOut>(
+      `/analytics/surfaces?days=${encodeURIComponent(String(days))}`,
+      { signal },
+    ),
 
   listAds: (signal?: AbortSignal) => adminRequest<AdminAdProvider[]>('/ads', { signal }),
 

@@ -49,6 +49,9 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         Index("ix_manga_title", "title"),
         Index("ix_manga_group_key", "group_key"),
         Index("ix_manga_rating", "rating"),
+        Index("ix_manga_rating_count", "rating_count"),
+        Index("ix_manga_chapters_count", "chapters_count"),
+        Index("ix_manga_created_at", "created_at"),
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
         Index("ix_manga_last_synced_at", "last_synced_at"),
         Index("ix_manga_enrichment_retry_at", "enrichment_retry_at"),
@@ -250,6 +253,73 @@ class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class MangaCollection(Base, UUIDPrimaryKey, TimestampMixin):
+    """Public discovery collection shown on the home page and its own route.
+
+    ``smart`` collections are generated deterministically from the catalogue by
+    :mod:`services.catalog.app.discovery`; their rule never changes through the
+    public API.  ``manual`` collections are curated in the admin panel and keep
+    an explicit, ordered item list.  Both kinds share the same public contract.
+    """
+
+    __tablename__ = "manga_collections"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_manga_collections_slug"),
+        Index("ix_manga_collections_public", "enabled", "position"),
+    )
+
+    slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    rule: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    limit: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
+
+    items: Mapped[list[MangaCollectionItem]] = relationship(
+        back_populates="collection", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class MangaCollectionItem(Base, UUIDPrimaryKey, TimestampMixin):
+    """One explicitly ordered title in a curated collection."""
+
+    __tablename__ = "manga_collection_items"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "manga_id", name="uq_manga_collection_items_pair"),
+        Index("ix_manga_collection_items_order", "collection_id", "position"),
+    )
+
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga_collections.id", ondelete="CASCADE"), nullable=False
+    )
+    manga_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    collection: Mapped[MangaCollection] = relationship(back_populates="items")
+
+
+class CollectionAudit(Base, UUIDPrimaryKey, TimestampMixin):
+    """Editorial audit trail for collection changes.
+
+    Only collection ids, slugs/titles and manga ids/titles are stored; no
+    administrator identity, IP address or free-form text is recorded.
+    """
+
+    __tablename__ = "manga_collection_audit"
+    __table_args__ = (
+        Index("ix_manga_collection_audit_action", "action"),
+        Index("ix_manga_collection_audit_created", "created_at"),
+    )
+
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
 
 
 class MangaRelation(Base, UUIDPrimaryKey, TimestampMixin):
