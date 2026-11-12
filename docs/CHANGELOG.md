@@ -7,6 +7,11 @@ SemVer.
 
 - Public reader profiles (#47): `/u/{username}`, XP/levels/ranks,
   achievements, activity feed, privacy controls and profile moderation.
+- Catalogue list performance (#68): `has_chapters` visibility flag, materialised
+  `catalog_groups`/`catalog_source_groups` card tables, bounded SQLite
+  `PRAGMA optimize`, slow-query logging and p50/p95 list latency in admin stats.
+  Measured p95 7.9 ms internal / 8.9 ms public at 100k manga rows and 1.76M
+  chapters.
 - Shared database or replication for multi-node catalogue/library failover.
 - Alembic migrations for destructive schema changes.
 - Redis-backed global rate limiting.

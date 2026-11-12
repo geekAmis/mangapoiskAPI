@@ -501,6 +501,15 @@ async def maintenance_refresh(
     return await service.refresh_stale(limit)
 
 
+@router.post("/maintenance/optimize")
+async def maintenance_optimize(
+    service: CatalogService = Depends(get_service),
+) -> dict[str, object]:
+    """Refresh planner statistics after a large crawl/import."""
+
+    return await service.optimize_stats()
+
+
 @router.post("/maintenance/reset-enrichment")
 async def maintenance_reset_enrichment(
     source: str | None = Query(default=None, max_length=64),
