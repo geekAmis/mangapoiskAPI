@@ -1,0 +1,207 @@
+{
+  "dialect": "sqlite",
+  "database": "temporary-sqlite",
+  "fixture": {
+    "manga": 100000,
+    "groups": 20000,
+    "chapters": 1760000
+  },
+  "migration_ms": 11963.07,
+  "restart_migration_ms": 208.88,
+  "planner_optimize_ms": 792.45,
+  "catalog_cards": 20000,
+  "catalog_source_cards": 20000,
+  "manga_rows": 100000,
+  "has_chapters_rows": 80000,
+  "empty_cards": 0,
+  "runs": 20,
+  "internal": {
+    "popular": {
+      "samples": 20,
+      "p50_ms": 7.44,
+      "p95_ms": 7.74,
+      "mean_ms": 7.39,
+      "max_ms": 7.92
+    },
+    "rating": {
+      "samples": 20,
+      "p50_ms": 7.29,
+      "p95_ms": 7.9,
+      "mean_ms": 7.13,
+      "max_ms": 8.11
+    },
+    "updated": {
+      "samples": 20,
+      "p50_ms": 7.75,
+      "p95_ms": 8.59,
+      "mean_ms": 7.78,
+      "max_ms": 8.59
+    },
+    "title": {
+      "samples": 20,
+      "p50_ms": 7.74,
+      "p95_ms": 8.53,
+      "mean_ms": 7.82,
+      "max_ms": 8.76
+    },
+    "new": {
+      "samples": 20,
+      "p50_ms": 7.53,
+      "p95_ms": 8.33,
+      "mean_ms": 7.62,
+      "max_ms": 8.46
+    },
+    "genre_fantasy": {
+      "samples": 20,
+      "p50_ms": 12.95,
+      "p95_ms": 14.77,
+      "mean_ms": 12.99,
+      "max_ms": 15.55
+    },
+    "genres_and": {
+      "samples": 20,
+      "p50_ms": 13.7,
+      "p95_ms": 15.88,
+      "mean_ms": 13.68,
+      "max_ms": 16.76
+    },
+    "status": {
+      "samples": 20,
+      "p50_ms": 11.6,
+      "p95_ms": 13.61,
+      "mean_ms": 11.73,
+      "max_ms": 16.27
+    },
+    "year": {
+      "samples": 20,
+      "p50_ms": 10.37,
+      "p95_ms": 11.32,
+      "mean_ms": 10.5,
+      "max_ms": 11.73
+    },
+    "source": {
+      "samples": 20,
+      "p50_ms": 13.01,
+      "p95_ms": 18.54,
+      "mean_ms": 13.0,
+      "max_ms": 19.44
+    },
+    "page_10": {
+      "samples": 20,
+      "p50_ms": 9.09,
+      "p95_ms": 10.56,
+      "mean_ms": 9.13,
+      "max_ms": 11.04
+    }
+  },
+  "public": {
+    "popular": {
+      "samples": 20,
+      "p50_ms": 8.47,
+      "p95_ms": 9.19,
+      "mean_ms": 8.54,
+      "max_ms": 9.31
+    },
+    "rating": {
+      "samples": 20,
+      "p50_ms": 9.95,
+      "p95_ms": 11.91,
+      "mean_ms": 9.84,
+      "max_ms": 13.03
+    },
+    "updated": {
+      "samples": 20,
+      "p50_ms": 10.01,
+      "p95_ms": 10.44,
+      "mean_ms": 10.04,
+      "max_ms": 16.84
+    },
+    "title": {
+      "samples": 20,
+      "p50_ms": 9.34,
+      "p95_ms": 10.9,
+      "mean_ms": 9.51,
+      "max_ms": 11.17
+    },
+    "new": {
+      "samples": 20,
+      "p50_ms": 9.92,
+      "p95_ms": 10.88,
+      "mean_ms": 9.91,
+      "max_ms": 11.97
+    },
+    "genre_fantasy": {
+      "samples": 20,
+      "p50_ms": 14.38,
+      "p95_ms": 17.12,
+      "mean_ms": 14.41,
+      "max_ms": 18.77
+    },
+    "genres_and": {
+      "samples": 20,
+      "p50_ms": 16.46,
+      "p95_ms": 19.28,
+      "mean_ms": 16.61,
+      "max_ms": 20.91
+    },
+    "status": {
+      "samples": 20,
+      "p50_ms": 13.11,
+      "p95_ms": 15.48,
+      "mean_ms": 13.34,
+      "max_ms": 16.2
+    },
+    "year": {
+      "samples": 20,
+      "p50_ms": 13.33,
+      "p95_ms": 15.91,
+      "mean_ms": 13.67,
+      "max_ms": 21.05
+    },
+    "source": {
+      "samples": 20,
+      "p50_ms": 12.9,
+      "p95_ms": 14.64,
+      "mean_ms": 13.02,
+      "max_ms": 16.34
+    },
+    "page_10": {
+      "samples": 20,
+      "p50_ms": 12.9,
+      "p95_ms": 14.22,
+      "mean_ms": 12.75,
+      "max_ms": 14.52
+    }
+  },
+  "concurrent_writer": {
+    "internal_popular": {
+      "samples": 20,
+      "p50_ms": 9.46,
+      "p95_ms": 13.47,
+      "mean_ms": 11.25,
+      "max_ms": 37.93
+    },
+    "public_popular": {
+      "samples": 20,
+      "p50_ms": 13.09,
+      "p95_ms": 17.69,
+      "mean_ms": 13.92,
+      "max_ms": 24.04
+    },
+    "write_errors": [],
+    "write_error_count": 0
+  },
+  "legacy_pre_68": {
+    "count_ms": 921.45,
+    "count": 20000,
+    "list_ms": 905.66,
+    "list_rows": 20
+  },
+  "explain": {
+    "count": "SCAN catalog_groups USING COVERING INDEX ix_catalog_groups_manga_id",
+    "popular": "SCAN catalog_groups USING INDEX ix_catalog_groups_popular",
+    "genre": "SCAN catalog_groups USING INDEX ix_catalog_groups_popular",
+    "title": "SCAN catalog_groups USING INDEX ix_catalog_groups_title",
+    "manga_visible_group": "SEARCH manga USING INDEX ix_manga_visible_group (group_key=?) | USE TEMP B-TREE FOR ORDER BY"
+  }
+}

@@ -27,6 +27,12 @@ class CatalogSettings(Settings):
     search_backfill_lease_seconds: int = 120
     search_backfill_yield_seconds: float = 0.01
     search_backfill_max_retries: int = 5
+    # #68: keep SQLite planner stats fresh without a 21s full ANALYZE.  The
+    # background loop runs PRAGMA optimize with a bounded analysis_limit.
+    stats_optimize_enabled: bool = True
+    stats_optimize_interval_seconds: int = 900
+    slow_query_ms: int = 500
+    list_latency_window: int = 512
 
     @property
     def catalog_dsn(self) -> str:

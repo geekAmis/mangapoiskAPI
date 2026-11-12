@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .models import Manga, SearchBackfillState
 from .normalization import genres_key, status_key
-from .repository import compute_group_key
+from .repository import compute_group_key, rebuild_catalog_groups
 from .search import build_search_fields
 from .search_fts import fts_row_count, rebuild_legacy_fts, sync_search_fts_many
 
@@ -459,7 +459,7 @@ class SearchBackfillWorker:
                     {
                         "manga_id": row.manga_id,
                         "group_key": compute_group_key(row.title)
-                        or f"manga-{row.manga_id}",
+                        or f"manga-{row.manga_id.hex}",
                     }
                     for row in rows
                 ]
@@ -502,6 +502,10 @@ class SearchBackfillWorker:
                 logger.info("search backfill finished: %s rows normalized", processed)
             await self.backfill_group_keys()
             await self.backfill_cover_group_keys()
+            async with self.session_factory() as session:
+                rebuilt = await rebuild_catalog_groups(session)
+                await session.commit()
+            logger.info("catalogue card table rebuilt after backfill: %s groups", rebuilt)
         finally:
             try:
                 await release_lease(self.session_factory, self.owner)

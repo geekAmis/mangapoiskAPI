@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     false,
     text,
 )
@@ -52,6 +53,22 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
         Index("ix_manga_last_synced_at", "last_synced_at"),
         Index("ix_manga_enrichment_retry_at", "enrichment_retry_at"),
+        # Partial indexes keep catalogue visibility queries cheap without a
+        # correlated EXISTS(chapters) probe for every row (#68).  The composite
+        # variant also serves representative selection inside one group.
+        Index(
+            "ix_manga_visible_group",
+            "group_key",
+            sqlite_where=text("has_chapters = 1"),
+            postgresql_where=text("has_chapters"),
+        ),
+        Index(
+            "ix_manga_visible_chapters_group",
+            "chapters_count",
+            "group_key",
+            sqlite_where=text("has_chapters = 1"),
+            postgresql_where=text("has_chapters"),
+        ),
         # Partial index keeps the "rows still waiting for search indexing"
         # query cheap even with a 100k-row catalogue.
         Index(
@@ -100,6 +117,12 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     group_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # True only after at least one chapter row exists for this variant.  A
+    # search summary may know a source-reported ``chapters_count`` before the
+    # detail import, but such a row must never become an empty catalogue card.
+    has_chapters: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     enrichment_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -144,6 +167,118 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         for name, value in fields.items():
             setattr(self, name, value)
         self.search_indexed = True
+
+
+class CatalogGroup(Base):
+    """One materialised catalogue card per canonical title group.
+
+    The live ``manga`` table has one row per source variant (78k rows in
+    production) while the catalogue exposes ~19k deduplicated cards.  Recomputing
+    that grouping with a window function on every request is what made the list
+    endpoint slow.  This table stores the chosen representative plus only the
+    fields needed for filtering, sorting and pagination; the full row is joined
+    by primary key for the 20-100 cards actually returned.
+
+    A group is present only while at least one of its variants has chapter rows
+    (``Manga.has_chapters``).  ``include_empty`` remains a rare QA/admin path and
+    still uses the dynamic grouped query, so the public contract is unchanged.
+    """
+
+    __tablename__ = "catalog_groups"
+    __table_args__ = (
+        # The column order mirrors the list sort modes so SQLite can walk the
+        # index backwards for the all-DESC popular/rating/updated/new sorts.
+        Index(
+            "ix_catalog_groups_popular",
+            "rating_count",
+            "rating",
+            "updated_at",
+            "group_key",
+        ),
+        Index(
+            "ix_catalog_groups_rating",
+            "rating",
+            "rating_count",
+            "group_key",
+        ),
+        Index(
+            "ix_catalog_groups_updated",
+            "last_chapter_at",
+            "updated_at",
+            "group_key",
+        ),
+        Index("ix_catalog_groups_title", "title", "group_key"),
+        Index("ix_catalog_groups_new", "created_at", "group_key"),
+    )
+
+    group_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    manga_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    status_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    genres_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rating_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CatalogSourceGroup(Base):
+    """Per-source representative for a canonical title group.
+
+    ``catalog_groups`` answers the unfiltered listing with one card per group.
+    A source filter is variant-specific: the card should be the best variant
+    *from that source*, not another source's representative.  This small table
+    keeps that historical semantics without a window query over ``manga`` on
+    every request.  Rows exist only for sources that currently have at least one
+    visible variant in the group.
+    """
+
+    __tablename__ = "catalog_source_groups"
+    __table_args__ = (
+        Index(
+            "ix_catalog_source_groups_source_popular",
+            "source",
+            "rating_count",
+            "rating",
+            "updated_at",
+            "group_key",
+        ),
+        Index(
+            "ix_catalog_source_groups_source_title",
+            "source",
+            "title",
+            "group_key",
+        ),
+    )
+
+    group_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    manga_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    status_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    genres_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rating_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CatalogState(Base):
+    """Marker for the materialised catalogue card tables."""
+
+    __tablename__ = "catalog_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    cards_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cards_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Chapter(Base, UUIDPrimaryKey, TimestampMixin):

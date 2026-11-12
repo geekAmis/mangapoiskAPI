@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -24,9 +25,11 @@ from manga_common.schemas import (
     TranslatorOut,
 )
 from manga_common.source_models import MangaDetail, SourceInfo
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config import CatalogSettings
+from .metrics import LatencyWindow
 from .normalization import GENRE_LABELS, genre_slugs
 from .parser_client import ParserClient
 from .recommendations import recommendation_cache, recommendation_cache_key
@@ -75,6 +78,7 @@ from .schemas import (
     HomeUpdateOut,
     HomeUpdatesOut,
     ImportResult,
+    ListLatencyStats,
     NewChapterEvent,
     PendingEnrichmentListOut,
     PendingEnrichmentOut,
@@ -154,6 +158,7 @@ class CatalogService:
         self.settings = settings
         self.session_factory = session_factory
         self.parser = parser
+        self.list_latency = LatencyWindow(size=settings.list_latency_window)
 
     async def import_from_source(
         self, source: str, *, source_id: str | None = None, url: str | None = None
@@ -353,7 +358,32 @@ class CatalogService:
                     has_next=(page - 1) * limit + limit < total,
                 )
 
-        return await retry_on_locked(read)
+        started = time.perf_counter()
+        try:
+            response = await retry_on_locked(read)
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            self.list_latency.observe(elapsed_ms)
+        if elapsed_ms >= self.settings.slow_query_ms:
+            logger.warning(
+                "slow catalogue list: %.1fms (sort=%s page=%s limit=%s "
+                "query=%s source=%s genre=%s genres=%s year=%s status=%s)",
+                elapsed_ms,
+                sort,
+                page,
+                limit,
+                bool((query or "").strip()),
+                bool(source),
+                bool(genre),
+                bool(genres),
+                bool(year),
+                bool(status),
+                extra={
+                    "event": "catalog_slow_list",
+                    "duration_ms": round(elapsed_ms, 2),
+                },
+            )
+        return response
 
     async def suggest(self, query: str, *, limit: int = 6) -> SuggestResponse:
         """Instant local suggestions; this method has no parser dependency."""
@@ -529,9 +559,40 @@ class CatalogService:
     async def catalog_stats(self) -> CatalogStats:
         async def read() -> CatalogStats:
             async with self.session_factory() as session:
-                return await stats(session)
+                payload = await stats(session)
+                snapshot = self.list_latency.snapshot()
+                payload.list_latency = ListLatencyStats(
+                    samples=snapshot.samples,
+                    p50_ms=snapshot.p50_ms,
+                    p95_ms=snapshot.p95_ms,
+                    max_ms=snapshot.max_ms,
+                )
+                return payload
 
         return await retry_on_locked(read)
+
+    async def optimize_stats(self) -> dict[str, Any]:
+        """Refresh SQLite planner statistics without a full blocking ANALYZE.
+
+        ``analysis_limit`` bounds each index sample, so this stays short even
+        while readers are active.  PostgreSQL keeps autovacuum/autoanalyze as
+        the primary mechanism; the explicit statement there targets only the
+        small materialised card table.
+        """
+
+        started = time.perf_counter()
+        async with self.session_factory() as session:
+            dialect = session.get_bind().dialect.name
+            if dialect == "sqlite":
+                await session.execute(text("PRAGMA analysis_limit=400"))
+                await session.execute(text("PRAGMA optimize"))
+            else:
+                await session.execute(text("ANALYZE catalog_groups"))
+            await session.commit()
+        return {
+            "dialect": dialect,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        }
 
     async def source_rows(self) -> list[Any]:
         async def read() -> list[Any]:

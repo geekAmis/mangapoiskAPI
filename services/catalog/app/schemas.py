@@ -70,6 +70,13 @@ class SearchBackfillStats(BaseModel):
     last_error: str | None = None
 
 
+class ListLatencyStats(BaseModel):
+    samples: int = 0
+    p50_ms: float = 0.0
+    p95_ms: float = 0.0
+    max_ms: float = 0.0
+
+
 class CatalogStats(BaseModel):
     manga: int
     chapters: int
@@ -78,6 +85,9 @@ class CatalogStats(BaseModel):
     pending_enrichment: int = 0
     retrying_enrichment: int = 0
     search_backfill: SearchBackfillStats | None = None
+    # Rolling in-process list latency.  Additive: older gateway/frontend
+    # clients ignore it; `/api/v1/admin/catalogue` returns the raw stats object.
+    list_latency: ListLatencyStats | None = None
 
 
 class SourceSyncRequest(BaseModel):
