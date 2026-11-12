@@ -16,6 +16,7 @@ import { formatDateTime, formatInt } from '../../lib/format';
 
 interface ServersPanelProps {
   servers: AdminServer[];
+  lastDeployByServer: Map<string, string>;
   serversLoading: boolean;
   serversError: unknown;
   serversFetching: boolean;
@@ -71,6 +72,7 @@ function RegistryRow({ endpoint, active }: { endpoint: AdminRegistryEndpoint; ac
 
 export function ServersPanel({
   servers,
+  lastDeployByServer,
   serversLoading,
   serversError,
   serversFetching,
@@ -219,6 +221,7 @@ export function ServersPanel({
               <AdminServerCard
                 key={server.id}
                 server={server}
+                lastDeployAt={lastDeployByServer.get(server.id) ?? null}
                 updatePending={updatePendingId === server.id}
                 healthPending={healthPendingId === server.id}
                 onEdit={onEdit}

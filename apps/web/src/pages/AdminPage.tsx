@@ -341,6 +341,16 @@ export default function AdminPage() {
     toast.info('Вы вышли из Control');
   };
 
+  const lastDeployByServer = useMemo(() => {
+    const result = new Map<string, string>();
+    for (const job of jobs) {
+      if (job.status !== 'done' || !job.created_at) continue;
+      const current = result.get(job.server_id);
+      if (!current || job.created_at > current) result.set(job.server_id, job.created_at);
+    }
+    return result;
+  }, [jobs]);
+
   const badges = useMemo<Partial<Record<AdminTabId, AdminTabBadge>>>(() => {
     const httpServices = servers.flatMap((server) =>
       server.services.filter((service) => service.code !== 'scheduler'),
@@ -454,6 +464,7 @@ export default function AdminPage() {
           <TabPanel id="servers" active={activeTab === 'servers'}>
             <ServersPanel
               servers={servers}
+              lastDeployByServer={lastDeployByServer}
               serversLoading={serversQuery.isLoading}
               serversError={serversQuery.isError}
               serversFetching={serversQuery.isFetching}

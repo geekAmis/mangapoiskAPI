@@ -6,6 +6,7 @@ import { DancingSpinner } from '../DancingLoader';
 
 interface AdminServerCardProps {
   server: AdminServer;
+  lastDeployAt: string | null;
   updatePending: boolean;
   healthPending: boolean;
   onEdit: (server: AdminServer) => void;
@@ -24,6 +25,7 @@ function serviceLabel(code: string): string {
 
 export function AdminServerCard({
   server,
+  lastDeployAt,
   updatePending,
   healthPending,
   onEdit,
@@ -89,6 +91,10 @@ export function AdminServerCard({
             {healthy} / {checked}{' '}
             {lastCheck ? <span className="admin-server-card__since">· {formatRelative(lastCheck)}</span> : null}
           </strong>
+        </div>
+        <div>
+          <span>Последний деплой</span>
+          <strong>{lastDeployAt ? formatRelative(lastDeployAt) : '—'}</strong>
         </div>
       </div>
 
