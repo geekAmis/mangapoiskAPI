@@ -1,28 +1,59 @@
 # MangaPoisk Reborn — Node.js mobile shell
 
-This is the Node.js/Capacitor build of the same React app.  It is an alternative
+This is the Node.js/Capacitor build of the same React app. It is an alternative
 to the native Kotlin client in `apps/android`.
+
+## Build
 
 ```bash
 cd apps/mobile
 npm install
-npm run sync          # builds apps/web with the production API URL, then cap sync
-npx cap add android   # once
+npm run sync          # builds apps/web with the production HTTPS API URL, then cap sync
 npm run apk           # android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The API base is baked into the web build:
+Release build (unsigned unless a signing config is added):
 
-- production default: `http://85.192.37.58:8088/api/v1`
-- override: `set CAPACITOR_API_BASE=http://10.0.2.2:8000/api/v1` (PowerShell)
-  or `CAPACITOR_API_BASE=... npm run sync`.
+```bash
+cd apps/mobile
+npm run sync
+cd android
+./gradlew assembleRelease
+# android/app/build/outputs/apk/release/app-release-unsigned.apk
+```
 
-For a physical device on the same network, use the server IP.  For the emulator,
-`10.0.2.2` points at the host.  Release builds should use HTTPS.
+The API base is baked into the web build. Production defaults to:
 
-The WebView allows cleartext only for local/development servers; see
-`android/app/src/main/res/xml/network_security_config.xml` after `cap add
-android`.
+```text
+https://85.192.37.58.nip.io:8443/api/v1
+```
+
+Override it with `CAPACITOR_API_BASE`. The build script refuses arbitrary
+plain-HTTP URLs; only `https://` and local development hosts
+(`localhost`, `127.0.0.1`, `10.0.2.2`) are accepted:
+
+```powershell
+# Web-only local API for browser development.
+# The packaged Android shell still enforces HTTPS and will block cleartext.
+$env:CAPACITOR_API_BASE = "http://127.0.0.1:8000/api/v1"
+npm run build:www
+```
+
+For a physical device on the same network, use the server IP. For the emulator,
+`10.0.2.2` points at the host. Release builds must use HTTPS.
+
+## HTTPS / WebView configuration
+
+Release builds use the secure Capacitor settings in
+`capacitor.config.json`:
+
+- `server.androidScheme: "https"`
+- `server.cleartext: false`
+- `android.allowMixedContent: false`
+
+The Android manifest also sets `android:usesCleartextTraffic="false"` and points
+to `app/src/main/res/xml/network_security_config.xml`, which denies cleartext
+traffic at the platform level.
 
 ## Notifications
 

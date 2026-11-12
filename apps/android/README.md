@@ -50,6 +50,12 @@ APK. Add a signing config in `app/build.gradle.kts` for distribution.
 
 ## API configuration
 
+The **release** build defaults to the production HTTPS gateway:
+
+```text
+https://85.192.37.58.nip.io:8443/api/v1/
+```
+
 The **debug** build defaults to:
 
 ```text
@@ -68,7 +74,8 @@ runtime in **Профиль → Сервер API**:
 - physical device + `adb reverse`: `http://127.0.0.1:8000/api/v1/`
 - emulator without adb reverse: `http://10.0.2.2:8000/api/v1/`
 - physical device on the same LAN: `http://<host-lan-ip>:8000/api/v1/`
-- production release build: `https://<host>/api/v1/`
+- production release build: `https://85.192.37.58.nip.io:8443/api/v1/` (default)
+  or your own HTTPS domain
 
 HTTP is allowed **only in debug builds** through
 `app/src/debug/res/xml/network_security_config.xml`. Release builds enforce
