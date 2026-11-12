@@ -1,4 +1,4 @@
-﻿# Android client вЂ” MangaPoisk Reborn
+# Android client — MangaPoisk Reborn
 
 Native Kotlin/Jetpack Compose client for the public `/api/v1` contract in
 [`API.md`](API.md). This document covers architecture, screens, build/run,
@@ -9,11 +9,11 @@ API configuration, verification results and known limitations.
 The project is complete and compile-ready. On the validation machine it builds
 successfully:
 
-- `assembleDebug` в†’ `app/build/outputs/apk/debug/app-debug.apk`
-- `assembleRelease` (R8) в†’ `app/build/outputs/apk/release/app-release-unsigned.apk`
+- `assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
+- `assembleRelease` (R8) → `app/build/outputs/apk/release/app-release-unsigned.apk`
 
 The app was installed and smoke-tested on a connected TECNO KL6
-(1080Г—2460, Android) through `adb reverse tcp:8000 tcp:8000`: home, catalogue
+(1080×2460, Android) through `adb reverse tcp:8000 tcp:8000`: home, catalogue
 filtering, detail, reader pager/tap zones/resume, reader settings,
 sources and settings were exercised. There are no automated
 unit/instrumentation tests yet.
@@ -47,19 +47,19 @@ pins are deliberately chosen to stay compatible with compileSdk 34.
 
 ```
 Compose screens
-    в”‚  collectAsStateWithLifecycle / viewModel(factory = вЂ¦)
+    │  collectAsStateWithLifecycle / viewModel(factory = …)
 ViewModels (StateFlow, UiState, events, debounced progress)
-    в”‚  suspend calls, Result<T>, AppError
+    │  suspend calls, Result<T>, AppError
 Repositories
-    в”њв”Ђв”Ђ CatalogRepository в”Ђв”Ђ Retrofit MangaApi
-    в”њв”Ђв”Ђ AuthRepository в”Ђв”Ђв”Ђв”Ђв”Ђ Retrofit + SessionManager
-    в”њв”Ђв”Ђ LibraryRepository в”Ђв”Ђ Retrofit + Room (bookmarks/progress)
-    в””в”Ђв”Ђ DownloadRepository в”Ђ WorkManager + Room + OkHttp
+    ├── CatalogRepository ── Retrofit MangaApi
+    ├── AuthRepository ───── Retrofit + SessionManager
+    ├── LibraryRepository ── Retrofit + Room (bookmarks/progress)
+    └── DownloadRepository ─ WorkManager + Room + OkHttp
 Data
-    в”њв”Ђв”Ђ Room: bookmarks, reading_progress, downloads
-    в”њв”Ђв”Ђ DataStore: base URL, theme, reader defaults
-    в”њв”Ђв”Ђ EncryptedSharedPreferences: access/refresh tokens, cached user
-    в””в”Ђв”Ђ Coil: gateway image URLs (no auth required)
+    ├── Room: bookmarks, reading_progress, downloads
+    ├── DataStore: base URL, theme, reader defaults
+    ├── EncryptedSharedPreferences: access/refresh tokens, cached user
+    └── Coil: gateway image URLs (no auth required)
 ```
 
 Dependency injection is manual through [`AppContainer`](../apps/android/app/src/main/java/ru/mangapoisk/reborn/di/AppContainer.kt).
@@ -102,8 +102,8 @@ strings; no raw server errors are shown.
 - `LibraryRepository.syncRemote()` pulls remote bookmarks and continue-reading
   entries and upserts them into Room. Local-only entries are preserved.
 - Library JSON is parsed defensively (`LibraryJsonParser`) because
-  `docs/API.md` only sketches the envelope (вЂњlist bookmarks with embedded
-  mangaвЂќ, вЂњcontinue-reading listвЂќ). The parser accepts arrays and `{items:[]}`
+  `docs/API.md` only sketches the envelope (“list bookmarks with embedded
+  manga”, “continue-reading list”). The parser accepts arrays and `{items:[]}`
   / `{bookmarks:[]}` / `{progress:[]}` envelopes, plus flat or nested manga
   fields. **Verify against the real gateway response before release.**
 
@@ -120,12 +120,12 @@ hiding the bar does not reset destination state.
   (240 dp on phones) and a solid `surface` copy panel below it; on wide layouts
   copy and artwork are side-by-side. No headline or body copy sits on artwork.
 - Hero content: Russian-first title, alternative title, rating/year/status/
-  chapters, clamped description, genre pills, вЂњР§РёС‚Р°С‚СЊвЂќ and bookmark actions.
-  вЂњР§РёС‚Р°С‚СЊвЂќ resolves the featured title's oldest chapter and opens the reader
+  chapters, clamped description, genre pills, “Читать” and bookmark actions.
+  “Читать” resolves the featured title's oldest chapter and opens the reader
   directly (falling back to the detail screen if chapters are unavailable).
 - Continue-reading row from Room progress.
-- Popular as a 2-column phone grid (3вЂ“4 columns on wider screens) and
-  вЂњРћР±РЅРѕРІР»РµРЅРёСЏвЂќ as a divided list; both capped at six items with вЂњР’СЃРµвЂќ.
+- Popular as a 2-column phone grid (3–4 columns on wider screens) and
+  “Обновления” as a divided list; both capped at six items with “Все”.
 - Source strip from `/sources` with a link to the full Sources screen.
 - Refresh action in the top bar; partial-failure banner; legal note.
 
@@ -144,8 +144,8 @@ hiding the bar does not reset destination state.
   chapter count, genre chips and expandable description (HTML stripped).
 - Bookmark action in the top bar and in the action row; works as a guest
   (local) and mirrors to the account when signed in.
-- Primary вЂњР§РёС‚Р°С‚СЊвЂќ/вЂњРџСЂРѕРґРѕР»Р¶РёС‚СЊвЂќ action resumes the saved chapter/page;
-  вЂњРЎ РЅР°С‡Р°Р»Р°вЂќ opens the oldest chapter.
+- Primary “Читать”/“Продолжить” action resumes the saved chapter/page;
+  “С начала” opens the oldest chapter.
 - Chapter list from `MangaDetailOut.chapters`, with page count, date,
   per-chapter download action/status and current-chapter progress.
 - Offline-export availability note (CBZ/PDF/HTML via web/API); starting an
@@ -161,8 +161,8 @@ hiding the bar does not reset destination state.
 - Tap zones are 30 % / 40 % / 30 %: in horizontal mode left/right page, centre
   toggles chrome; in vertical mode centre toggles chrome and side taps do
   nothing. Swipe paging is always available in horizontal mode.
-- Inline resume banner (В«Р’С‹ РѕСЃС‚Р°РЅРѕРІРёР»РёСЃСЊ РЅР° СЃС‚СЂР°РЅРёС†Рµ NВ») with вЂњРџСЂРѕРґРѕР»Р¶РёС‚СЊвЂќ and
-  вЂњРЎ РЅР°С‡Р°Р»Р°вЂќ; progress is not overwritten while the prompt is pending.
+- Inline resume banner («Вы остановились на странице N») with “Продолжить” and
+  “С начала”; progress is not overwritten while the prompt is pending.
 - Page counter, 2 dp progress line under the top bar, previous/next chapter
   buttons, bookmark toggle, and `prev_chapter_id`/`next_chapter_id` from
   `ChapterDetailOut`. Chapter switching happens inside the reader screen.
@@ -170,14 +170,14 @@ hiding the bar does not reset destination state.
   `PUT /library/progress` (1-based page) when authenticated. Flush on stop and
   dispose.
 - Auto-scroll is off by default, lives in the settings sheet with a speed
-  slider (10вЂ“100, persisted), pauses when the sheet opens or the reader is
+  slider (10–100, persisted), pauses when the sheet opens or the reader is
   tapped, and stops at the chapter end.
-- Settings sheet: mode, fit width/height/screen, page gap 0вЂ“32 dp, theme
+- Settings sheet: mode, fit width/height/screen, page gap 0–32 dp, theme
   switcher, auto-scroll + speed, keep-screen-on.
 - Keep-screen-on via `FLAG_KEEP_SCREEN_ON`, persisted as a reader default.
 - Immersive fullscreen: system bars are hidden with
   `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` and restored on exit.
-- Horizontal mode: double-tap to zoom (2.5Г—), pinch/pan while zoomed, tap to
+- Horizontal mode: double-tap to zoom (2.5×), pinch/pan while zoomed, tap to
   reset. Next two pages are preloaded through Coil.
 - Downloaded chapters are preferred from local files; if the API is
   unreachable, the reader falls back to the local chapter completely.
@@ -194,10 +194,10 @@ added.
 
 Four tabs, aligned with the approved information architecture:
 
-- **РџСЂРѕРґРѕР»Р¶РёС‚СЊ** вЂ” continue-reading cards with chapter/page/progress and resume.
-- **Р—Р°РєР»Р°РґРєРё** вЂ” adaptive grid of local/bookmarked manga.
-- **РСЃС‚РѕСЂРёСЏ** вЂ” reading history cards with progress, resume and remove actions.
-- **Р—Р°РіСЂСѓР·РєРё** вЂ” downloaded chapters with queued/running/done/failed status,
+- **Продолжить** — continue-reading cards with chapter/page/progress and resume.
+- **Закладки** — adaptive grid of local/bookmarked manga.
+- **История** — reading history cards with progress, resume and remove actions.
+- **Загрузки** — downloaded chapters with queued/running/done/failed status,
   progress, retry, cancel/delete and offline-open.
 
 Empty states link to the catalogue.
@@ -208,17 +208,17 @@ Empty states link to the catalogue.
 - Name, language, availability badge, capabilities (search/catalog/latest/
   chapters/pages) and a cookies warning when applicable.
 - A legal/attribution card at the top, no raw upstream URLs.
-- Reachable from Home в†’ В«РСЃС‚РѕС‡РЅРёРєРё в†’ Р’СЃРµВ» and from Settings в†’ В«РСЃС‚РѕС‡РЅРёРєРёВ».
+- Reachable from Home → «Источники → Все» and from Settings → «Источники».
 
 ### Profile / settings
 
 - Guest/login/register/logout; account card shows display name and email.
-- Six themes with the exact approved palettes and names: `midnight` (РџРѕР»РЅРѕС‡СЊ),
-  `noir` (РќСѓР°СЂ), `oni` (РћРЅРё), `crimson` (**Р‘Р°РіСЂРѕРІС‹Р№**), `sunset` (Р—Р°РєР°С‚),
-  `paper` (Р‘СѓРјР°РіР°). Each option shows a 2Г—3 theme-art thumbnail and palette
+- Six themes with the exact approved palettes and names: `midnight` (Полночь),
+  `noir` (Нуар), `oni` (Они), `crimson` (**Багровый**), `sunset` (Закат),
+  `paper` (Бумага). Each option shows a 2×3 theme-art thumbnail and palette
   dots; selection uses border + check, not colour alone. Theme changes apply
   immediately and persist in DataStore.
-- First visit follows the system appearance: light в†’ `paper`, dark в†’ `midnight`.
+- First visit follows the system appearance: light → `paper`, dark → `midnight`.
 - Configurable API base URL with validation; changing it while signed in logs
   out. Reset-to-default action. Release builds reject `http://` URLs.
 - Reader defaults: vertical/horizontal, page fit, auto-scroll speed,
@@ -231,18 +231,18 @@ Empty states link to the catalogue.
 ### Auth
 
 - Phone layout is a solid surface form card on the theme background; no full
-  screen theme image behind fields. At в‰Ґ 720 dp the form column is paired with
+  screen theme image behind fields. At ≥ 720 dp the form column is paired with
   a separate theme-art panel and a solid quote card, following the art rule.
 - Login/register with client validation, password visibility, loading/error
   states, and backend error mapping. Segmented login/register control and
-  вЂњРџСЂРѕРґРѕР»Р¶РёС‚СЊ Р±РµР· Р°РєРєР°СѓРЅС‚Р°вЂќ exit.
+  “Продолжить без аккаунта” exit.
 - Tokens are stored in EncryptedSharedPreferences backed by an Android Keystore
   AES-256-GCM master key. If the encrypted store cannot be created, a logged
   fallback to private preferences is used so the app remains usable (rare on
   API 26+).
 - OkHttp `Authenticator` refreshes once on 401 using a separate no-auth client,
   persists the rotated token pair, and replays the request. A failed refresh
-  clears the session and surfaces вЂњunauthorizedвЂќ.
+  clears the session and surfaces “unauthorized”.
 - Logout posts the refresh token to `/auth/logout` best-effort, then clears
   local tokens; local library/download data is preserved.
 
@@ -274,8 +274,8 @@ are unused.
   on every request, so changing servers needs no restart.
 - **Debug default: `http://127.0.0.1:8000/api/v1/`**, intended for
   `adb reverse tcp:8000 tcp:8000` on a physical device or emulator.
-- **Current demo:** `https://85.192.37.58.nip.io:8443/api/v1/` (HTTP; use your own
-  HTTPS domain for a release build).
+- **Current demo:** `https://85.192.37.58.nip.io:8443/api/v1/` (HTTPS; the
+  release build can use this URL or your own HTTPS domain).
 - Emulator alternative: `http://10.0.2.2:8000/api/v1/` (host loopback alias).
 - Physical device on the same LAN: `http://<host-lan-ip>:8000/api/v1/`.
 - Production/release: HTTPS only. The release build keeps the emulator default
@@ -359,14 +359,14 @@ on Windows. It is harmless elsewhere.
 
 | Check | Result |
 |---|---|
-| `assembleDebug` | **SUCCESS** вЂ” `app/build/outputs/apk/debug/app-debug.apk` |
-| `assembleRelease` (R8/resources shrink) | **SUCCESS** вЂ” `app/build/outputs/apk/release/app-release-unsigned.apk` |
+| `assembleDebug` | **SUCCESS** — `app/build/outputs/apk/debug/app-debug.apk` |
+| `assembleRelease` (R8/resources shrink) | **SUCCESS** — `app/build/outputs/apk/release/app-release-unsigned.apk` |
 | Kotlin compile | Success (Kotlin 2.0.21, JVM 17) |
 | Resource/manifest validation | Success (AAPT2 via assemble) |
 | Lint | `lintDebug` passes with no errors after the `NewApi` style fix |
-| Device run | TECNO KL6, 1080Г—2460, via `adb reverse`; smoke-tested Home, Catalog, Detail, Reader, Sources, Settings, Auth |
+| Device run | TECNO KL6, 1080×2460, via `adb reverse`; smoke-tested Home, Catalog, Detail, Reader, Sources, Settings, Auth |
 | Poster rendering | Verified on device after adding the browser UA/Referer to Coil: MangaLib `cover.imglib.info` covers now render |
-| Reader navigation | Verified on device: Home hero В«Р§РёС‚Р°С‚СЊВ» and Detail В«Р§РёС‚Р°С‚СЊВ» both open the reader |
+| Reader navigation | Verified on device: Home hero «Читать» and Detail «Читать» both open the reader |
 | Unit/instrumentation tests | None added |
 
 R8 initially reported missing compile-time Tink/ErrorProne annotations; the
@@ -407,7 +407,7 @@ rule and then succeeded.
     reader is immersive by default. The top progress line and page counter
     cover the page-number need.
 15. **Theme switcher** uses theme-art thumbnails + palette dots rather than the
-    web 16:9 cards with mood copy. It remains a 2Г—3 grid with border + check.
+    web 16:9 cards with mood copy. It remains a 2×3 grid with border + check.
 16. **Page image availability depends on the gateway/media service.** During the
     smoke test the API returned chapter metadata, but the current media endpoint
     did not deliver page bytes for some chapters, so Coil showed the placeholder.
@@ -427,12 +427,12 @@ rule and then succeeded.
    keep-screen-on, immersive exit, progress after relaunch.
 5. Register/login, verify tokens survive app restart, then expire/refresh an
    access token and confirm a single 401 retry.
-6. Add/remove bookmark, read a chapter, check Library в†’ РџСЂРѕРґРѕР»Р¶РёС‚СЊ /
-   Р—Р°РєР»Р°РґРєРё / РСЃС‚РѕСЂРёСЏ, then check the same account on the web.
-7. Download a chapter, enable airplane mode, reopen it from Library в†’ Р—Р°РіСЂСѓР·РєРё.
+6. Add/remove bookmark, read a chapter, check Library → Продолжить /
+   Закладки / История, then check the same account on the web.
+7. Download a chapter, enable airplane mode, reopen it from Library → Загрузки.
 8. Switch all six themes (especially `paper` light + serif and `noir` serif),
    verify art placement, test tablet width (rail + grid columns), rotate.
-9. Open Sources from Home в†’ Р’СЃРµ and Settings; check disabled sources,
+9. Open Sources from Home → Все and Settings; check disabled sources,
    capabilities and legal note.
 10. Change API URL and confirm logout; test invalid URL and HTTP in release.
 11. Compare gateway library responses with `LibraryJsonParser` assumptions.

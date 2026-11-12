@@ -1,4 +1,4 @@
-﻿# Public API v1
+# Public API v1
 
 Base URL: `/api/v1`.
 
@@ -30,7 +30,7 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 | GET | `/api/v1/health` | aggregated health |
 | GET | `/api/v1/sources` | available sources + capabilities |
 
-`GET /api/v1/sources` в†’ `[{"code":"mangapoisk","name":"MangaPoisk","base_url":"https://mangapoisk.me","language":"ru","enabled":true,"requires_cookies":false,"capabilities":{"search":true,"catalog":true,"manga":true,"chapters":true,"pages":true,"latest":true}}]`
+`GET /api/v1/sources` → `[{"code":"mangapoisk","name":"MangaPoisk","base_url":"https://mangapoisk.me","language":"ru","enabled":true,"requires_cookies":false,"capabilities":{"search":true,"catalog":true,"manga":true,"chapters":true,"pages":true,"latest":true}}]`
 
 ## Catalogue and search
 
@@ -41,6 +41,8 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 | GET | `/api/v1/manga/{id}` | manga detail + chapters |
 | GET | `/api/v1/manga/{id}/chapters` | paginated chapter list |
 | GET | `/api/v1/manga/{id}/variants` | same title across sources + translator counts |
+| POST | `/api/v1/manga/{id}/prepare` | start/idempotent server prepare for device download |
+| GET | `/api/v1/manga/{id}/prepare` | persistent prepare progress (`prepared/pending/failed`, batch) |
 | POST | `/api/v1/manga/{id}/warm` | queue server archive for every chapter (auth) |
 | POST | `/api/v1/manga/import` | import/refresh a manga by source URL or id |
 
@@ -74,8 +76,8 @@ translator, published_at, page_count, url, is_external, created_at, updated_at`.
   "primary_id": "uuid",
   "items": [
     {
-      "id": "uuid", "title": "вЂ¦", "source": "mangalib", "source_id": "вЂ¦",
-      "poster_url": "вЂ¦", "rating": 9.2, "chapters_count": 166,
+      "id": "uuid", "title": "…", "source": "mangalib", "source_id": "…",
+      "poster_url": "…", "rating": 9.2, "chapters_count": 166,
       "translators": [{"name": "Komger", "count": 81}]
     }
   ]
@@ -85,7 +87,7 @@ translator, published_at, page_count, url, is_external, created_at, updated_at`.
 The mobile/web reader uses this to pick the source with the most chapters and
 to filter the chapter list by `<source>/<translator>/<count>`.  `translator`
 is `null` when the source does not expose a team; the UI calls it
-В«Р‘РµР· РїРµСЂРµРІРѕРґР°В».
+«Без перевода».
 
 ### `POST /api/v1/manga/import`
 
@@ -111,12 +113,12 @@ auth (public import is rate-limited).  Returns `ImportMangaResponse` with
 | GET | `/api/v1/exports/{job_id}/download` | download file |
 | DELETE | `/api/v1/exports/{job_id}` | remove a finished/failed export |
 
-`GET /api/v1/chapters/{id}` в†’ `ChapterDetailOut`:
+`GET /api/v1/chapters/{id}` → `ChapterDetailOut`:
 
 ```json
 {
   "id": "uuid", "manga_id": "uuid", "source": "mangapoisk",
-  "source_id": "...", "volume": "1", "number": "312", "title": "312 РўРѕРј 1",
+  "source_id": "...", "volume": "1", "number": "312", "title": "312 Том 1",
   "page_count": 42, "pages": [{"number":1,"url":"/api/v1/chapters/.../images/1","width":690,"height":1730}],
   "prev_chapter_id": null, "next_chapter_id": null, "is_horizontal": false
 }
@@ -124,7 +126,7 @@ auth (public import is rate-limited).  Returns `ImportMangaResponse` with
 
 The `url` in pages is always a gateway URL, never a third-party URL.
 
-`POST /api/v1/chapters/{id}/exports?format=cbz|pdf|html` в†’ `ExportJobOut` with
+`POST /api/v1/chapters/{id}/exports?format=cbz|pdf|html` → `ExportJobOut` with
 `status` (`queued|running|done|failed`), `progress`, `total`, `download_url`.
 
 ### Server-side chapter archive (internal)
@@ -155,7 +157,9 @@ A new job returns `202`; a repeat call returns the existing state (`200`).
 Small chapters are stored as SQLite page blobs; larger chapters become a ZIP
 of `{number:04d}.{ext}` files plus `manifest.json`.  `GET
 /api/v1/chapters/{id}/images/{n}` serves from the archive first and falls back
-to the source URL only when the page is not archived.
+to the source URL only when the page is not archived.  The archive is an LRU
+disk cache (about 25 GiB by default, `last_accessed_at`, pruned at startup and
+after archiving); metadata and covers are not evicted.
 
 ## Auth
 
@@ -193,13 +197,34 @@ Reader settings object:
 {"theme":"midnight","reader_mode":"vertical","page_fit":"width","auto_scroll":false,"auto_scroll_speed":30,"show_page_numbers":true,"blur_adult_posters":true}
 ```
 
+## Comments
+
+Comments are attached to titles only (not chapters).  Reads are public; writes
+require a reader `Authorization: Bearer <access_token>` header.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/manga/{id}/comments` | paginated threads (top-level + previews) |
+| POST | `/api/v1/manga/{id}/comments` | create a comment/reply |
+| GET | `/api/v1/comments/{id}/replies` | paginated replies |
+| PATCH | `/api/v1/comments/{id}` | edit own comment (15 min window) |
+| DELETE | `/api/v1/comments/{id}` | delete own comment |
+| POST | `/api/v1/comments/{id}/like` | like/unlike |
+| POST | `/api/v1/comments/{id}/report` | report with a reason |
+| GET | `/api/v1/admin/comments` | moderation queue (admin) |
+| POST | `/api/v1/admin/comments/{id}/{action}` | `hide`, `restore`, `resolve`, `dismiss` |
+
+The service stores a `manga_id` as an opaque UUID and keeps discussions after a
+title leaves the catalogue.  Create/duplicate cooldowns, daily limits and body
+length are configured by `COMMENTS_*` environment variables.
+
 ## Admin / server manager
 
 The web admin panel is at `/admin` (direct URL, no nav link).  Login uses
 `ADMIN_USERNAME` / `ADMIN_PASSWORD` from the environment and returns an admin
 JWT.  Keep this token in `sessionStorage`; it is not the reader account token.
 
-Admin tokens contain an `av` claim вЂ” an HMAC fingerprint of the current admin
+Admin tokens contain an `av` claim — an HMAC fingerprint of the current admin
 credentials.  Changing `ADMIN_USERNAME` or `ADMIN_PASSWORD` invalidates every
 previously issued admin token; protected calls then return
 `401 admin_session_expired` and the UI asks for a new login.  Production
@@ -210,17 +235,21 @@ unaffected.
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/v1/admin/login` | `{username,password}` в†’ admin token |
+| POST | `/api/v1/admin/login` | `{username,password}` → admin token |
 | GET | `/api/v1/admin/me` | current admin |
 | GET/POST | `/api/v1/admin/servers` | list / add server |
 | PATCH/DELETE | `/api/v1/admin/servers/{id}` | update / remove |
 | POST | `/api/v1/admin/servers/{id}/deploy` | install selected services over SSH |
 | GET | `/api/v1/admin/servers/{id}/health` | check one server |
 | GET | `/api/v1/admin/jobs/{id}` | deployment job + log |
-| GET | `/api/v1/admin/registry` | service в†’ endpoints + health |
+| GET | `/api/v1/admin/registry` | service → endpoints + health |
 | POST | `/api/v1/admin/registry/sync` | refresh health and switch gateway routes |
 | POST | `/api/v1/admin/failover` | same, explicit manual failover |
 | GET | `/api/v1/admin/audit` | recent admin actions |
+| GET | `/api/v1/admin/sources/{code}/cookie` | cookie status only (never the value) |
+| PUT | `/api/v1/admin/sources/{code}/cookie` | set/replace a source cookie |
+| DELETE | `/api/v1/admin/sources/{code}/cookie` | clear a source cookie |
+| POST | `/api/v1/admin/sources/{code}/cookie/har` | extract and store a cookie from an uploaded `.har` |
 
 `POST /admin/servers` body:
 
@@ -231,7 +260,7 @@ unaffected.
   "public_host": "85.192.37.58",
   "ssh_port": 22,
   "username": "root",
-  "password": "вЂ¦",
+  "password": "…",
   "jump_server_id": "uuid-or-null",
   "bind_host": "127.0.0.1",
   "is_fallback": false,
@@ -244,8 +273,10 @@ unaffected.
 ```
 
 Service codes: `parser, catalog, library, media, control, gateway, notifier,
-scheduler`.  `scheduler` has no HTTP health check.  Passwords are encrypted at
-rest and never returned by the API.
+scheduler, replica, comments`.  `scheduler` has no HTTP health check.  Passwords
+are encrypted at rest and never returned by the API.  Source cookies are stored
+persistently (`PARSER_COOKIE_STORE_PATH`, mode `0600`) and are never returned in
+API responses or written to the audit log.
 
 ## Internal API (not public)
 
@@ -292,5 +323,5 @@ network in production and should not be exposed publicly.
 - Web: React Query for server state, local Zustand store for theme/reader UI.
 - Android: Retrofit/Ktor + kotlinx.serialization; store tokens in
   EncryptedSharedPreferences; use `page` URLs exactly as returned.
-- Always debounce progress writes (500вЂ“1000 ms) and send page numbers 1-based.
+- Always debounce progress writes (500–1000 ms) and send page numbers 1-based.
 - Image URLs are same-origin gateway URLs; do not rewrite them to upstream.
