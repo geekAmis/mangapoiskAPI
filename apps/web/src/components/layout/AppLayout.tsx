@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom';
+import { AdSlot } from '../ads/AdSlot';
 import { OfflineBanner } from '../OfflineBanner';
 import { QueryCacheBridge } from '../QueryCacheBridge';
 import { AndroidApkBanner } from './AndroidApkBanner';
@@ -15,10 +16,14 @@ export function AppLayout() {
       </a>
       <Header />
       <OfflineBanner />
+      <div className="container">
+        <AdSlot placement="header" />
+      </div>
       <main id="main" className="site-main">
         <Outlet />
       </main>
       <Footer />
+      <AdSlot placement="mobile-sticky" />
       <MobileNav />
       <AndroidApkBanner />
     </div>

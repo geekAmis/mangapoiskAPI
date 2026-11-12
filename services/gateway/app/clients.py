@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from manga_common.config import Settings
@@ -407,6 +408,48 @@ class ControlClient(InternalClient):
 
     async def audit(self, limit: int = 100) -> list[dict[str, Any]]:
         return await self.request("GET", "/internal/audit", params={"limit": limit})
+
+    async def ads(self) -> list[dict[str, Any]]:
+        return await self.request("GET", "/internal/ads")
+
+    async def create_ad(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.request("POST", "/internal/ads", json=payload)
+
+    async def update_ad(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.request(
+            "PATCH", f"/internal/ads/{provider_id}", json=payload
+        )
+
+    async def delete_ad(self, provider_id: str) -> None:
+        await self.request("DELETE", f"/internal/ads/{provider_id}")
+
+    async def set_ad_secret(
+        self, provider_id: str, name: str, value: str
+    ) -> dict[str, Any]:
+        return await self.request(
+            "PUT",
+            f"/internal/ads/{provider_id}/secrets/{quote(name, safe='')}",
+            json={"value": value},
+        )
+
+    async def delete_ad_secret(self, provider_id: str, name: str) -> None:
+        await self.request(
+            "DELETE", f"/internal/ads/{provider_id}/secrets/{quote(name, safe='')}"
+        )
+
+    async def ads_public(
+        self, *, audience: str, donor: bool, adult: bool, consent: bool
+    ) -> list[dict[str, Any]]:
+        return await self.request(
+            "GET",
+            "/internal/ads/config",
+            params={
+                "audience": audience,
+                "donor": str(donor).lower(),
+                "adult": str(adult).lower(),
+                "consent": str(consent).lower(),
+            },
+        )
 
 
 class MediaClient(InternalClient):

@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, listItems, resolveApiUrl } from '../api/client';
 import type { PageOut } from '../api/types';
+import { AdSlot } from '../components/ads/AdSlot';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { QueryCacheBridge } from '../components/QueryCacheBridge';
@@ -941,6 +942,7 @@ export default function ReaderPage() {
               />
             ))}
           </div>
+          <AdSlot placement="post-chapter" adult={manga?.adult ?? false} />
         </main>
       ) : (
         <main

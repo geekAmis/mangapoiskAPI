@@ -1212,3 +1212,99 @@ html[data-admin="true"] .toast-region {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* --- Реклама --- */
+.ad-days {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+.ad-days__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ad-day {
+  min-width: 42px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.ad-day:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.ad-day.is-active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ad-checks {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ad-secrets {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.ad-secret-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.ad-secret-row > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+.ad-secret-row strong {
+  font-size: 0.78rem;
+}
+.ad-secret-row code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.7rem;
+}
+.ad-secret-row span {
+  color: var(--text-faint);
+  font-size: 0.67rem;
+}
+.ad-secret-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(180px, 1.5fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.ad-secrets-empty {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+@media (max-width: 640px) {
+  .ad-secret-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ad-secret-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
