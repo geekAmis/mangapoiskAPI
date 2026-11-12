@@ -15,6 +15,14 @@ from manga_common.errors import (
     ValidationError,
 )
 from manga_common.http import build_client
+from manga_common.profile_schemas import (
+    AdminProfileReportOut,
+    MyProfileOut,
+    ProfileEventOut,
+    ProfileReportOut,
+    ProfileUpdate,
+    PublicProfileOut,
+)
 from manga_common.schemas import (
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
@@ -415,6 +423,95 @@ class LibraryClient(InternalClient):
             "GET", "/internal/analytics/retention", params={"days": days}
         )
         return AnalyticsRetentionOut.model_validate(data)
+
+    async def profile(
+        self,
+        handle: str,
+        *,
+        viewer_id: str | None = None,
+        timezone: str | None = None,
+    ) -> PublicProfileOut:
+        headers = {"X-Viewer-Id": viewer_id} if viewer_id else None
+        params = {"timezone": timezone} if timezone else None
+        data = await self.request(
+            "GET",
+            f"/internal/profiles/{quote(handle, safe='')}",
+            params=params,
+            headers=headers,
+        )
+        return PublicProfileOut.model_validate(data)
+
+    async def my_profile(
+        self, authorization: str, timezone: str | None = None
+    ) -> MyProfileOut:
+        params = {"timezone": timezone} if timezone else None
+        data = await self._auth("GET", "/internal/me/profile", authorization, params=params)
+        return MyProfileOut.model_validate(data)
+
+    async def update_profile(
+        self, authorization: str, payload: ProfileUpdate
+    ) -> MyProfileOut:
+        data = await self._auth(
+            "PATCH",
+            "/internal/me/profile",
+            authorization,
+            json=payload.model_dump(exclude_unset=True, mode="json"),
+        )
+        return MyProfileOut.model_validate(data)
+
+    async def my_events(
+        self, authorization: str, limit: int = 30
+    ) -> list[ProfileEventOut]:
+        data = await self._auth(
+            "GET",
+            "/internal/me/events",
+            authorization,
+            params={"limit": limit},
+        )
+        return [ProfileEventOut.model_validate(item) for item in data]
+
+    async def report_profile(
+        self, authorization: str, handle: str, reason: str
+    ) -> ProfileReportOut:
+        data = await self._auth(
+            "POST",
+            f"/internal/profiles/{quote(handle, safe='')}/reports",
+            authorization,
+            json={"reason": reason},
+        )
+        return ProfileReportOut.model_validate(data)
+
+    async def block_profile(
+        self, authorization: str, handle: str, *, blocked: bool
+    ) -> None:
+        method = "POST" if blocked else "DELETE"
+        await self._auth(
+            method,
+            f"/internal/profiles/{quote(handle, safe='')}/block",
+            authorization,
+        )
+
+    async def admin_profile_reports(
+        self, authorization: str, *, status: str = "open", limit: int = 50
+    ) -> list[AdminProfileReportOut]:
+        data = await self._auth(
+            "GET",
+            "/internal/admin/profile-reports",
+            authorization,
+            params={"status": status, "limit": limit},
+        )
+        return [AdminProfileReportOut.model_validate(item) for item in data]
+
+    async def resolve_profile_report(
+        self, authorization: str, report_id: str, status: str
+    ) -> AdminProfileReportOut:
+        data = await self._auth(
+            "PATCH",
+            f"/internal/admin/profile-reports/{quote(report_id, safe='')}",
+            authorization,
+            json={"status": status},
+        )
+        return AdminProfileReportOut.model_validate(data)
 
 
 class ControlClient(InternalClient):

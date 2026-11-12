@@ -32,6 +32,7 @@ import { CrawlerStatusPanel } from '../components/admin/CrawlerStatusPanel';
 import { ObservabilityPanel } from '../components/admin/ObservabilityPanel';
 import { DeployModal } from '../components/admin/DeployModal';
 import { MediaStoragePanel } from '../components/admin/MediaStoragePanel';
+import { ProfileReportsPanel } from '../components/admin/ProfileReportsPanel';
 import { ServerFormModal } from '../components/admin/ServerFormModal';
 import { formatDateTime, formatInt } from '../lib/format';
 import { extractHarCookie } from '../lib/har';
@@ -1018,6 +1019,8 @@ export default function AdminPage() {
         </section>
 
         <CommentModerationPanel />
+
+        <ProfileReportsPanel />
 
         <AdsPanel />
 

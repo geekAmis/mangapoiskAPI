@@ -33,6 +33,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .analytics import compute_retention
 from .config import LibrarySettings
 from .models import User
+from .profile_repository import ensure_user_profile
+from .profiles import ProgressActivity, record_progress_activity
 from .repository import (
     add_bookmark,
     as_utc,
@@ -124,6 +126,7 @@ class LibraryService:
                     password_hash=hash_password(password),
                     display_name=display_name,
                 )
+                await ensure_user_profile(session, user)
             except IntegrityError as exc:
                 await session.rollback()
                 raise ConflictError(
@@ -149,6 +152,7 @@ class LibraryService:
                 raise UnauthorizedError("Неверный email или пароль", code="invalid_credentials")
             if password_needs_rehash(user.password_hash):
                 user.password_hash = hash_password(password)
+            await ensure_user_profile(session, user)
             tokens = await self._issue_tokens(
                 session, user, user_agent=user_agent, ip_address=ip_address
             )
@@ -169,6 +173,7 @@ class LibraryService:
             user = await get_user(session, stored.user_id)
             if user is None or not user.is_active:
                 raise UnauthorizedError("Пользователь не найден", code="invalid_user")
+            await ensure_user_profile(session, user)
             await revoke_refresh_token(session, stored)
             tokens = await self._issue_tokens(session, user)
             await session.commit()
@@ -187,6 +192,8 @@ class LibraryService:
             user = await get_user(session, user_id)
             if user is None or not user.is_active:
                 raise UnauthorizedError("Пользователь не найден", code="invalid_user")
+            await ensure_user_profile(session, user)
+            await session.commit()
             return _user_out(user)
 
     async def bookmarks(self, user_id: uuid.UUID) -> list[BookmarkOut]:
@@ -228,6 +235,7 @@ class LibraryService:
         chapter_id: uuid.UUID,
         page: int,
         total_pages: int,
+        activity: ProgressActivity | None = None,
     ) -> ProgressOut:
         async with self.session_factory() as session:
             row = await upsert_progress(
@@ -238,7 +246,12 @@ class LibraryService:
                 page=page,
                 total_pages=total_pages,
             )
-            await record_reading_day(session, user_id=user_id, read_at=datetime.now(UTC))
+            now = datetime.now(UTC)
+            await record_reading_day(session, user_id=user_id, read_at=now)
+            if activity is not None:
+                await record_progress_activity(
+                    session, user_id=user_id, activity=activity, now=now
+                )
             await session.commit()
             return ProgressOut.model_validate(row)
 

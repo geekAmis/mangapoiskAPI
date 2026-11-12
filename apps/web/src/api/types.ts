@@ -267,6 +267,109 @@ export interface StreakOut {
   days: string[];
 }
 
+export type ProfileEventKind = 'chapter_read' | 'title_finished' | 'achievement';
+
+export interface RankOut {
+  code: string;
+  label: string;
+  min_level: number;
+}
+
+export interface ProfilePrivacyOut {
+  is_private: boolean;
+  show_stats: boolean;
+  show_events: boolean;
+  show_achievements: boolean;
+  indexable: boolean;
+}
+
+export interface AchievementOut {
+  code: string;
+  title: string;
+  description: string;
+  icon: string;
+  unlocked: boolean;
+  /** Owner-only exact unlock moment. Guests receive only `unlocked_on`. */
+  unlocked_at: string | null;
+  unlocked_on: string | null;
+  progress: number;
+  target: number;
+}
+
+export interface ProfileStatsOut {
+  chapters_read: number;
+  titles_read: number;
+  finished_titles: number;
+  reading_days: number;
+  current_streak: number;
+  longest_streak: number;
+}
+
+export interface GenreCountOut {
+  genre: string;
+  count: number;
+}
+
+export interface ProfileEventOut {
+  id: UUID;
+  kind: ProfileEventKind;
+  title: string;
+  subtitle: string | null;
+  manga_id: UUID | null;
+  chapter_id: UUID | null;
+  poster_url: string | null;
+  achievement_code: string | null;
+  /** Date-only on public cards; exact `created_at` is owner-only. */
+  occurred_on: string;
+  created_at: string | null;
+}
+
+export interface PublicProfileOut {
+  username: string;
+  display_name: string;
+  bio: string;
+  joined_at: string;
+  level: number;
+  xp: number;
+  xp_into_level: number;
+  xp_for_next_level: number;
+  level_progress: number;
+  rank: RankOut;
+  next_rank: RankOut | null;
+  avatar_initials: string;
+  privacy: ProfilePrivacyOut;
+  indexable: boolean;
+  is_owner: boolean;
+  stats: ProfileStatsOut | null;
+  favorite_genres: GenreCountOut[];
+  achievements: AchievementOut[];
+  achievements_unlocked: number;
+  achievements_total: number;
+  achievements_hidden: boolean;
+  events: ProfileEventOut[];
+  events_hidden: boolean;
+}
+
+export interface MyProfileOut extends PublicProfileOut {}
+
+export interface ProfileUpdate {
+  display_name?: string;
+  username?: string;
+  bio?: string;
+  is_private?: boolean;
+  show_stats?: boolean;
+  show_events?: boolean;
+  show_achievements?: boolean;
+  indexable?: boolean;
+}
+
+export interface ProfileReportOut {
+  id: UUID;
+  status: string;
+  created_at: string;
+  message: string;
+}
+
 export interface RecommendationListOut {
   items: MangaOut[];
   strategy: 'personalized' | 'popular' | 'related';

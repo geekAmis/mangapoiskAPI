@@ -140,6 +140,55 @@ def _chapter_label(chapter: ChapterOut) -> str:
     return ", ".join(parts)
 
 
+def _chapter_number(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return float(value.replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _progress_activity(
+    manga: MangaDetailOut,
+    chapter: ChapterOut,
+    *,
+    page: int,
+    total_pages: int,
+) -> dict[str, Any]:
+    """Trusted catalogue metadata for XP, achievements and the public feed.
+
+    A title counts as finished only when the chapter belongs to the title, it is
+    the last numeric chapter and the reader reached the page count reported by
+    the catalogue.  The client's ``total_pages`` is deliberately ignored for
+    completion: otherwise a forged ``total_pages=1`` could farm finish XP.
+    Non-numeric extras/specials are ignored rather than guessed at.
+    """
+
+    numbers = [
+        number
+        for number in (_chapter_number(item.number) for item in manga.chapters)
+        if number is not None
+    ]
+    current = _chapter_number(chapter.number)
+    trusted_pages = max(0, int(chapter.page_count or 0))
+    completed = bool(
+        chapter.manga_id == manga.id
+        and current is not None
+        and numbers
+        and current >= max(numbers)
+        and trusted_pages > 0
+        and page >= trusted_pages
+    )
+    return {
+        "manga_title": manga.title,
+        "chapter_label": _chapter_label(chapter),
+        "poster_url": manga.poster_url,
+        "genres": list(manga.genres or [])[:8],
+        "title_completed": completed,
+    }
+
+
 class PrepareChapterOut(BaseModel):
     id: str
     status: Literal["done", "pending", "error"]
@@ -1133,9 +1182,15 @@ async def upsert_progress(
     user: UserClaims = Depends(require_user),
 ) -> ProgressOut:
     catalog, _, library, _ = clients(request)
-    await catalog.manga(str(payload.manga_id))
-    await catalog.chapter_meta(str(payload.chapter_id))
-    item = await library.upsert_progress(_authorization(request), payload.model_dump(mode="json"))
+    manga = await catalog.manga(str(payload.manga_id))
+    chapter = await catalog.chapter_meta(str(payload.chapter_id))
+    activity = _progress_activity(
+        manga, chapter, page=payload.page, total_pages=payload.total_pages
+    )
+    # Catalogue values always win over anything supplied by the client.
+    body = payload.model_dump(mode="json")
+    body.update(activity)
+    item = await library.upsert_progress(_authorization(request), body)
     enriched = await _enrich_progress(catalog, [item])
     return enriched[0]
 

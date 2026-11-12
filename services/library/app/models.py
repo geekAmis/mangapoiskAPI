@@ -135,3 +135,154 @@ class AnalyticsEvent(Base, UUIDPrimaryKey):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+
+
+# ---------------------------------------------------------------------------
+# Public profiles and gamification (issue #47)
+# ---------------------------------------------------------------------------
+
+
+class UserProfile(Base, UUIDPrimaryKey, TimestampMixin):
+    """Public-facing profile settings for one account.
+
+    ``display_name`` stays on ``users`` (it is the account name used for
+    comments).  This table only stores the public handle, bio and privacy
+    switches.  Existing accounts get a row lazily, so no backfill is required.
+    """
+
+    __tablename__ = "user_profiles"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_profiles_user"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    username: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, unique=True, index=True
+    )
+    bio: Mapped[str] = mapped_column(String(280), nullable=False, default="")
+    is_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    show_stats: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Owner decision (2026-11-13): public profiles are indexable by default.
+    # Hiding any of the three public sections makes the whole card noindex and
+    # invisible to guests; see docs/PROFILES.md.
+    show_events: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_achievements: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Owners can still opt out of search indexing without hiding the card.
+    indexable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class XpEvent(Base, UUIDPrimaryKey):
+    """Append-only XP ledger.
+
+    A unique ``(user_id, dedupe_key)`` makes every award idempotent: reading the
+    same chapter, opening the same day or finishing the same title twice cannot
+    add XP again.  XP is never recalculated from progress rows, so deleting and
+    re-reading a title does not restore points.
+    """
+
+    __tablename__ = "xp_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "dedupe_key", name="uq_xp_events_user_dedupe"),
+        Index("ix_xp_events_user_created", "user_id", "created_at"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    xp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    manga_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    chapter_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class ProfileEvent(Base, UUIDPrimaryKey):
+    """One row per public activity item (chapter read, title finished, award).
+
+    Titles are denormalised when the gateway reports progress, so rendering the
+    profile feed does not fan out to the catalogue.  Only public catalogue ids
+    and titles are stored; never email, IP or account role.
+    """
+
+    __tablename__ = "profile_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "dedupe_key", name="uq_profile_events_user_dedupe"),
+        Index("ix_profile_events_user_created", "user_id", "created_at"),
+        Index("ix_profile_events_user_kind_created", "user_id", "kind", "created_at"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    manga_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    chapter_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    manga_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    chapter_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    poster_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    genres: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
+    achievement_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class UserAchievement(Base, UUIDPrimaryKey):
+    __tablename__ = "user_achievements"
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uq_user_achievements_user_code"),
+        Index("ix_user_achievements_user_unlocked", "user_id", "unlocked_at"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(48), nullable=False)
+    unlocked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class ProfileReport(Base, UUIDPrimaryKey):
+    __tablename__ = "profile_reports"
+    __table_args__ = (
+        Index("ix_profile_reports_status_created", "status", "created_at"),
+        Index("ix_profile_reports_target", "target_user_id", "created_at"),
+    )
+
+    reporter_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", server_default="open", index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProfileBlock(Base, UUIDPrimaryKey):
+    __tablename__ = "profile_blocks"
+    __table_args__ = (
+        UniqueConstraint("blocker_id", "blocked_id", name="uq_profile_blocks_pair"),
+        Index("ix_profile_blocks_blocked", "blocked_id"),
+    )
+
+    blocker_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    blocked_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
