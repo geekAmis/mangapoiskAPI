@@ -434,6 +434,9 @@ class ControlClient(InternalClient):
     async def job(self, job_id: str) -> dict[str, Any]:
         return await self.request("GET", f"/internal/jobs/{job_id}")
 
+    async def cancel_job(self, job_id: str) -> dict[str, Any]:
+        return await self.request("POST", f"/internal/jobs/{job_id}/cancel")
+
     async def server_health(self, server_id: str) -> dict[str, Any]:
         return await self.request("GET", f"/internal/servers/{server_id}/health")
 

@@ -32,9 +32,21 @@ async def lifespan(app: FastAPI):
                 await conn.execute(
                     text("ALTER TABLE servers ADD COLUMN priority INTEGER NOT NULL DEFAULT 100")
                 )
+            job_rows = await conn.execute(text("PRAGMA table_info(deployment_jobs)"))
+            job_columns = {row[1] for row in job_rows}
+            if "last_output_at" not in job_columns:
+                await conn.execute(
+                    text("ALTER TABLE deployment_jobs ADD COLUMN last_output_at DATETIME")
+                )
         else:
             await conn.execute(
                 text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 100")
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE deployment_jobs ADD COLUMN IF NOT EXISTS "
+                    "last_output_at TIMESTAMP WITH TIME ZONE"
+                )
             )
     async with session_factory() as session:
         stale = await session.execute(
@@ -67,12 +79,23 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(settings.server_health_interval_seconds)
 
     task = asyncio.create_task(monitor())
+
+    async def reap_stale() -> None:
+        while True:
+            try:
+                await service.reap_stale_jobs()
+            except Exception:
+                logger.warning("stale deploy job cleanup failed", exc_info=True)
+            await asyncio.sleep(60)
+
+    stale_task = asyncio.create_task(reap_stale())
     logger.info("control service ready")
     try:
         yield
     finally:
         task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        stale_task.cancel()
+        await asyncio.gather(task, stale_task, return_exceptions=True)
         await service.deployer.close()
         await engine.dispose()
 

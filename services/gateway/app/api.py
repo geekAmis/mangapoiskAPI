@@ -1599,6 +1599,15 @@ async def admin_job(
     return await control(request).job(str(job_id))
 
 
+@router.post("/admin/jobs/{job_id}/cancel")
+async def admin_cancel_job(
+    request: Request,
+    job_id: uuid.UUID,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).cancel_job(str(job_id))
+
+
 @router.get("/admin/registry")
 async def admin_registry(
     request: Request, user: UserClaims = Depends(require_admin)

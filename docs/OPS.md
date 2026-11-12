@@ -1155,3 +1155,28 @@ cd /opt/mangapoisk
 * 2026-11-12: 2 GB swap on `primary-85`, 1 GB on `jump-83`,
   `vm.swappiness=10`; control cgroup guardrail `MemoryHigh=1G`,
   `MemoryMax=1536M`.
+
+## 10. Deploy health and stale jobs
+
+Control deploy jobs now use `DEPLOY_HEALTH_TIMEOUT_SECONDS` (default 600s,
+allowed 30–7200s) instead of a fixed 80s gate.  Each service's deploy block
+prints `HEALTH_WAIT`/`HEALTH_OK`/`HEALTH_FAIL` with the attempt number, so a
+long catalog migration stays visible in the job log.
+
+- `DEPLOY_READ_TIMEOUT_SECONDS` (default 900s) bounds silence on the SSH
+  stream; a hung channel is closed and the job is failed.
+- `DEPLOY_STALE_JOB_SECONDS` (default 1800s) is the job heartbeat limit.
+  `last_output_at` and `updated_at` are refreshed by output; stale jobs are
+  failed and their channel is closed by the control reaper.
+- Cancel a running job with
+  `POST /api/v1/admin/jobs/{job_id}/cancel`; do not start another deploy while
+  the old job is still `running`.
+- `GET /api/v1/admin/jobs/{job_id}` includes `last_output_at`.
+- Set `DEPLOY_PRE_START_COMMAND`/`DEPLOY_PRE_START_TIMEOUT_SECONDS` to run a
+  release migration after install and before restart when a CLI exists.
+
+Checklist for slow releases: backup first; run the migration/backfill as a
+pre-start step; deploy catalog alone and watch health attempts; cancel stale
+jobs before retrying; deploy the remaining services; verify `/api/v1/health`,
+sitemap/robots and admin panels; roll back and stop if catalog remains
+unhealthy.

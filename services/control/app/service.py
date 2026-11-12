@@ -22,7 +22,9 @@ from .repository import (
     audit,
     create_server,
     delete_server,
+    get_job,
     get_server,
+    job_out,
     list_servers,
     server_out,
     update_server,
@@ -30,6 +32,7 @@ from .repository import (
 from .schemas import (
     HTTP_SERVICES,
     DeployResponse,
+    JobOut,
     RegistryEndpoint,
     RegistryOut,
     ReplicaActionOut,
@@ -237,6 +240,25 @@ class ControlService:
             )
             await session.commit()
             return DeployResponse(job_id=job.id, status=job.status)
+
+    async def job(self, job_id: uuid.UUID) -> JobOut:
+        await self.deployer.reap_stale_jobs()
+        async with self.session_factory() as session:
+            row = await get_job(session, job_id)
+            if row is None:
+                raise NotFoundError("Задача деплоя не найдена")
+            return job_out(row)
+
+    async def cancel_job(self, job_id: uuid.UUID) -> JobOut:
+        await self.deployer.cancel_job(job_id, "Deployment cancelled by administrator")
+        async with self.session_factory() as session:
+            row = await get_job(session, job_id)
+            if row is None:
+                raise NotFoundError("Задача деплоя не найдена")
+            return job_out(row)
+
+    async def reap_stale_jobs(self) -> int:
+        return await self.deployer.reap_stale_jobs()
 
     async def _check_service(self, endpoint: RegistryEndpoint) -> tuple[bool, str | None]:
         try:

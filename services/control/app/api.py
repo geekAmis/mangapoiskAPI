@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
-from manga_common.errors import NotFoundError
 from manga_common.security import require_internal_token
 from pydantic import BaseModel, Field
 
@@ -15,7 +14,7 @@ from .ads import (
     AdSecretOut,
     AdsService,
 )
-from .repository import audit_out, get_job, job_out, list_audit
+from .repository import audit_out, list_audit
 from .schemas import (
     AuditOut,
     DeployRequest,
@@ -178,11 +177,14 @@ async def bootstrap_replica(
 async def job(
     job_id: uuid.UUID, service: ControlService = Depends(get_service)
 ) -> JobOut:
-    async with service.session_factory() as session:
-        row = await get_job(session, job_id)
-        if row is None:
-            raise NotFoundError("Задача деплоя не найдена")
-        return job_out(row)
+    return await service.job(job_id)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobOut)
+async def cancel_job(
+    job_id: uuid.UUID, service: ControlService = Depends(get_service)
+) -> JobOut:
+    return await service.cancel_job(job_id)
 
 
 @router.get("/registry", response_model=RegistryOut)
