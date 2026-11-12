@@ -337,9 +337,12 @@ grep swapfile /etc/fstab
 
 ### 5.2 Control-plane guardrail
 
-`mangapoisk-control` has a real RSS growth problem (observed 252 MB → 910 MB in
-about 35 minutes on 2026-11-12; see issue #53).  The service is protected with a
-systemd drop-in:
+`mangapoisk-control` showed a 910 MB RSS high-water on 2026-11-12 (252 MB →
+910 MB over about 35 minutes).  After a controlled restart it grew to ~170 MB
+and then stayed flat for the rest of a 10-minute sample; the 910 MB peak was
+not reproduced without deployment activity.  A 24-hour observation and
+metrics are tracked in issue #59.  The service is protected with a systemd
+drop-in regardless:
 
 ```text
 /etc/systemd/system/mangapoisk-control.service.d/memory.conf
