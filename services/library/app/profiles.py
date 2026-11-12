@@ -418,6 +418,16 @@ def normalize_username(value: str) -> str:
     return text
 
 
+def profile_not_found() -> NotFoundError:
+    """Same 404 for missing, private, hidden and blocked profiles."""
+
+    return NotFoundError(
+        "Профиль не найден",
+        code="profile_not_found",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 def initials_for(display_name: str) -> str:
     parts = [part for part in re.split(r"\s+", display_name.strip()) if part]
     if not parts:
@@ -467,13 +477,13 @@ class ProfileService:
         async with self.session_factory() as session:
             resolved = await self._resolve(session, handle)
             if resolved is None:
-                raise NotFoundError("Профиль не найден", code="profile_not_found")
+                raise profile_not_found()
             user, profile = resolved
             owner = viewer_id is not None and viewer_id == user.id
             if not owner and viewer_id is not None and await is_blocked(session, viewer_id, user.id):
-                raise NotFoundError("Профиль не найден", code="profile_not_found")
+                raise profile_not_found()
             if not owner and (profile.is_private or not profile_sections_visible(profile)):
-                raise NotFoundError("Профиль не найден", code="profile_not_found")
+                raise profile_not_found()
             result = await self._build(
                 session, user, profile, owner=owner, timezone=timezone, public=True
             )
