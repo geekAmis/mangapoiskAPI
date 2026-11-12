@@ -8,6 +8,7 @@ import {
   type AdminServer,
   type AdminServiceCode,
   type AdminServiceSpec,
+  type AdminSupervisorReport,
 } from '../../api/admin';
 import { Icon } from '../Icon';
 import { DancingSpinner } from '../DancingLoader';
@@ -23,6 +24,32 @@ const STATUS_LABELS: Record<string, string> = {
   done: 'Готово',
   failed: 'Ошибка',
 };
+
+const SUPERVISOR_LABELS: Record<string, string> = {
+  healthy: 'Проверено, всё работает',
+  recovered: 'Восстановлено',
+  failed: 'Не удалось исправить',
+  skipped: 'Пропущено',
+  timeout: 'Таймаут',
+  error: 'Ошибка супервизора',
+  dry_run: 'Dry-run',
+};
+
+const SUPERVISOR_TONE: Record<string, 'ok' | 'bad' | 'wait'> = {
+  healthy: 'ok',
+  recovered: 'ok',
+  failed: 'bad',
+  timeout: 'bad',
+  error: 'bad',
+  skipped: 'wait',
+  dry_run: 'wait',
+};
+
+function readSupervisorReport(job: AdminJob | undefined): AdminSupervisorReport | null {
+  const value = job?.requested?.supervisor;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as AdminSupervisorReport;
+}
 
 interface DeployModalProps {
   open: boolean;
@@ -79,6 +106,10 @@ export function DeployModal({ open, server, onClose }: DeployModalProps) {
   });
 
   const job: AdminJob | undefined = jobQuery.data;
+  const supervisorReport = readSupervisorReport(job);
+  const supervisorTone = supervisorReport
+    ? (SUPERVISOR_TONE[supervisorReport.status] ?? 'wait')
+    : 'wait';
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -205,6 +236,106 @@ export function DeployModal({ open, server, onClose }: DeployModalProps) {
               <Icon name="alert" size={17} />
               <span>{adminErrorMessage(jobQuery.error, 'Не удалось получить статус задачи.')}</span>
             </div>
+          ) : null}
+
+          {supervisorReport ? (
+            <section
+              className={`admin-supervisor admin-supervisor--${supervisorTone}`}
+              aria-label="Отчёт AI-супервизора"
+            >
+              <div className="admin-supervisor__head">
+                <span className={`admin-supervisor__badge admin-supervisor__badge--${supervisorTone}`}>
+                  <span
+                    className={`admin-health-dot ${
+                      supervisorTone === 'ok' ? 'is-ok' : supervisorTone === 'bad' ? 'is-bad' : 'is-wait'
+                    }`}
+                  />
+                  AI-супервизор · {SUPERVISOR_LABELS[supervisorReport.status] ?? supervisorReport.status}
+                </span>
+                {supervisorReport.model ? (
+                  <span className="field__hint">{supervisorReport.model}</span>
+                ) : null}
+              </div>
+              {supervisorReport.summary ? (
+                <p className="admin-supervisor__summary">{supervisorReport.summary}</p>
+              ) : null}
+              <div className="admin-supervisor__meta">
+                {typeof supervisorReport.rounds === 'number' ? (
+                  <span>
+                    раундов: {supervisorReport.rounds}/{supervisorReport.max_iterations ?? '—'}
+                  </span>
+                ) : null}
+                {supervisorReport.timeout_seconds ? (
+                  <span>лимит: {Math.round(supervisorReport.timeout_seconds / 60)} мин</span>
+                ) : null}
+                {supervisorReport.max_steps ? <span>шагов: {supervisorReport.max_steps}</span> : null}
+                {supervisorReport.rollback?.attempted ? (
+                  <span>
+                    откат:{' '}
+                    {supervisorReport.rollback.skipped
+                      ? 'пропущен'
+                      : supervisorReport.rollback.ok
+                        ? 'выполнен'
+                        : 'не выполнен'}
+                  </span>
+                ) : null}
+                {supervisorReport.finished_at ? (
+                  <span>завершено {formatDateTime(supervisorReport.finished_at)}</span>
+                ) : null}
+              </div>
+              {Array.isArray(supervisorReport.actions) && supervisorReport.actions.length ? (
+                <ul className="admin-supervisor__actions">
+                  {supervisorReport.actions.map((action, index) => (
+                    <li key={`${index}-${action}`}>{action}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {Array.isArray(supervisorReport.guard_violations) &&
+              supervisorReport.guard_violations.length ? (
+                <div className="admin-supervisor__danger" role="alert">
+                  <strong>Запрещённые команды:</strong>
+                  <ul>
+                    {supervisorReport.guard_violations.map((violation, index) => (
+                      <li key={`${index}-${violation.command}`}>
+                        <code>{violation.command}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {Array.isArray(supervisorReport.changed_files) &&
+              supervisorReport.changed_files.length ? (
+                <details className="admin-supervisor__details">
+                  <summary>Изменённые файлы ({supervisorReport.changed_files.length})</summary>
+                  <ul>
+                    {supervisorReport.changed_files.map((file) => (
+                      <li key={file}>
+                        <code>{file}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              {Array.isArray(supervisorReport.shell_commands) &&
+              supervisorReport.shell_commands.length ? (
+                <details className="admin-supervisor__details">
+                  <summary>Команды агента ({supervisorReport.shell_commands.length})</summary>
+                  <ul>
+                    {supervisorReport.shell_commands.map((command, index) => (
+                      <li key={`${index}-${command}`}>
+                        <code>{command}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              {supervisorReport.raw_tail ? (
+                <details className="admin-supervisor__details">
+                  <summary>Хвост отчёта</summary>
+                  <pre>{supervisorReport.raw_tail}</pre>
+                </details>
+              ) : null}
+            </section>
           ) : null}
 
           <div className="admin-terminal" aria-label="Лог развёртывания" aria-live="polite">

@@ -191,6 +191,7 @@ async def test_long_startup_progress_keeps_job_green(tmp_path: Path) -> None:
         deploy_health_timeout_seconds=30,
         deploy_health_poll_seconds=1,
         deploy_stale_job_seconds=60,
+        ai_supervisor_enabled=False,
     )
     engine = create_engine(settings.control_dsn)
     session_factory = create_session_factory(engine)

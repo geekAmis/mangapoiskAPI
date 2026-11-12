@@ -852,6 +852,108 @@ html[data-admin="true"] .toast-region {
   overflow-wrap: anywhere;
 }
 
+/* --- AI deploy supervisor --- */
+.admin-supervisor {
+  display: grid;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.admin-supervisor--ok {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+}
+.admin-supervisor--bad {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+.admin-supervisor--wait {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+}
+.admin-supervisor__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.admin-supervisor__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--text);
+}
+.admin-supervisor__badge--ok {
+  color: var(--success);
+}
+.admin-supervisor__badge--bad {
+  color: var(--danger);
+}
+.admin-supervisor__badge--wait {
+  color: var(--warning);
+}
+.admin-supervisor__summary {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.admin-supervisor__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+}
+.admin-supervisor__actions,
+.admin-supervisor__details ul,
+.admin-supervisor__danger ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.admin-supervisor__danger {
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.72rem;
+}
+.admin-supervisor__danger code,
+.admin-supervisor__details code {
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+.admin-supervisor__details summary {
+  cursor: pointer;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+}
+.admin-supervisor__details pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px;
+  border: 1px solid #1b2330;
+  border-radius: 8px;
+  background: #050609;
+  color: #c5d6e6;
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- Логин --- */
 .admin-login {
   position: relative;

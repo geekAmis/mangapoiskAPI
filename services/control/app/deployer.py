@@ -9,6 +9,11 @@ from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .ai_supervisor import (
+    AISupervisor,
+    SupervisorPolicy,
+    is_full_deploy,
+)
 from .config import ControlSettings
 from .crypto import SecretBox
 from .models import DeploymentJob
@@ -69,6 +74,23 @@ class Deployer:
         self.control = control
         self._tasks: dict[uuid.UUID, asyncio.Task] = {}
         self._handles: dict[uuid.UUID, SSHRunHandle] = {}
+        self.ai_supervisor = (
+            AISupervisor(
+                policy=SupervisorPolicy(
+                    settings.deploy_root, settings.ai_supervisor_max_steps
+                ),
+                model=settings.ai_supervisor_model,
+                timeout_seconds=settings.ai_supervisor_timeout_seconds,
+                round_timeout_seconds=settings.ai_supervisor_round_timeout_seconds,
+                max_iterations=settings.ai_supervisor_max_iterations,
+                opencode_bin=settings.ai_supervisor_opencode_bin,
+                dry_run=settings.ai_supervisor_dry_run,
+                skip_when_healthy=settings.ai_supervisor_skip_when_healthy,
+                rollback_enabled=settings.ai_supervisor_rollback,
+            )
+            if settings.ai_supervisor_enabled
+            else None
+        )
 
     async def start(self, server, services: list[tuple[str, int]], *, update: bool) -> DeploymentJob:
         async with self.session_factory() as session:
@@ -247,17 +269,89 @@ class Deployer:
                     return
                 job.log = output[-200_000:]
                 job.last_output_at = datetime.now(UTC)
-                if code != 0:
+                deploy_ok = code == 0
+                supervisor_report = None
+                supervisor_run = self._supervisor_runner(job_id, target, jump)
+                supervisor_active = self._should_run_supervisor(server, services)
+                if supervisor_active:
+                    supervisor_report = await self._run_supervisor(
+                        session=session,
+                        job=job,
+                        server=server,
+                        services=services,
+                        deploy_ok=deploy_ok,
+                        deploy_log=output,
+                        run_script=supervisor_run,
+                    )
+                post_health = None
+                if (
+                    self.ai_supervisor is not None
+                    and supervisor_report is not None
+                    and supervisor_report.get("status") not in {"skipped", "dry_run"}
+                ):
+                    post_health = await self.ai_supervisor.check_health(
+                        supervisor_run, services
+                    )
+                rollback_ok = bool(
+                    ((supervisor_report or {}).get("rollback") or {}).get("ok")
+                )
+                rollback_attempted = bool(
+                    ((supervisor_report or {}).get("rollback") or {}).get("attempted")
+                ) and not bool(
+                    ((supervisor_report or {}).get("rollback") or {}).get("skipped")
+                )
+                recovered = (
+                    not deploy_ok
+                    and supervisor_report is not None
+                    and supervisor_report.get("status") == "recovered"
+                    and post_health is not None
+                    and post_health.ok
+                    and not rollback_attempted
+                )
+                if (
+                    deploy_ok
+                    and not rollback_attempted
+                    and (post_health is None or post_health.ok)
+                ) or recovered:
+                    job.status = "done"
+                    job.error = None
+                else:
                     job.status = "failed"
                     if "HEALTH_FAIL" in output:
                         job.error = (
                             "Health check failed after "
                             f"{self.settings.deploy_health_timeout_seconds}s"
                         )
+                    elif rollback_attempted and not rollback_ok:
+                        job.error = "AI supervisor failed; source rollback is incomplete"
+                    elif rollback_ok:
+                        job.error = "AI supervisor failed; source was rolled back"
+                    elif (
+                        supervisor_report is not None
+                        and supervisor_report.get("status") == "skipped"
+                    ):
+                        job.error = (
+                            "AI supervisor skipped: "
+                            f"{supervisor_report.get('skipped_reason') or 'unavailable'}"
+                        )
+                    elif supervisor_report is not None and supervisor_report.get(
+                        "error"
+                    ):
+                        job.error = f"AI supervisor: {supervisor_report['error']}"
                     else:
                         job.error = f"Скрипт завершился с кодом {code}"
-                else:
-                    job.status = "done"
+                if (
+                    job.status == "done"
+                    and self.settings.ai_supervisor_required
+                    and supervisor_report is not None
+                    and supervisor_report.get("status") == "skipped"
+                ):
+                    job.status = "failed"
+                    job.error = (
+                        "AI supervisor is required but was skipped: "
+                        f"{supervisor_report.get('skipped_reason') or 'unavailable'}"
+                    )
+                if job.status == "done":
                     inventory = merge_deployed_services(
                         [(item.code, item.port) for item in server.services], services
                     )
@@ -273,6 +367,13 @@ class Deployer:
                         details={"job_id": str(job_id), "services": services},
                     )
                 await session.commit()
+                if (
+                    job.status == "done"
+                    and supervisor_active
+                    and not rollback_attempted
+                    and any(code == "control" for code, _ in services)
+                ):
+                    await self._schedule_control_restart(target, jump)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -292,6 +393,151 @@ class Deployer:
                 except Exception:
                     logger.warning("post-deploy health check failed", exc_info=True)
 
+    def _should_run_supervisor(self, server, services: list[tuple[str, int]]) -> bool:
+        if not self.settings.ai_supervisor_enabled:
+            return False
+        if not self.settings.ai_supervisor_full_deploy_only:
+            return True
+        return is_full_deploy(
+            services, [item.code for item in getattr(server, "services", [])]
+        )
+
+    def _supervisor_runner(self, job_id: uuid.UUID, target, jump):
+        async def run(script: str, timeout: float, read_timeout: float) -> tuple[int, str]:
+            handle = SSHRunHandle()
+            self._handles[job_id] = handle
+            try:
+                return await asyncio.to_thread(
+                    self.ssh.run_script,
+                    target,
+                    script,
+                    jump=jump,
+                    timeout=timeout,
+                    read_timeout=read_timeout,
+                    handle=handle,
+                )
+            finally:
+                if self._handles.get(job_id) is handle:
+                    self._handles.pop(job_id, None)
+
+        return run
+
+    def _append_job_log(self, job: DeploymentJob, text: str) -> None:
+        job.log = ((job.log or "") + text)[-200_000:]
+        job.last_output_at = datetime.now(UTC)
+
+    async def _run_supervisor(
+        self,
+        *,
+        session: AsyncSession,
+        job: DeploymentJob,
+        server,
+        services: list[tuple[str, int]],
+        deploy_ok: bool,
+        deploy_log: str,
+        run_script,
+    ) -> dict:
+        if self.ai_supervisor is None:
+            return {
+                "status": "skipped",
+                "summary": "AI supervisor is disabled",
+                "skipped_reason": "disabled",
+            }
+        self._append_job_log(job, "\n== AI supervisor ==\n")
+        await session.commit()
+
+        async def on_event(line: str) -> None:
+            self._append_job_log(job, line + "\n")
+            await session.commit()
+
+        try:
+            report = await self.ai_supervisor.run(
+                job_id=str(job.id),
+                server_name=server.name,
+                server_host=server.host,
+                services=services,
+                deploy_ok=deploy_ok,
+                deploy_log=deploy_log,
+                run_script=run_script,
+                on_event=on_event,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("AI supervisor failed")
+            report = {
+                "status": "error",
+                "summary": f"AI supervisor crashed: {exc}"[:500],
+                "error": str(exc)[:500],
+                "rounds": 0,
+                "actions": [],
+                "guard_violations": [],
+                "changed_files": [],
+                "shell_commands": [],
+                "rollback": None,
+            }
+        self._append_job_log(
+            job,
+            f"AI supervisor result: {report.get('status')} — "
+            f"{report.get('summary') or 'no summary'}\n",
+        )
+        requested = dict(job.requested or {})
+        requested["supervisor"] = report
+        job.requested = requested
+        await audit(
+            session,
+            "ai_supervisor.finished",
+            server_id=server.id,
+            details={
+                "job_id": str(job.id),
+                "status": report.get("status"),
+                "rounds": report.get("rounds"),
+                "rollback": bool((report.get("rollback") or {}).get("attempted")),
+                "guard_violations": len(report.get("guard_violations") or []),
+                "changed_files": len(report.get("changed_files") or []),
+                "shell_commands": len(report.get("shell_commands") or []),
+            },
+        )
+        await session.commit()
+        return report
+
+    async def _schedule_control_restart(self, target, jump) -> None:
+        """Restart control only after the job result has been persisted.
+
+        A control self-deploy cannot restart control from inside the deploy
+        script while the AI supervisor is still running in this process.  The
+        deploy script therefore leaves a long fallback timer; here we schedule
+        the real restart and cancel the fallback once it is armed.
+        """
+
+        script = """set -u
+if command -v systemd-run >/dev/null 2>&1; then
+  if systemd-run --quiet --on-active=5 --unit="mangapoisk-control-restart-now" \\
+    systemctl restart mangapoisk-control.service; then
+    systemctl stop "mangapoisk-control-restart-fallback.timer" 2>/dev/null || true
+    systemctl reset-failed "mangapoisk-control-restart-fallback.service" 2>/dev/null || true
+    echo "AI_CONTROL_RESTART_SCHEDULED"
+    exit 0
+  fi
+fi
+echo "AI_CONTROL_RESTART_DEFERRED"
+exit 0
+"""
+        try:
+            _code, output = await asyncio.to_thread(
+                self.ssh.run_script,
+                target,
+                script,
+                jump=jump,
+                timeout=60.0,
+                read_timeout=30.0,
+            )
+        except Exception:
+            logger.warning("failed to schedule control restart", exc_info=True)
+            return
+        if "AI_CONTROL_RESTART_SCHEDULED" not in output:
+            logger.warning("control restart was not scheduled: %s", output[-500:])
+
     async def _build_script(self, server, services: list[tuple[str, int]]) -> str:
         root = self.settings.deploy_root.rstrip("/")
         deploy_user = self.settings.deploy_user
@@ -308,6 +554,21 @@ class Deployer:
             f'"$ROOT/venv/bin/pip" install -r "$ROOT/src/services/{code}/requirements.txt"'
             for code, _ in services
         )
+        opencode_install = ""
+        if self.settings.ai_supervisor_install_opencode:
+            opencode_install = f"""
+echo "== opencode =="
+if [ "$(id -u)" -eq 0 ] && [ -f "$ROOT/src/scripts/ops/install_opencode.sh" ]; then
+  if OPENCODE_SUPERVISOR_MAX_STEPS={self.settings.ai_supervisor_max_steps} \\
+    bash "$ROOT/src/scripts/ops/install_opencode.sh" --skip-auth-check; then
+    echo "OPENCODE_INSTALL_OK"
+  else
+    echo "OPENCODE_INSTALL_WARNING installer failed; supervisor will skip"
+  fi
+else
+  echo "OPENCODE_INSTALL_SKIPPED not-root-or-installer-missing"
+fi
+"""
         enable_lines: list[str] = []
         for code, _ in services:
             if code == "control":
@@ -323,13 +584,22 @@ class Deployer:
         enable = "\n".join(enable_lines)
         deferred = ""
         if any(code == "control" for code, _ in services):
-            deferred = """
+            delay = 5
+            if self._should_run_supervisor(server, services):
+                # The supervisor runs in this control process.  Give it the
+                # full budget before the fallback timer restarts control; the
+                # job runner schedules an earlier restart after it persists
+                # the result.
+                delay = self.settings.ai_supervisor_timeout_seconds + 600
+            deferred = f"""
 echo "== control restart =="
+systemctl stop "mangapoisk-control-restart-fallback.timer" 2>/dev/null || true
+systemctl reset-failed "mangapoisk-control-restart-fallback.service" 2>/dev/null || true
 if command -v systemd-run >/dev/null 2>&1; then
-  systemd-run --quiet --on-active=5 --unit="mangapoisk-control-restart-$RANDOM" \\
-    systemctl restart mangapoisk-control.service
+  systemd-run --quiet --on-active={delay} --unit="mangapoisk-control-restart-fallback" \\
+    systemctl restart mangapoisk-control.service || true
 else
-  (sleep 5; systemctl restart mangapoisk-control.service) >/dev/null 2>&1 &
+  (sleep {delay}; systemctl restart mangapoisk-control.service) >/dev/null 2>&1 &
 fi
 """
         env_extras = self._service_env_files(services)
@@ -348,6 +618,7 @@ fi
             "@@ENV_EXTRAS@@": env_extras,
             "@@UNITS@@": units,
             "@@INSTALLS@@": installs,
+            "@@OPENCODE@@": opencode_install,
             "@@PRE_START@@": pre_start_arg,
             "@@PRE_START_TIMEOUT@@": str(self.settings.deploy_pre_start_timeout_seconds),
             "@@ENABLE@@": enable,
@@ -447,6 +718,23 @@ fi
                     [
                         f"CONTROL_SECRET_KEY={self.settings.control_secret_key}",
                         f"DEPLOY_SOURCE_URL={self.settings.deploy_source_url}",
+                        f"AI_SUPERVISOR_ENABLED={'true' if self.settings.ai_supervisor_enabled else 'false'}",
+                        f"AI_SUPERVISOR_MODEL={self.settings.ai_supervisor_model}",
+                        f"AI_SUPERVISOR_TIMEOUT_SECONDS={self.settings.ai_supervisor_timeout_seconds}",
+                        "AI_SUPERVISOR_ROUND_TIMEOUT_SECONDS="
+                        f"{self.settings.ai_supervisor_round_timeout_seconds}",
+                        f"AI_SUPERVISOR_MAX_ITERATIONS={self.settings.ai_supervisor_max_iterations}",
+                        f"AI_SUPERVISOR_MAX_STEPS={self.settings.ai_supervisor_max_steps}",
+                        f"AI_SUPERVISOR_OPENCODE_BIN={self.settings.ai_supervisor_opencode_bin}",
+                        "AI_SUPERVISOR_INSTALL_OPENCODE="
+                        f"{'true' if self.settings.ai_supervisor_install_opencode else 'false'}",
+                        "AI_SUPERVISOR_FULL_DEPLOY_ONLY="
+                        f"{'true' if self.settings.ai_supervisor_full_deploy_only else 'false'}",
+                        "AI_SUPERVISOR_SKIP_WHEN_HEALTHY="
+                        f"{'true' if self.settings.ai_supervisor_skip_when_healthy else 'false'}",
+                        f"AI_SUPERVISOR_REQUIRED={'true' if self.settings.ai_supervisor_required else 'false'}",
+                        f"AI_SUPERVISOR_ROLLBACK={'true' if self.settings.ai_supervisor_rollback else 'false'}",
+                        f"AI_SUPERVISOR_DRY_RUN={'true' if self.settings.ai_supervisor_dry_run else 'false'}",
                     ]
                 )
             if code == "notifier":
@@ -477,6 +765,9 @@ chown root:"$USER_NAME" "$ROOT/env/{code}.env" || true
         else:
             listen_host = "0.0.0.0" if code == "replica" else bind_host
             command = f"{root}/venv/bin/uvicorn app.main:app --host {listen_host} --port {port} --proxy-headers"
+        supervisor_env = (
+            f"EnvironmentFile=-{root}/env/ai-supervisor.env\n" if code == "control" else ""
+        )
         return f"""
 cat > /etc/systemd/system/mangapoisk-{code}.service <<'UNITEOF'
 [Unit]
@@ -491,7 +782,7 @@ Group={user}
 WorkingDirectory={paths}
 EnvironmentFile=-{root}/.env
 EnvironmentFile=-{root}/env/{code}.env
-Environment=PYTHONPATH={root}/src/packages:{root}/src
+{supervisor_env}Environment=PYTHONPATH={root}/src/packages:{root}/src
 ExecStart={command}
 Restart=always
 RestartSec=3
@@ -597,6 +888,8 @@ fi
 "$ROOT/venv/bin/pip" install --upgrade pip >/dev/null
 "$ROOT/venv/bin/pip" install -e "$ROOT/src/packages/manga_common"
 @@INSTALLS@@
+
+@@OPENCODE@@
 
 echo "== pre-start =="
 if [ -n @@PRE_START@@ ]; then

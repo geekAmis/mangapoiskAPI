@@ -95,6 +95,7 @@ gateway inside the compose network.
 | `DEPLOY_READ_TIMEOUT_SECONDS` | maximum silent SSH output before the job is failed (default `900`) |
 | `DEPLOY_STALE_JOB_SECONDS` | fail/cancel a running job with no heartbeat after this (default `1800`) |
 | `DEPLOY_PRE_START_COMMAND`, `DEPLOY_PRE_START_TIMEOUT_SECONDS` | optional command between install and restart, with its own timeout |
+| `AI_SUPERVISOR_*` | optional AI deploy supervisor after a full deploy; see [`docs/AI_DEPLOY.md`](AI_DEPLOY.md) and [`docs/OPENCODE.md`](OPENCODE.md) |
 
 Production validation refuses `dev-*` values for `JWT_SECRET`/`INTERNAL_TOKEN`
 and the default `ADMIN_PASSWORD`.  It also refuses non-HTTPS `PUBLIC_WEB_URL`

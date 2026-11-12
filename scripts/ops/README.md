@@ -13,6 +13,7 @@ drill is also installed on `jump-83` for disaster recovery.
 | `mangapoisk-restore-drill.service` | `/etc/systemd/system/mangapoisk-restore-drill.service` |
 | `mangapoisk-backup.logrotate` | `/etc/logrotate.d/mangapoisk-backup` |
 | `mangapoisk-control-memory.conf` | `/etc/systemd/system/mangapoisk-control.service.d/memory.conf` |
+| `install_opencode.sh` | run once per node (not copied by default); installs OpenCode V2 + `/etc/opencode` config/agent/skill |
 
 ## Prerequisites
 
@@ -54,3 +55,28 @@ Run a backup and a drill:
 The drill deliberately refuses targets outside
 `/var/tmp/mangapoisk-restore-drill-*` and never writes to
 `/opt/mangapoisk-reborn/data`.
+
+## OpenCode deploy supervisor
+
+`install_opencode.sh` is idempotent and does **not** write secrets.  It
+installs OpenCode V2 if absent, then writes `/etc/opencode/opencode.json`,
+`/etc/opencode/agents/deploy-supervisor.md` and
+`/etc/opencode/skills/deploy-supervisor/SKILL.md`.  The only allowed model is
+`opencode/deepseek-v4.1-flash-free`.
+
+```bash
+# copy to the node first; run as root
+bash install_opencode.sh --check
+bash install_opencode.sh --require-model
+```
+
+Authentication is per user and is not automated:
+
+```bash
+opencode auth login
+opencode models | grep -x 'opencode/deepseek-v4.1-flash-free'
+```
+
+Do not install or enable the supervisor in production without lead approval.
+See [`docs/OPENCODE.md`](../../docs/OPENCODE.md) and
+[`docs/AI_DEPLOY.md`](../../docs/AI_DEPLOY.md).

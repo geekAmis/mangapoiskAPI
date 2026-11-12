@@ -5,6 +5,9 @@ SemVer.
 
 ## [Unreleased]
 
+- AI deploy supervisor: OpenCode V2 on every node, free
+  `opencode/deepseek-v4.1-flash-free`, bounded post-deploy repair, strict
+  permission matrix, source-only rollback, admin report (#75).
 - Shared database or replication for multi-node catalogue/library failover.
 - Alembic migrations for destructive schema changes.
 - Redis-backed global rate limiting.

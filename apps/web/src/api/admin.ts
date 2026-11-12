@@ -127,6 +127,34 @@ export interface AdminJob {
   updated_at: string | null;
 }
 
+export interface AdminSupervisorReport {
+  status: string;
+  summary?: string;
+  actions?: string[];
+  rounds?: number;
+  exit_code?: number | null;
+  timed_out?: boolean;
+  skipped_reason?: string | null;
+  guard_violations?: Array<{ command: string; verdict: string }>;
+  changed_files?: string[];
+  shell_commands?: string[];
+  rollback?: {
+    attempted?: boolean;
+    ok?: boolean;
+    skipped?: boolean;
+    output?: string;
+  } | null;
+  model?: string;
+  agent?: string;
+  max_iterations?: number;
+  max_steps?: number;
+  timeout_seconds?: number;
+  raw_tail?: string;
+  started_at?: string;
+  finished_at?: string;
+  error?: string | null;
+}
+
 export interface AdminServerHealth {
   server_id: string;
   name: string;
