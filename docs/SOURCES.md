@@ -169,8 +169,9 @@ Mapping:
   Responses are served behind `server: ddos-guard`; no `x-ratelimit-*` headers
   were observed. Keep the shared 30 req/min default and concurrency 1.
 - Robots: `robots.txt` disallows `/api`, `/search`, `/manga?*` and `/manga/*?`.
-  This adapter is **disabled by default** and is only enabled by an explicit
-  operator flag (`PARSER_ENABLED_SOURCES=remanga`) after permission from the
+  Treat Remanga as **opt-in per deployment**: the current `main` registers the
+  adapter for the existing operator deployment, but a new host must make an
+  explicit decision (`PARSER_ENABLED_SOURCES=remanga`) after permission from the
   site. Enabling it without permission would violate the robots policy.
 
 ## Best-effort / unverified in the dev network
