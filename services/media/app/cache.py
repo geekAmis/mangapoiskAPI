@@ -8,9 +8,12 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import socket
+import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -41,6 +44,36 @@ _VARIANT_CONTENT_TYPE = "image/webp"
 _WEBP_QUALITY = 82
 _WEBP_METHOD = 4
 
+# Only files produced by this cache are eviction candidates.  This deliberately
+# excludes archive ZIPs, SQLite files and any unrelated metadata that may share
+# the volume.  Sidecar JSON is removed only together with its image.
+_ORIGINAL_NAME = re.compile(r"^[0-9a-f]{64}\.(?:jpe?g|png|webp|gif|avif)$")
+_VARIANT_NAME = re.compile(r"^[0-9a-f]{64}-w\d+\.webp$")
+_SIDECAR_SUFFIX = ".json"
+_TOUCH_INTERVAL_SECONDS = 60.0
+_STATS_TTL_SECONDS = 30.0
+_USAGE_WARNING_PERCENT = 80.0
+_USAGE_CRITICAL_PERCENT = 90.0
+
+
+def usage_level(used_bytes: int, cap_bytes: int) -> str:
+    """Classify cache usage for stats and admin warnings."""
+
+    if cap_bytes <= 0:
+        return "unbounded"
+    percent = used_bytes / cap_bytes * 100
+    if percent >= _USAGE_CRITICAL_PERCENT:
+        return "critical"
+    if percent >= _USAGE_WARNING_PERCENT:
+        return "warning"
+    return "ok"
+
+
+def usage_percent(used_bytes: int, cap_bytes: int) -> float:
+    if cap_bytes <= 0:
+        return 0.0
+    return round(used_bytes / cap_bytes * 100, 1)
+
 
 def resolve_width(width: int | None) -> int | None:
     """Return the supported variant width nearest to ``width``."""
@@ -55,6 +88,40 @@ class MediaFile:
     content_type: str
     size: int
     etag: str
+
+
+@dataclass(slots=True)
+class MediaCacheStats:
+    used_bytes: int
+    cap_bytes: int
+    files: int
+    evictions: int
+    last_pruned_at: datetime | None
+
+    @property
+    def usage_percent(self) -> float:
+        return usage_percent(self.used_bytes, self.cap_bytes)
+
+    @property
+    def level(self) -> str:
+        return usage_level(self.used_bytes, self.cap_bytes)
+
+
+@dataclass(slots=True)
+class CachePruneResult:
+    removed: int
+    freed_bytes: int
+    used_bytes: int
+    cap_bytes: int
+    dry_run: bool
+
+
+@dataclass(slots=True)
+class _CacheEntry:
+    path: Path
+    meta_path: Path | None
+    size: int
+    mtime: float
 
 
 class MediaCache:
@@ -73,6 +140,37 @@ class MediaCache:
             for host in (os.getenv("MEDIA_ALLOWED_HOSTS") or "").split(",")
             if host.strip()
         }
+        self.max_bytes = max(0, int(getattr(settings, "media_cache_max_bytes", 0)))
+        self.prune_interval_seconds = max(
+            0, int(getattr(settings, "media_cache_prune_interval_seconds", 60 * 60))
+        )
+        self.prune_min_age_seconds = max(
+            0, int(getattr(settings, "media_cache_prune_min_age_seconds", 5 * 60))
+        )
+        self._prune_guard = asyncio.Lock()
+        self._prune_task: asyncio.Task[None] | None = None
+        self._evictions = 0
+        self._last_pruned_at: datetime | None = None
+        self._stats_cache: MediaCacheStats | None = None
+        self._stats_cached_at = 0.0
+        self._touched_at: dict[str, float] = {}
+
+    def _invalidate_stats(self) -> None:
+        self._stats_cache = None
+        self._stats_cached_at = 0.0
+
+    def _touch(self, path: Path) -> None:
+        """Refresh the LRU timestamp without writing it on every request."""
+
+        key = str(path)
+        now = time.monotonic()
+        if now - self._touched_at.get(key, 0.0) < _TOUCH_INTERVAL_SECONDS:
+            return
+        self._touched_at[key] = now
+        try:
+            os.utime(path, None)
+        except OSError:
+            logger.debug("could not refresh media cache timestamp", extra={"path": key})
 
     async def _validate_url(self, url: str) -> None:
         parsed = urlparse(url)
@@ -127,6 +225,7 @@ class MediaCache:
             path = base.parent / meta["filename"]
             if not path.exists():
                 return None
+            self._touch(path)
             return MediaFile(
                 path=path,
                 content_type=meta.get("content_type", "application/octet-stream"),
@@ -143,6 +242,7 @@ class MediaCache:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             if meta.get("content_type") != _VARIANT_CONTENT_TYPE:
                 return None
+            self._touch(path)
             return MediaFile(
                 path=path,
                 content_type=_VARIANT_CONTENT_TYPE,
@@ -200,6 +300,7 @@ class MediaCache:
         temp_meta = meta_path.with_name(f"{meta_path.name}.{uuid.uuid4().hex}.tmp")
         temp_meta.write_text(json.dumps(meta), encoding="utf-8")
         os.replace(temp_meta, meta_path)
+        self._invalidate_stats()
 
     async def _variant(self, original: MediaFile, url: str, width: int) -> MediaFile:
         if original.content_type not in _VARIANT_SOURCE_TYPES:
@@ -361,6 +462,7 @@ class MediaCache:
                 "size": len(content),
             }
             meta_path.write_text(json.dumps(meta), encoding="utf-8")
+            self._invalidate_stats()
             return MediaFile(
                 path=final_path, content_type=content_type, size=len(content), etag=digest
             )
@@ -378,5 +480,213 @@ class MediaCache:
             path=destination, content_type=media.content_type, size=media.size, etag=media.etag
         )
 
+    async def stats(self) -> MediaCacheStats:
+        """Return on-disk image cache usage and eviction counters.
+
+        The directory may contain hundreds of thousands of files, so the scan
+        is cached for a few seconds and runs in a worker thread.  It never
+        touches archive files or catalogue metadata.
+        """
+
+        now = time.monotonic()
+        cached = self._stats_cache
+        if cached is not None and now - self._stats_cached_at < _STATS_TTL_SECONDS:
+            return MediaCacheStats(
+                used_bytes=cached.used_bytes,
+                cap_bytes=self.max_bytes,
+                files=cached.files,
+                evictions=self._evictions,
+                last_pruned_at=self._last_pruned_at,
+            )
+        used_bytes, files = await asyncio.to_thread(self._scan_usage)
+        result = MediaCacheStats(
+            used_bytes=used_bytes,
+            cap_bytes=self.max_bytes,
+            files=files,
+            evictions=self._evictions,
+            last_pruned_at=self._last_pruned_at,
+        )
+        self._stats_cache = result
+        self._stats_cached_at = now
+        return result
+
+    def _scan_usage(self) -> tuple[int, int]:
+        entries = self._scan_entries()
+        return sum(entry.size for entry in entries), len(entries)
+
+    def _scan_entries(self) -> list[_CacheEntry]:
+        entries: list[_CacheEntry] = []
+        for root, dirs, names in os.walk(self.root):
+            # Temporary downloads are never valid eviction candidates.
+            dirs[:] = [name for name in dirs if name != ".tmp"]
+            root_path = Path(root)
+            for name in names:
+                if not (_ORIGINAL_NAME.match(name) or _VARIANT_NAME.match(name)):
+                    continue
+                path = root_path / name
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                meta_path: Path | None = path.with_name(f"{name}{_SIDECAR_SUFFIX}")
+                size = stat.st_size
+                try:
+                    size += meta_path.stat().st_size
+                except OSError:
+                    meta_path = None
+                entries.append(
+                    _CacheEntry(
+                        path=path,
+                        meta_path=meta_path,
+                        size=size,
+                        mtime=stat.st_mtime,
+                    )
+                )
+        return entries
+
+    async def prune(self, *, dry_run: bool = False) -> CachePruneResult:
+        """Evict least-recently-used image entries until the cap is met.
+
+        Only files created by :class:`MediaCache` are considered.  SQLite
+        archives, catalogue metadata and exports are never opened or removed.
+        """
+
+        if self.max_bytes <= 0:
+            stats = await self.stats()
+            return CachePruneResult(
+                removed=0,
+                freed_bytes=0,
+                used_bytes=stats.used_bytes,
+                cap_bytes=0,
+                dry_run=dry_run,
+            )
+        async with self._prune_guard:
+            result = await asyncio.to_thread(self._prune_sync, dry_run)
+        if not dry_run:
+            if result.removed:
+                self._evictions += result.removed
+                logger.info(
+                    "media image cache LRU evicted %s file(s), %s bytes; cap=%s bytes",
+                    result.removed,
+                    result.freed_bytes,
+                    self.max_bytes,
+                )
+            self._last_pruned_at = datetime.now(UTC)
+            self._invalidate_stats()
+        self._log_usage(result.used_bytes)
+        return result
+
+    def _prune_sync(self, dry_run: bool) -> CachePruneResult:
+        entries = self._scan_entries()
+        used_bytes = sum(entry.size for entry in entries)
+        if used_bytes <= self.max_bytes:
+            return CachePruneResult(
+                removed=0,
+                freed_bytes=0,
+                used_bytes=used_bytes,
+                cap_bytes=self.max_bytes,
+                dry_run=dry_run,
+            )
+        now = time.time()
+        removed = 0
+        freed_bytes = 0
+        for entry in sorted(entries, key=lambda item: (item.mtime, str(item.path))):
+            if used_bytes <= self.max_bytes:
+                break
+            if (
+                self.prune_min_age_seconds
+                and now - entry.mtime < self.prune_min_age_seconds
+            ):
+                # Entries are ordered oldest-first, so everything after this is
+                # even newer and must be kept for the current request cycle.
+                break
+            if dry_run:
+                used_bytes -= entry.size
+                removed += 1
+                freed_bytes += entry.size
+                continue
+            if self._unlink_entry(entry):
+                used_bytes -= entry.size
+                removed += 1
+                freed_bytes += entry.size
+        return CachePruneResult(
+            removed=removed,
+            freed_bytes=freed_bytes,
+            used_bytes=max(0, used_bytes),
+            cap_bytes=self.max_bytes,
+            dry_run=dry_run,
+        )
+
+    @staticmethod
+    def _unlink_entry(entry: _CacheEntry) -> bool:
+        try:
+            entry.path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "could not evict image cache file; will retry next cycle",
+                extra={"path": str(entry.path)},
+            )
+            return False
+        if entry.meta_path is not None:
+            try:
+                entry.meta_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "could not evict image cache sidecar",
+                    extra={"path": str(entry.meta_path)},
+                )
+        return True
+
+    def _log_usage(self, used_bytes: int) -> None:
+        level = usage_level(used_bytes, self.max_bytes)
+        if level == "critical":
+            logger.error(
+                "media image cache is above 90%% of its cap: %s/%s bytes",
+                used_bytes,
+                self.max_bytes,
+            )
+        elif level == "warning":
+            logger.warning(
+                "media image cache is above 80%% of its cap: %s/%s bytes",
+                used_bytes,
+                self.max_bytes,
+            )
+
+    def start_periodic_prune(
+        self, interval_seconds: float | None = None
+    ) -> asyncio.Task[None] | None:
+        """Start the hourly LRU sweep; returns ``None`` for an unbounded cache."""
+
+        if self.max_bytes <= 0:
+            return None
+        interval = (
+            self.prune_interval_seconds
+            if interval_seconds is None
+            else float(interval_seconds)
+        )
+        if interval <= 0:
+            return None
+        if self._prune_task is not None and not self._prune_task.done():
+            return self._prune_task
+        self._prune_task = asyncio.create_task(
+            self._prune_loop(interval), name="media-cache-prune"
+        )
+        return self._prune_task
+
+    async def _prune_loop(self, interval: float) -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self.prune()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("periodic media cache prune failed")
+
     async def close(self) -> None:
+        task = self._prune_task
+        self._prune_task = None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         await self.client.aclose()

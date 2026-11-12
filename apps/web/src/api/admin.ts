@@ -243,6 +243,39 @@ export interface AdminAuditEntry {
   created_at: string | null;
 }
 
+export type AdminStorageLevel = 'ok' | 'warning' | 'critical' | 'unbounded';
+
+export interface AdminImageCacheStats {
+  used_bytes: number;
+  cap_bytes: number;
+  files: number;
+  evictions: number;
+  last_pruned_at: string | null;
+  usage_percent: number;
+  level: AdminStorageLevel;
+}
+
+export interface AdminArchiveStats {
+  total: number;
+  done: number;
+  failed: number;
+  pending: number;
+  done_bytes: number;
+  db_bytes: number;
+  cap_bytes: number;
+  evictions: number;
+  last_pruned_at: string | null;
+  usage_percent: number;
+  level: AdminStorageLevel;
+}
+
+export interface AdminMediaStats {
+  generated_at: string;
+  image_cache: AdminImageCacheStats;
+  archives: AdminArchiveStats;
+  warnings: string[];
+}
+
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -373,6 +406,9 @@ export const adminApi = {
     }),
 
   me: (signal?: AbortSignal) => adminRequest<AdminMe>('/me', { signal }),
+
+  getMediaStats: (signal?: AbortSignal) =>
+    adminRequest<AdminMediaStats>('/media/stats', { signal }),
 
   listServers: (signal?: AbortSignal) => adminRequest<AdminServer[]>('/servers', { signal }),
 

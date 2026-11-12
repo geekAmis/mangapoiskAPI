@@ -1196,6 +1196,16 @@ async def admin_catalogue(
     }
 
 
+@router.get("/admin/media/stats")
+async def admin_media_stats(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> dict[str, Any]:
+    """Image-cache and chapter-archive usage for the admin storage panel."""
+
+    _, _, _, media = clients(request)
+    return await media.stats()
+
+
 @router.get("/admin/servers")
 async def admin_servers(
     request: Request, user: UserClaims = Depends(require_admin)

@@ -419,6 +419,9 @@ class ControlClient(InternalClient):
 class MediaClient(InternalClient):
     service_code = "media"
 
+    async def stats(self) -> dict[str, Any]:
+        return await self.request("GET", "/internal/stats")
+
     async def archive_chapter(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("POST", "/internal/archives/chapters", json=payload, timeout=30.0)
 
