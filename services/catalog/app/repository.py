@@ -19,9 +19,11 @@ from .normalization import (
     parse_genre_filter,
     status_key,
 )
-from .schemas import CatalogStats, SourceStats
+from .schemas import CatalogStats, EnrichmentSourceStats, SourceStats
 
 DESCRIPTION_FALLBACK = "Упс. Описание не нашлось в источниках"
+ENRICHMENT_FAILED_ATTEMPTS = 5
+ENRICHMENT_STALE_HOURS = 24
 
 
 async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
@@ -328,6 +330,10 @@ async def upsert_manga_detail(
     manga.url = detail.url or manga.url
     manga.group_key = compute_group_key(manga.title)
     manga.last_synced_at = datetime.now(UTC)
+    manga.enrichment_attempts = 0
+    manga.enrichment_retry_at = None
+    manga.enrichment_last_error = None
+    manga.enrichment_last_attempt_at = manga.last_synced_at
     if detail.chapters_count is not None:
         manga.chapters_count = max(int(manga.chapters_count or 0), int(detail.chapters_count))
     await session.flush()
@@ -693,48 +699,129 @@ async def stale_manga(
     return list(result.all())
 
 
+def _enrichment_pending_condition(now: datetime | None = None) -> Any:
+    """Titles that still need a detail import.
+
+    A title is pending when it was never enriched, or when it still has no
+    chapter rows and its last successful sync is older than the stale window.
+    ``enrichment_retry_at`` is deliberately not part of this predicate so the
+    same condition can be used for pending/retry counters.
+    """
+
+    current = now or datetime.now(UTC)
+    return or_(
+        Manga.last_synced_at.is_(None),
+        and_(
+            ~exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+            or_(
+                Manga.last_synced_at.is_(None),
+                Manga.last_synced_at < current - timedelta(hours=ENRICHMENT_STALE_HOURS),
+            ),
+        ),
+    )
+
+
+def _enrichment_available_condition(now: datetime | None = None) -> Any:
+    current = now or datetime.now(UTC)
+    return and_(
+        _enrichment_pending_condition(current),
+        or_(Manga.enrichment_retry_at.is_(None), Manga.enrichment_retry_at <= current),
+    )
+
+
 async def pending_enrichment(
     session: AsyncSession, *, source: str | None = None, limit: int = 50
 ) -> list[Manga]:
     """Titles discovered by the crawler but not yet hydrated with detail.
 
-    ``last_synced_at`` is the primary marker, but old deployments also contain
-    summaries that were marked synced while still having zero chapters.  Those
-    are re-queued explicitly so the production QA dead-end cards heal after the
-    first crawl pass.
+    Ordering is popularity-first, then oldest discovery.  Titles with a future
+    ``enrichment_retry_at`` are skipped so a block of permanently failing
+    titles cannot starve the rest of the queue (the pre-fix behaviour).
     """
 
-    conditions: list[Any] = [
-        or_(
-            Manga.last_synced_at.is_(None),
-            and_(
-                ~exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
-                or_(
-                    Manga.last_synced_at.is_(None),
-                    Manga.last_synced_at < datetime.now(UTC) - timedelta(hours=24),
-                ),
-            ),
-        )
-    ]
+    now = datetime.now(UTC)
+    conditions: list[Any] = [_enrichment_available_condition(now)]
     if source:
         conditions.append(Manga.source == source)
     result = await session.scalars(
-        select(Manga).where(*conditions).order_by(Manga.created_at.asc()).limit(limit)
+        select(Manga)
+        .where(*conditions)
+        .order_by(
+            case((Manga.rating_count.is_(None), 1), else_=0),
+            desc(Manga.rating_count),
+            case((Manga.rating.is_(None), 1), else_=0),
+            desc(Manga.rating),
+            Manga.created_at.asc(),
+        )
+        .limit(limit)
     )
     return list(result.all())
 
 
-async def reset_enrichment(session: AsyncSession, *, source: str | None = None) -> int:
-    """Mark titles for a weekly full metadata refresh."""
+async def record_enrichment_failure(
+    session: AsyncSession,
+    manga_id: uuid.UUID,
+    *,
+    error: str,
+    permanent: bool = False,
+    base_seconds: int = 300,
+    max_seconds: int = 21600,
+) -> Manga | None:
+    """Persist an exponential retry clock for one title."""
 
-    conditions = []
+    manga = await session.get(Manga, manga_id)
+    if manga is None:
+        return None
+    attempts = int(manga.enrichment_attempts or 0) + 1
+    now = datetime.now(UTC)
+    if permanent:
+        delay = max(1, max_seconds)
+    else:
+        delay = min(
+            max(1, base_seconds) * (2 ** min(max(0, attempts - 1), 12)),
+            max(1, max_seconds),
+        )
+    manga.enrichment_attempts = attempts
+    manga.enrichment_last_attempt_at = now
+    manga.enrichment_retry_at = now + timedelta(seconds=delay)
+    manga.enrichment_last_error = (error or "")[:4000]
+    await session.flush()
+    return manga
+
+
+async def rotate_enrichment(
+    session: AsyncSession, *, source: str | None = None, limit: int = 500
+) -> int:
+    """Queue a bounded rotation of already-enriched titles for refresh."""
+
+    conditions = [Manga.last_synced_at.is_not(None)]
     if source:
         conditions.append(Manga.source == source)
-    result = await session.execute(
-        update(Manga).where(*conditions).values(last_synced_at=None)
+    ids = list(
+        (
+            await session.scalars(
+                select(Manga.id)
+                .where(*conditions)
+                .order_by(Manga.last_synced_at.asc())
+                .limit(max(1, limit))
+            )
+        ).all()
+    )
+    if not ids:
+        return 0
+    await session.execute(
+        update(Manga).where(Manga.id.in_(ids)).values(last_synced_at=None)
     )
     await session.flush()
-    return int(result.rowcount or 0)
+    return len(ids)
+
+
+async def reset_enrichment(
+    session: AsyncSession, *, source: str | None = None, limit: int = 500
+) -> int:
+    """Backward-compatible bounded alias for :func:`rotate_enrichment`."""
+
+    return await rotate_enrichment(session, source=source, limit=limit)
 
 
 async def latest_updates(
@@ -825,6 +912,9 @@ async def upsert_crawl_state(session: AsyncSession, values: dict[str, Any]) -> C
         "items_seen",
         "items_imported",
         "last_run_at",
+        "last_success_at",
+        "failure_count",
+        "failure_kind",
     ):
         if field in values:
             setattr(state, field, values[field])
@@ -832,14 +922,133 @@ async def upsert_crawl_state(session: AsyncSession, values: dict[str, Any]) -> C
     return state
 
 
-async def list_sources(session: AsyncSession) -> list[Source]:
-    result = await session.scalars(select(Source).order_by(Source.name.asc()))
-    return list(result.all())
+async def enrichment_stats(
+    session: AsyncSession,
+    *,
+    rate_per_minute: int = 36,
+    requests_per_title: int = 2,
+) -> dict[str, Any]:
+    """Aggregate backlog/retry counters for the admin panel and logs."""
+
+    now = datetime.now(UTC)
+    total = int((await session.scalar(select(func.count(Manga.id)))) or 0)
+    pending_condition = _enrichment_pending_condition(now)
+    available_condition = _enrichment_available_condition(now)
+    retry_condition = and_(
+        pending_condition, Manga.enrichment_retry_at > now
+    )
+    failed_condition = and_(
+        pending_condition, Manga.enrichment_attempts >= ENRICHMENT_FAILED_ATTEMPTS
+    )
+
+    pending_total = int(
+        (await session.scalar(select(func.count(Manga.id)).where(available_condition))) or 0
+    )
+    retrying_total = int(
+        (await session.scalar(select(func.count(Manga.id)).where(retry_condition))) or 0
+    )
+    failed_total = int(
+        (await session.scalar(select(func.count(Manga.id)).where(failed_condition))) or 0
+    )
+    oldest_pending = await session.scalar(
+        select(func.min(Manga.created_at)).where(available_condition)
+    )
+    last_success = await session.scalar(select(func.max(Manga.last_synced_at)))
+
+    source_rows: list[EnrichmentSourceStats] = []
+    source_codes = [
+        str(row[0])
+        for row in (
+            await session.execute(select(Manga.source).distinct().order_by(Manga.source))
+        ).all()
+    ]
+    for source in source_codes:
+        source_filter = Manga.source == source
+        source_total = int(
+            (await session.scalar(select(func.count(Manga.id)).where(source_filter))) or 0
+        )
+        source_pending = int(
+            (
+                await session.scalar(
+                    select(func.count(Manga.id)).where(
+                        source_filter, available_condition
+                    )
+                )
+            )
+            or 0
+        )
+        source_retrying = int(
+            (
+                await session.scalar(
+                    select(func.count(Manga.id)).where(source_filter, retry_condition)
+                )
+            )
+            or 0
+        )
+        source_failed = int(
+            (
+                await session.scalar(
+                    select(func.count(Manga.id)).where(source_filter, failed_condition)
+                )
+            )
+            or 0
+        )
+        source_last_success = await session.scalar(
+            select(func.max(Manga.last_synced_at)).where(source_filter)
+        )
+        source_rows.append(
+            EnrichmentSourceStats(
+                source=source,
+                total=source_total,
+                pending=source_pending,
+                retrying=source_retrying,
+                failed=source_failed,
+                last_success_at=source_last_success,
+            )
+        )
+
+    estimated_seconds = 0
+    if pending_total and rate_per_minute > 0:
+        estimated_seconds = int(
+            (pending_total * max(1, requests_per_title) / rate_per_minute) * 60
+        )
+    return {
+        "total": total,
+        "pending": pending_total,
+        "retrying": retrying_total,
+        "failed": failed_total,
+        "oldest_pending_at": oldest_pending,
+        "last_success_at": last_success,
+        "requests_per_title": max(1, requests_per_title),
+        "rate_per_minute": max(1, rate_per_minute),
+        "estimated_seconds": estimated_seconds,
+        "sources": source_rows,
+    }
 
 
 async def stats(session: AsyncSession) -> CatalogStats:
     manga_total = int((await session.scalar(select(func.count(Manga.id)))) or 0)
     chapter_total = int((await session.scalar(select(func.count(Chapter.id)))) or 0)
+    now = datetime.now(UTC)
+    pending_total = int(
+        (
+            await session.scalar(
+                select(func.count(Manga.id)).where(_enrichment_available_condition(now))
+            )
+        )
+        or 0
+    )
+    retrying_total = int(
+        (
+            await session.scalar(
+                select(func.count(Manga.id)).where(
+                    _enrichment_pending_condition(now),
+                    Manga.enrichment_retry_at > now,
+                )
+            )
+        )
+        or 0
+    )
     rows = (
         await session.execute(
             select(
@@ -852,7 +1061,13 @@ async def stats(session: AsyncSession) -> CatalogStats:
     sources = [
         SourceStats(source=row[0], manga=int(row[1]), chapters=int(row[2])) for row in rows
     ]
-    return CatalogStats(manga=manga_total, chapters=chapter_total, sources=sources)
+    return CatalogStats(
+        manga=manga_total,
+        chapters=chapter_total,
+        sources=sources,
+        pending_enrichment=pending_total,
+        retrying_enrichment=retrying_total,
+    )
 
 
 def manga_title(manga: Manga) -> str:

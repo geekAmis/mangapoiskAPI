@@ -18,6 +18,8 @@ class CatalogSettings(Settings):
     chapter_archive_policy: str = "lru"
     chapter_archive_min_gb: int = 20
     chapter_archive_max_gb: int = 25
+    enrichment_retry_base_seconds: int = 300
+    enrichment_retry_max_seconds: int = 21600
 
     @property
     def catalog_dsn(self) -> str:

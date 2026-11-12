@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -38,6 +39,13 @@ from typing import Any, Protocol
 import httpx
 from manga_common.cache import Cache, MemoryCache
 from manga_common.config import Settings
+from manga_common.errors import (
+    ForbiddenError,
+    NotFoundError,
+    RateLimitError,
+    UpstreamError,
+)
+from manga_common.errors import TimeoutError as UpstreamTimeoutError
 from manga_common.http import AsyncRateLimiter, build_client
 from manga_common.source_models import MangaDetail, MangaSummary, SourceSearchResult
 
@@ -110,6 +118,8 @@ class CatalogueCrawler:
         self._adapters: dict[str, CatalogueAdapter] = {}
         self._cache: Cache = MemoryCache()
         self._retry_after: dict[tuple[str, str], datetime] = {}
+        self._enrich_failures: dict[str, int] = {}
+        self._enrich_needs_close: set[str] = set()
 
     # ------------------------------------------------------------------
     # Settings
@@ -157,6 +167,64 @@ class CatalogueCrawler:
             seconds=max(60, int(getattr(self.settings, "catalogue_full_retry_seconds", 900)))
         )
 
+    @property
+    def page_retries(self) -> int:
+        return max(0, min(5, int(getattr(self.settings, "catalogue_page_retries", 2))))
+
+    @property
+    def failure_threshold(self) -> int:
+        return max(
+            1, min(20, int(getattr(self.settings, "catalogue_failure_threshold", 3)))
+        )
+
+    @property
+    def circuit_base_seconds(self) -> int:
+        return max(
+            60,
+            int(
+                getattr(
+                    self.settings,
+                    "catalogue_circuit_base_seconds",
+                    getattr(self.settings, "catalogue_full_retry_seconds", 900),
+                )
+            ),
+        )
+
+    @property
+    def circuit_max_seconds(self) -> int:
+        return max(
+            self.circuit_base_seconds,
+            int(getattr(self.settings, "catalogue_circuit_max_seconds", 86400)),
+        )
+
+    @property
+    def enrichment_failure_threshold(self) -> int:
+        return max(
+            1,
+            min(
+                50,
+                int(getattr(self.settings, "catalogue_enrichment_failure_threshold", 5)),
+            ),
+        )
+
+    @property
+    def metadata_refresh_batch(self) -> int:
+        return max(
+            0,
+            min(5000, int(getattr(self.settings, "catalogue_metadata_refresh_batch", 100))),
+        )
+
+    @property
+    def metadata_refresh_max_backlog(self) -> int:
+        return max(
+            0,
+            int(
+                getattr(
+                    self.settings, "catalogue_metadata_refresh_max_backlog", 5000
+                )
+            ),
+        )
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -199,6 +267,25 @@ class CatalogueCrawler:
         )
         try:
             while not stop.is_set():
+                blocked_until = await self._blocked_until(source)
+                if blocked_until is not None:
+                    wait_seconds = min(
+                        60.0,
+                        max(1.0, (blocked_until - self._clock()).total_seconds()),
+                    )
+                    logger.info(
+                        "catalogue source %s circuit open until %s; sleeping %.0fs",
+                        source,
+                        blocked_until,
+                        wait_seconds,
+                    )
+                    try:
+                        await asyncio.wait_for(stop.wait(), timeout=wait_seconds)
+                    except TimeoutError:
+                        continue
+                    if stop.is_set():
+                        break
+                    continue
                 try:
                     if await self._full_due(source):
                         await self.full_crawl(source, adapter, stop)
@@ -318,15 +405,163 @@ class CatalogueCrawler:
             return True
         return next_run is None or next_run <= now
 
+    @staticmethod
+    def _exception_status(exc: Exception) -> int | None:
+        if isinstance(exc, (NotFoundError, ForbiddenError, RateLimitError)):
+            return int(exc.status_code)
+        if isinstance(exc, UpstreamError) and isinstance(exc.details, dict):
+            status = exc.details.get("status_code")
+            if isinstance(status, int):
+                return status
+            if isinstance(status, str) and status.isdigit():
+                return int(status)
+        return None
+
+    @classmethod
+    def _failure_kind(cls, exc: Exception) -> str:
+        status = cls._exception_status(exc)
+        if isinstance(exc, NotFoundError) or status == 404:
+            return "not_found"
+        if isinstance(exc, ForbiddenError) or status == 403:
+            return "forbidden"
+        if isinstance(exc, RateLimitError) or status == 429:
+            return "rate_limited"
+        if isinstance(exc, UpstreamTimeoutError):
+            return "timeout"
+        if status is not None and status >= 500:
+            return "upstream"
+        return "error"
+
+    def _failure_backoff(self, count: int) -> timedelta:
+        exponent = min(max(0, count - 1), 12)
+        seconds = min(self.circuit_base_seconds * (2**exponent), self.circuit_max_seconds)
+        return timedelta(seconds=seconds)
+
+    async def _blocked_until(self, source: str, mode: str = "health") -> datetime | None:
+        state = await self._get_state(source, mode)
+        if not isinstance(state, dict):
+            return None
+        next_run = _as_datetime(state.get("next_run_at"))
+        if state.get("status") not in {"blocked", "degraded", "failed"}:
+            return None
+        now = self._clock()
+        if next_run is not None and next_run > now:
+            return next_run
+        return None
+
+    async def _record_source_failure(
+        self, source: str, mode: str, exc: Exception, *, permanent: bool = False
+    ) -> tuple[int, datetime]:
+        health_mode = "enrichment" if mode == "enrichment" else "health"
+        health = await self._get_state(source, health_mode) or {}
+        count = int(health.get("failure_count") or 0) + 1
+        now = self._clock()
+        backoff = self.circuit_max_seconds if permanent else None
+        delay = (
+            timedelta(seconds=backoff)
+            if backoff is not None
+            else self._failure_backoff(count)
+        )
+        next_run = now + delay
+        threshold = (
+            self.enrichment_failure_threshold
+            if mode == "enrichment"
+            else self.failure_threshold
+        )
+        blocked = count >= threshold
+        kind = self._failure_kind(exc)
+        await self._save_state(
+            source,
+            health_mode,
+            page=1,
+            status="blocked" if blocked else "degraded",
+            last_error=f"{type(exc).__name__}: {exc}"[:4000],
+            next_run_at=next_run.isoformat(),
+            last_run_at=now.isoformat(),
+            last_success_at=health.get("last_success_at"),
+            failure_count=count,
+            failure_kind=kind,
+        )
+        logger.warning(
+            "catalogue circuit %s/%s failure=%d kind=%s blocked=%s next_run_at=%s",
+            source,
+            health_mode,
+            count,
+            kind,
+            blocked,
+            next_run,
+        )
+        return count, next_run
+
+    async def _record_source_success(self, source: str, mode: str) -> None:
+        health_mode = "enrichment" if mode == "enrichment" else "health"
+        health = await self._get_state(source, health_mode)
+        if not isinstance(health, dict):
+            health = {}
+        had_failures = int(health.get("failure_count") or 0) > 0
+        now = self._clock()
+        await self._save_state(
+            source,
+            health_mode,
+            page=1,
+            status="ok",
+            last_error=None,
+            next_run_at=None,
+            last_run_at=now.isoformat(),
+            last_success_at=now.isoformat(),
+            failure_count=0,
+            failure_kind=None,
+        )
+        if had_failures:
+            logger.info("catalogue circuit %s/%s closed after success", source, health_mode)
+
     async def _full_due(self, source: str) -> bool:
+        if await self._blocked_until(source):
+            return False
         return self._state_due(await self._get_state(source, "full"), self._clock())
 
     async def _incremental_due(self, source: str) -> bool:
+        if await self._blocked_until(source):
+            return False
         return self._state_due(await self._get_state(source, "incremental"), self._clock())
 
     # ------------------------------------------------------------------
     # Full crawl
     # ------------------------------------------------------------------
+
+    async def _fetch_catalogue_page(
+        self, adapter: CatalogueAdapter, page: int, *, sort: str
+    ) -> SourceSearchResult:
+        """Fetch one page with bounded retries for transient blocks/404s."""
+
+        attempts = self.page_retries + 1
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                return await adapter.catalogue(page, sort=sort)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                kind = self._failure_kind(exc)
+                if kind == "error":
+                    raise
+                if attempt >= attempts - 1:
+                    raise
+                delay = min(30.0, 2.0 * (2**attempt) + random.random() * 0.8)
+                if kind in {"forbidden", "rate_limited"}:
+                    delay = min(30.0, delay * 2)
+                logger.warning(
+                    "catalogue %s page=%s attempt=%s/%s failed (%s); retrying in %.1fs",
+                    adapter.__class__.__name__,
+                    page,
+                    attempt + 1,
+                    attempts,
+                    kind,
+                    delay,
+                )
+                await self._sleep(delay)
+        raise last_error or RuntimeError("catalogue page fetch failed")
 
     async def full_crawl(
         self,
@@ -353,13 +588,14 @@ class CatalogueCrawler:
             imported = int((state or {}).get("items_imported") or 0)
 
         if weekly_refresh or state is None:
-            # A full pass is also the full metadata refresh: let the enrichment
-            # worker revisit every variant while pages crawl.  This also heals
-            # stubs left by older catalogue versions.
-            await self._post(
-                "/internal/maintenance/reset-enrichment", {}, params={"source": source}
+            # Never reset the whole source here: that was the #57 queue storm.
+            # The weekly rotation is a bounded batch after a successful pass.
+            logger.info(
+                "catalogue full %s: starting from page %s (weekly=%s)",
+                source,
+                page,
+                weekly_refresh,
             )
-            logger.info("catalogue full %s: full metadata refresh queued", source)
 
         started = now
         pages_this_run = 0
@@ -380,26 +616,33 @@ class CatalogueCrawler:
 
         while not stop.is_set():
             try:
-                result = await adapter.catalogue(page, sort="popular")
+                result = await self._fetch_catalogue_page(adapter, page, sort="popular")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 logger.warning("catalogue full %s page %s failed: %s", source, page, error)
+                failure_count, next_run = await self._record_source_failure(
+                    source, "full", exc
+                )
                 await self._save_state(
                     source,
                     "full",
-                    status="failed",
+                    status="blocked" if failure_count >= self.failure_threshold else "failed",
                     page=page,
                     last_error=error[:4000],
-                    next_run_at=(self._clock() + self.retry_delay).isoformat(),
+                    next_run_at=next_run.isoformat(),
                     last_run_at=self._clock().isoformat(),
                     total_pages=total_pages,
                     items_seen=items_seen,
                     items_imported=imported,
+                    failure_count=failure_count,
+                    failure_kind=self._failure_kind(exc),
                 )
                 report.error = error
                 return report
+            else:
+                await self._record_source_success(source, "full")
 
             pages_this_run += 1
             report.pages += 1
@@ -472,6 +715,9 @@ class CatalogueCrawler:
                     total_pages=total_pages or page,
                     items_seen=items_seen,
                     items_imported=imported,
+                    failure_count=0,
+                    failure_kind=None,
+                    last_success_at=self._clock().isoformat(),
                 )
                 report.completed = True
                 logger.info(
@@ -521,7 +767,8 @@ class CatalogueCrawler:
                 for page in range(1, self.incremental_pages + 1):
                     if stop.is_set():
                         return report
-                    result = await adapter.catalogue(page, sort=sort)
+                    result = await self._fetch_catalogue_page(adapter, page, sort=sort)
+                    await self._record_source_success(source, "incremental")
                     report.pages += 1
                     for summary in result.items:
                         key = summary.source_id.strip()
@@ -535,6 +782,7 @@ class CatalogueCrawler:
                         break
                     await self._sleep(self.crawl_delay)
             report.completed = True
+            await self._rotate_metadata_if_capacity(source)
             await self._save_state(
                 source,
                 "incremental",
@@ -546,6 +794,9 @@ class CatalogueCrawler:
                 total_pages=self.incremental_pages,
                 items_seen=report.items_seen,
                 items_imported=report.imported,
+                failure_count=0,
+                failure_kind=None,
+                last_success_at=now.isoformat(),
             )
             logger.info(
                 "catalogue incremental %s: pages=%s items=%s imported=%s next_run_at=%s",
@@ -560,17 +811,22 @@ class CatalogueCrawler:
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             logger.warning("catalogue incremental %s failed: %s", source, error)
+            failure_count, next_run = await self._record_source_failure(
+                source, "incremental", exc
+            )
             await self._save_state(
                 source,
                 "incremental",
-                status="failed",
+                status="blocked" if failure_count >= self.failure_threshold else "failed",
                 page=1,
                 last_error=error[:4000],
                 last_run_at=now.isoformat(),
-                next_run_at=(now + self.retry_delay).isoformat(),
+                next_run_at=next_run.isoformat(),
                 total_pages=self.incremental_pages,
                 items_seen=report.items_seen,
                 items_imported=report.imported,
+                failure_count=failure_count,
+                failure_kind=self._failure_kind(exc),
             )
             report.error = error
         return report
@@ -578,6 +834,43 @@ class CatalogueCrawler:
     # ------------------------------------------------------------------
     # Summaries and enrichment
     # ------------------------------------------------------------------
+
+    async def _rotate_metadata_if_capacity(self, source: str) -> int:
+        """Queue a small metadata-refresh batch only when backlog is low.
+
+        Rotating 100 titles every incremental cycle refreshes the whole
+        catalogue over a week without ever issuing the all-rows UPDATE that
+        caused the #57 backlog storm.
+        """
+
+        if self.metadata_refresh_batch <= 0:
+            return 0
+        stats = await self._get("/internal/enrichment/stats")
+        if not isinstance(stats, dict):
+            return 0
+        pending = int(stats.get("pending") or 0) + int(stats.get("retrying") or 0)
+        if pending > self.metadata_refresh_max_backlog:
+            logger.info(
+                "catalogue metadata rotation %s deferred: pending=%s > %s",
+                source,
+                pending,
+                self.metadata_refresh_max_backlog,
+            )
+            return 0
+        result = await self._post(
+            "/internal/maintenance/rotate-enrichment",
+            {},
+            params={"source": source, "limit": self.metadata_refresh_batch},
+        )
+        queued = int(result.get("queued") or 0) if isinstance(result, dict) else 0
+        if queued:
+            logger.info(
+                "catalogue metadata rotation %s queued=%s backlog=%s",
+                source,
+                queued,
+                pending,
+            )
+        return queued
 
     async def _import_summary(self, summary: MangaSummary) -> bool:
         payload = summary.model_dump(mode="json")
@@ -589,6 +882,26 @@ class CatalogueCrawler:
     ) -> None:
         semaphore = asyncio.Semaphore(self.enrichment_concurrency)
         while not stop.is_set():
+            blocked_until = await self._blocked_until(source, "enrichment")
+            if blocked_until is not None:
+                wait_seconds = min(
+                    60.0,
+                    max(1.0, (blocked_until - self._clock()).total_seconds()),
+                )
+                logger.info(
+                    "catalogue enrichment %s circuit open until %s; sleeping %.0fs",
+                    source,
+                    blocked_until,
+                    wait_seconds,
+                )
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=wait_seconds)
+                except TimeoutError:
+                    continue
+                continue
+            health = await self._get_state(source, "enrichment")
+            if isinstance(health, dict) and int(health.get("failure_count") or 0) > 0:
+                self._enrich_needs_close.add(source)
             batch = await self._get(
                 "/internal/manga/pending",
                 params={"source": source, "limit": self.enrichment_batch},
@@ -600,13 +913,23 @@ class CatalogueCrawler:
                 except TimeoutError:
                     continue
                 continue
-            await asyncio.gather(
+            results = await asyncio.gather(
                 *(
                     self._enrich_one(source, adapter, item, semaphore)
                     for item in items
                     if isinstance(item, dict)
                 ),
                 return_exceptions=True,
+            )
+            ok = sum(1 for result in results if result is True)
+            failed = len(results) - ok
+            logger.info(
+                "catalogue enrichment %s batch=%d ok=%d failed=%d concurrency=%d",
+                source,
+                len(items),
+                ok,
+                failed,
+                self.enrichment_concurrency,
             )
             if len(items) < self.enrichment_batch:
                 try:
@@ -622,6 +945,7 @@ class CatalogueCrawler:
         semaphore: asyncio.Semaphore,
     ) -> bool:
         source_id = str(item.get("source_id") or "").strip()
+        manga_id = str(item.get("manga_id") or "").strip()
         if not source_id:
             return False
         key = (source, source_id)
@@ -651,15 +975,48 @@ class CatalogueCrawler:
                 if result is None:
                     raise RuntimeError("catalog rejected detail")
                 self._retry_after.pop(key, None)
+                had_failures = (
+                    self._enrich_failures.pop(source, 0) > 0
+                    or source in self._enrich_needs_close
+                )
+                if had_failures:
+                    self._enrich_needs_close.discard(source)
+                    await self._record_source_success(source, "enrichment")
                 logger.info("catalogue enrichment: %s/%s hydrated", source, source_id)
                 return True
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self._retry_after[key] = self._clock() + timedelta(minutes=10)
+                kind = self._failure_kind(exc)
+                permanent = kind == "not_found"
                 logger.warning(
-                    "catalogue enrichment: %s/%s failed: %s", source, source_id, exc
+                    "catalogue enrichment: %s/%s failed (%s): %s",
+                    source,
+                    source_id,
+                    kind,
+                    exc,
                 )
+                if kind in {"forbidden", "rate_limited", "upstream"}:
+                    self._enrich_failures[source] = (
+                        self._enrich_failures.get(source, 0) + 1
+                    )
+                    self._enrich_needs_close.add(source)
+                    await self._record_source_failure(source, "enrichment", exc)
+                if manga_id:
+                    recorded = await self._post(
+                        f"/internal/manga/{manga_id}/enrichment-failure",
+                        {
+                            "error": f"{type(exc).__name__}: {exc}"[:4000],
+                            "kind": kind,
+                            "permanent": permanent,
+                        },
+                    )
+                    if recorded is not None:
+                        retry_at = _as_datetime(recorded.get("retry_at"))
+                        if retry_at is not None:
+                            self._retry_after[key] = retry_at
+                            return False
+                self._retry_after[key] = self._clock() + timedelta(minutes=10)
                 return False
 
 

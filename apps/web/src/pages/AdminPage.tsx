@@ -478,6 +478,14 @@ export default function AdminPage() {
     retry: 1,
   });
 
+  const catalogueQuery = useQuery({
+    queryKey: ['admin', 'catalogue'],
+    queryFn: ({ signal }) => adminApi.getCatalogueHealth(signal),
+    enabled: Boolean(token),
+    retry: 1,
+    refetchInterval: 60_000,
+  });
+
   const servers = serversQuery.data ?? [];
   const registry = registryQuery.data;
   const audit = auditQuery.data ?? [];
@@ -752,6 +760,107 @@ export default function AdminPage() {
             <small>последние 100 записей</small>
           </div>
         </div>
+
+        <section className="admin-panel" aria-labelledby="admin-catalogue-title">
+          <div className="admin-panel__head">
+            <div>
+              <h2 id="admin-catalogue-title">Каталог и обогащение</h2>
+              <p>
+                Backlog деталей, состояние источников и последний успешный обход.
+                Обновляется каждую минуту.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn--ghost btn--icon"
+              onClick={() => void catalogueQuery.refetch()}
+              disabled={catalogueQuery.isFetching}
+              aria-label="Обновить состояние каталога"
+              title="Обновить состояние каталога"
+            >
+              {catalogueQuery.isFetching ? (
+                <DancingSpinner size={18} />
+              ) : (
+                <Icon name="refresh" size={18} />
+              )}
+            </button>
+          </div>
+
+          {catalogueQuery.isLoading ? (
+            <Skeleton height="120px" style={{ borderRadius: 14 }} />
+          ) : catalogueQuery.isError ? (
+            <InlineError
+              message={adminErrorMessage(
+                catalogueQuery.error,
+                'Не удалось получить состояние каталога.',
+              )}
+              onRetry={() => void catalogueQuery.refetch()}
+            />
+          ) : catalogueQuery.data ? (
+            <>
+              <div className="admin-stats">
+                <div className="admin-stat">
+                  <span>Тайтлы</span>
+                  <strong>{formatInt(catalogueQuery.data.stats.manga)}</strong>
+                  <small>{formatInt(catalogueQuery.data.stats.chapters)} глав</small>
+                </div>
+                <div className="admin-stat">
+                  <span>Ждут деталей</span>
+                  <strong>{formatInt(catalogueQuery.data.enrichment.pending)}</strong>
+                  <small>{formatInt(catalogueQuery.data.enrichment.retrying)} на retry</small>
+                </div>
+                <div className="admin-stat">
+                  <span>Ошибки</span>
+                  <strong>{formatInt(catalogueQuery.data.enrichment.failed)}</strong>
+                  <small>после 5 попыток</small>
+                </div>
+                <div className="admin-stat">
+                  <span>Оценка очереди</span>
+                  <strong>
+                    {catalogueQuery.data.enrichment.estimated_seconds > 0
+                      ? `${Math.ceil(catalogueQuery.data.enrichment.estimated_seconds / 3600)} ч`
+                      : '—'}
+                  </strong>
+                  <small>при 36 запросах/мин</small>
+                </div>
+              </div>
+
+              <div className="admin-catalogue-health">
+                {catalogueQuery.data.enrichment.sources.map((source) => {
+                  const states = catalogueQuery.data?.crawl_states.filter(
+                    (state) => state.source === source.source,
+                  ) ?? [];
+                  const full = states.find((state) => state.mode === 'full');
+                  const incremental = states.find((state) => state.mode === 'incremental');
+                  const health = states.find((state) => state.mode === 'health');
+                  const lastSuccess = health?.last_success_at ?? source.last_success_at;
+                  return (
+                    <div className="admin-catalogue-health__row" key={source.source}>
+                      <strong>{source.source}</strong>
+                      <span>
+                        pending {formatInt(source.pending)} · retry {formatInt(source.retrying)}
+                      </span>
+                      <span>
+                        full: {full?.status ?? '—'}
+                        {full?.failure_count ? ` (${full.failure_count})` : ''} · inc:{' '}
+                        {incremental?.status ?? '—'}
+                      </span>
+                      <span>last success: {lastSuccess ? formatDateTime(lastSuccess) : '—'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {catalogueQuery.data.crawl_states.some(
+                (state) => state.status === 'blocked',
+              ) ? (
+                <p className="admin-catalogue-health__warning">
+                  Источник остановлен circuit breaker. Следующая попытка — после
+                  указанного next_run_at; проверьте cookie/robots/доступность.
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </section>
 
         <section className="admin-panel" aria-labelledby="admin-servers-title">
           <div className="admin-panel__head">

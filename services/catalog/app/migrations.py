@@ -44,12 +44,58 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 )
             if "genres_key" not in manga_columns:
                 await connection.execute(text("ALTER TABLE manga ADD COLUMN genres_key TEXT"))
+            if "enrichment_attempts" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN enrichment_attempts INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "enrichment_retry_at" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN enrichment_retry_at DATETIME")
+                )
+            if "enrichment_last_attempt_at" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN enrichment_last_attempt_at DATETIME")
+                )
+            if "enrichment_last_error" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN enrichment_last_error TEXT")
+                )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
             )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_enrichment_retry_at "
+                    "ON manga (enrichment_retry_at)"
+                )
+            )
+            result = await connection.execute(text("PRAGMA table_info(crawl_state)"))
+            crawl_columns = {row[1] for row in result.fetchall()}
+            if "last_success_at" not in crawl_columns:
+                await connection.execute(
+                    text("ALTER TABLE crawl_state ADD COLUMN last_success_at DATETIME")
+                )
+            if "failure_count" not in crawl_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE crawl_state ADD COLUMN failure_count "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "failure_kind" not in crawl_columns:
+                await connection.execute(
+                    text("ALTER TABLE crawl_state ADD COLUMN failure_kind VARCHAR(32)")
+                )
         else:
             await connection.execute(
                 text("ALTER TABLE chapters ADD COLUMN IF NOT EXISTS translator VARCHAR(255)")
@@ -64,10 +110,58 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS genres_key TEXT")
             )
             await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "enrichment_attempts INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "enrichment_retry_at TIMESTAMPTZ"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "enrichment_last_attempt_at TIMESTAMPTZ"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS enrichment_last_error TEXT"
+                )
+            )
+            await connection.execute(
+                text("ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ")
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS "
+                    "failure_count INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS failure_kind VARCHAR(32)"
+                )
+            )
+            await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_enrichment_retry_at "
+                    "ON manga (enrichment_retry_at)"
+                )
             )
 
         # Backfill filter keys.  Genres used to be indexed by their raw source

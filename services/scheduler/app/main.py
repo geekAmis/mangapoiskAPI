@@ -30,7 +30,7 @@ class SchedulerSettings(Settings):
     catalogue_import_interval_seconds: int = 21600
     catalogue_import_per_source_limit: int = 60
     catalogue_enrichment_enabled: bool = True
-    catalogue_enrichment_concurrency: int = 2
+    catalogue_enrichment_concurrency: int = 3
     catalogue_enrichment_limit: int = 30
     # Full-catalogue crawler (MangaPoisk + MangaLib + Remanga).
     catalogue_crawl_enabled: bool = True
@@ -40,7 +40,14 @@ class SchedulerSettings(Settings):
     catalogue_incremental_interval_seconds: int = 900
     catalogue_incremental_pages: int = 2
     catalogue_full_retry_seconds: int = 900
-    catalogue_enrichment_batch_size: int = 50
+    catalogue_enrichment_batch_size: int = 100
+    catalogue_page_retries: int = 2
+    catalogue_failure_threshold: int = 3
+    catalogue_circuit_base_seconds: int = 900
+    catalogue_circuit_max_seconds: int = 86400
+    catalogue_metadata_refresh_batch: int = 100
+    catalogue_metadata_refresh_max_backlog: int = 5000
+    catalogue_enrichment_failure_threshold: int = 5
     # 36 requests/minute = one request every 1.67 s, inside the requested
     # 1.5-2 s politeness window (the adapters also enforce this per source).
     scraper_requests_per_minute: int = 36
