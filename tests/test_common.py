@@ -15,6 +15,7 @@ from manga_common.config import Settings
 from manga_common.errors import UnauthorizedError
 from manga_common.security import UserClaims, admin_auth_version, require_admin
 from manga_common.text import parse_float, parse_int, parse_year, slugify, strip_html
+from pydantic import ValidationError
 
 
 def test_password_hash_roundtrip() -> None:
@@ -103,6 +104,8 @@ def test_production_secrets_reject_placeholders(
         "admin_password": "strong-admin-password",
         "control_secret_key": "c" * 64,
         "service_name": "control",
+        "public_web_url": "https://manga.example",
+        "public_api_url": "https://manga.example/api/v1",
     }
     values[field] = value
     settings = Settings(environment="production", **values)
@@ -119,8 +122,25 @@ def test_production_secrets_accept_strong_values() -> None:
         internal_token="i" * 64,
         admin_password="strong-admin-password",
         control_secret_key="c" * 64,
+        public_web_url="https://manga.example",
+        public_api_url="https://manga.example/api/v1",
     )
     settings.validate_production_secrets()
+
+
+def test_production_public_urls_must_be_https() -> None:
+    with pytest.raises(ValidationError, match="PUBLIC_WEB_URL"):
+        Settings(
+            environment="production",
+            public_web_url="http://85.192.37.58:8088",
+            public_api_url="https://manga.example/api/v1",
+        )
+    with pytest.raises(ValidationError, match="PUBLIC_API_URL"):
+        Settings(
+            environment="production",
+            public_web_url="https://manga.example",
+            public_api_url="http://85.192.37.58:8088",
+        )
 
 
 def test_development_secrets_allow_defaults() -> None:

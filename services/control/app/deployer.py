@@ -4,6 +4,7 @@ import asyncio
 import logging
 import shlex
 import uuid
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -267,8 +268,25 @@ fi
             script = script.replace(key, value)
         return script
 
+    def _public_url(self, value: str, field: str) -> str:
+        value = value.strip().rstrip("/")
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise RuntimeError(f"{field} must be an absolute URL")
+        if self.settings.is_production and parsed.scheme != "https":
+            raise RuntimeError(f"{field} must use https in production")
+        return value
+
+    def _public_api_base(self) -> str:
+        base = self._public_url(self.settings.public_api_url, "PUBLIC_API_URL")
+        if not base.endswith("/api/v1"):
+            base = f"{base}/api/v1"
+        return base
+
     def _env_file(self, server, public_host: str, urls: dict[str, str]) -> str:
         root = self.settings.deploy_root.rstrip("/")
+        public_web_url = self._public_url(self.settings.public_web_url, "PUBLIC_WEB_URL")
+        public_api_base = self._public_api_base()
         lines = [
             "ENVIRONMENT=production",
             "LOG_LEVEL=INFO",
@@ -283,16 +301,16 @@ fi
             f"MEDIA_CACHE_DIR={root}/data/media-cache",
             f"REPLICA_DIR={root}/data/replica",
             f"REPLICA_DATA_ROOT={root}/data",
-            f"REGISTRY_URL={self.settings.public_api_url.rstrip('/')}/api/v1/registry",
+            f"REGISTRY_URL={public_api_base}/registry",
             f"REPLICA_SELF_URL=http://{public_host}:8108",
             "REPLICA_SYNC_SECONDS=10",
             f"EXPORT_DIR={root}/data/exports",
             f"PARSER_COOKIE_STORE_PATH={root}/data/source-cookies.json",
             "EXPORT_TTL_HOURS=48",
             "REDIS_URL=",
-            f"PUBLIC_WEB_URL={self.settings.public_web_url.rstrip('/')}",
-            f"PUBLIC_API_URL={self.settings.public_api_url.rstrip('/')}",
-            f"CORS_ORIGINS={self.settings.public_web_url.rstrip('/')},http://{public_host}:8088,http://localhost:5173,http://localhost:8080,capacitor://localhost,https://localhost",
+            f"PUBLIC_WEB_URL={public_web_url}",
+            f"PUBLIC_API_URL={public_api_base}",
+            f"CORS_ORIGINS={public_web_url},http://{public_host}:8088,http://localhost:5173,http://localhost:8080,capacitor://localhost,https://localhost",
             "SCRAPER_REQUESTS_PER_MINUTE=36",
             "SCRAPER_CACHE_TTL_SECONDS=600",
             "MEDIA_ALLOWED_HOSTS=static2.mangapoisk.me,img2.imglib.info,img3.cdnlibs.org,remanga.org,img3.reimg2.org,img-reserve.reimg2.org",

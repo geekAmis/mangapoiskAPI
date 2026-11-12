@@ -89,10 +89,12 @@ gateway inside the compose network.
 | `MANGAPOISK_COOKIE` | optional; never commit |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | optional notifications |
 | `MEDIA_ALLOWED_HOSTS` | optional comma-separated image CDN allowlist |
-| `PUBLIC_WEB_URL`, `PUBLIC_API_URL` | links in notifications/docs |
+| `PUBLIC_WEB_URL`, `PUBLIC_API_URL` | links in notifications/docs; production refuses `http://` |
 
 Production validation refuses `dev-*` values for `JWT_SECRET`/`INTERNAL_TOKEN`
-and the default `ADMIN_PASSWORD`.  It does **not** catch every placeholder:
+and the default `ADMIN_PASSWORD`.  It also refuses non-HTTPS `PUBLIC_WEB_URL`
+and `PUBLIC_API_URL` values so a deploy cannot silently publish HTTP canonical
+or sitemap URLs.  It does **not** catch every placeholder:
 replace all `change-me-*` values from `.env.example`, including
 `CONTROL_SECRET_KEY`.  Rotating the admin credentials also invalidates existing
 admin sessions.
