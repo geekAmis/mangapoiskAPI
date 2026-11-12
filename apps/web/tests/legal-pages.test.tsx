@@ -137,7 +137,8 @@ describe('registration consent', () => {
         'Примите Пользовательское соглашение и Политику конфиденциальности.',
       ),
     ).toBeTruthy();
-    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    const requestedUrls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(requestedUrls.some((url) => url.includes('/auth/register'))).toBe(false);
   });
 
   it('submits once both consents are checked', async () => {

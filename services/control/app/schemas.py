@@ -185,3 +185,26 @@ class AuditOut(BaseModel):
     server_id: UUID | None = None
     details: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
+
+
+class ConsoleRequest(BaseModel):
+    """Either a read-only allowlisted ``command`` or a structured ``action``."""
+
+    command: str | None = Field(default=None, max_length=1000)
+    action: str | None = Field(default=None, max_length=64)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConsoleResultOut(BaseModel):
+    ok: bool
+    kind: Literal["command", "action"]
+    action: str
+    command: str | None = None
+    output: str = ""
+    exit_code: int | None = None
+    duration_ms: int = 0
+    truncated: bool = False
+    timed_out: bool = False
+    output_hash: str | None = None
+    job_id: UUID | None = None
+    message: str | None = None

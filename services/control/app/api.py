@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from manga_common.schemas import (
     YandexCredentialsOut,
     YandexIntegrationOut,
@@ -24,6 +24,8 @@ from .integrations import IntegrationsService
 from .repository import audit_out, list_audit
 from .schemas import (
     AuditOut,
+    ConsoleRequest,
+    ConsoleResultOut,
     DeployRequest,
     DeployResponse,
     JobOut,
@@ -207,6 +209,30 @@ async def server_health(
     return await service.server_health(server_id)
 
 
+@router.post("/servers/{server_id}/console", response_model=ConsoleResultOut)
+async def server_console(
+    server_id: uuid.UUID,
+    payload: ConsoleRequest,
+    service: ControlService = Depends(get_service),
+    x_admin_user: str | None = Header(default=None, alias="X-Admin-User"),
+) -> ConsoleResultOut:
+    """Restricted console: read-only allowlist commands or structured actions."""
+
+    return await service.console(server_id, payload, admin=x_admin_user)
+
+
+@router.get(
+    "/servers/{server_id}/console/history",
+    response_model=list[AuditOut],
+)
+async def server_console_history(
+    server_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    service: ControlService = Depends(get_service),
+) -> list[AuditOut]:
+    return await service.console_history(server_id, limit)
+
+
 @router.post("/servers/{server_id}/replica/promote", response_model=ReplicaActionOut)
 async def promote_replica(
     server_id: uuid.UUID, service: ControlService = Depends(get_service)
@@ -221,6 +247,14 @@ async def bootstrap_replica(
     service: ControlService = Depends(get_service),
 ) -> ReplicaActionOut:
     return await service.bootstrap_replica(server_id, payload.source_server_id)
+
+
+@router.get("/jobs", response_model=list[JobOut])
+async def jobs(
+    limit: int = Query(default=30, ge=1, le=100),
+    service: ControlService = Depends(get_service),
+) -> list[JobOut]:
+    return await service.jobs(limit)
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

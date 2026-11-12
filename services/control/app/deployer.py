@@ -91,6 +91,30 @@ class Deployer:
         task.add_done_callback(lambda _task, key=job_id: self._tasks.pop(key, None))
         return job
 
+    async def start_rollback(self, server) -> DeploymentJob:
+        """Restore the previous release directory (``src.old``) as a job."""
+
+        async with self.session_factory() as session:
+            job = await create_job(
+                session,
+                server.id,
+                {
+                    "rollback": True,
+                    "host": server.host,
+                    "health_timeout_seconds": self.settings.deploy_health_timeout_seconds,
+                    "read_timeout_seconds": self.settings.deploy_read_timeout_seconds,
+                    "stale_after_seconds": self.settings.deploy_stale_job_seconds,
+                },
+            )
+            await session.commit()
+            job_id = job.id
+        task = asyncio.create_task(
+            self._run(job_id, server.id, [], update=False, rollback=True)
+        )
+        self._tasks[job_id] = task
+        task.add_done_callback(lambda _task, key=job_id: self._tasks.pop(key, None))
+        return job
+
     async def close(self) -> None:
         for handle in list(self._handles.values()):
             handle.cancel()
@@ -176,6 +200,8 @@ class Deployer:
         server_id: uuid.UUID,
         services: list[tuple[str, int]],
         update: bool,
+        *,
+        rollback: bool = False,
     ) -> None:
         async with self.session_factory() as session:
             job = await get_job(session, job_id)
@@ -224,7 +250,10 @@ class Deployer:
             pump_task = asyncio.create_task(pump())
             try:
                 try:
-                    script = await self._build_script(server, services)
+                    if rollback:
+                        script = await self._build_rollback_script(server)
+                    else:
+                        script = await self._build_script(server, services)
                     code, output = await asyncio.to_thread(
                         self.ssh.run_script,
                         target,
@@ -249,7 +278,9 @@ class Deployer:
                 job.last_output_at = datetime.now(UTC)
                 if code != 0:
                     job.status = "failed"
-                    if "HEALTH_FAIL" in output:
+                    if "ROLLBACK_FAIL" in output:
+                        job.error = "Rollback failed: previous release directory was not found"
+                    elif "HEALTH_FAIL" in output:
                         job.error = (
                             "Health check failed after "
                             f"{self.settings.deploy_health_timeout_seconds}s"
@@ -258,20 +289,28 @@ class Deployer:
                         job.error = f"Скрипт завершился с кодом {code}"
                 else:
                     job.status = "done"
-                    inventory = merge_deployed_services(
-                        [(item.code, item.port) for item in server.services], services
-                    )
-                    await update_server(
-                        session,
-                        server,
-                        {"services": inventory},
-                    )
-                    await audit(
-                        session,
-                        "deployment.finished",
-                        server_id=server.id,
-                        details={"job_id": str(job_id), "services": services},
-                    )
+                    if rollback:
+                        await audit(
+                            session,
+                            "deployment.rollback_finished",
+                            server_id=server.id,
+                            details={"job_id": str(job_id)},
+                        )
+                    else:
+                        inventory = merge_deployed_services(
+                            [(item.code, item.port) for item in server.services], services
+                        )
+                        await update_server(
+                            session,
+                            server,
+                            {"services": inventory},
+                        )
+                        await audit(
+                            session,
+                            "deployment.finished",
+                            server_id=server.id,
+                            details={"job_id": str(job_id), "services": services},
+                        )
                 await session.commit()
             except asyncio.CancelledError:
                 raise
@@ -291,6 +330,60 @@ class Deployer:
                     await self.control.health_check_all()
                 except Exception:
                     logger.warning("post-deploy health check failed", exc_info=True)
+
+    async def _build_rollback_script(self, server) -> str:
+        root = self.settings.deploy_root.rstrip("/")
+        services = [(item.code, item.port) for item in server.services]
+        installs = "\n".join(
+            f'"$ROOT/venv/bin/pip" install -r "$ROOT/src/services/{code}/requirements.txt"'
+            for code, _ in services
+        )
+        stop = "\n".join(
+            f'systemctl stop "mangapoisk-{code}.service" 2>/dev/null || true'
+            for code, _ in services
+            if code != "control"
+        )
+        restart: list[str] = []
+        deferred = ""
+        for code, _ in services:
+            if code == "control":
+                deferred = """
+echo "== control restart =="
+if command -v systemd-run >/dev/null 2>&1; then
+  systemd-run --quiet --on-active=5 --unit="mangapoisk-control-rollback-$RANDOM" \\
+    systemctl restart mangapoisk-control.service
+else
+  (sleep 5; systemctl restart mangapoisk-control.service) >/dev/null 2>&1 &
+fi
+"""
+            else:
+                restart.append(f'systemctl restart "mangapoisk-{code}.service"')
+        health = "\n".join(
+            self._health_block(code, port)
+            for code, port in services
+            if code in HTTP_SERVICE_CODES
+        )
+        script = f"""set -euo pipefail
+ROOT={shlex.quote(root)}
+echo "== MangaPoisk rollback =="
+if [ ! -d "$ROOT/src.old" ]; then
+  echo "ROLLBACK_FAIL: previous release directory $ROOT/src.old not found"
+  exit 2
+fi
+{stop}
+rm -rf "$ROOT/src.rollback-failed"
+if [ -d "$ROOT/src" ]; then mv "$ROOT/src" "$ROOT/src.rollback-failed"; fi
+mv "$ROOT/src.old" "$ROOT/src"
+chmod -R a+rX "$ROOT/src"
+"$ROOT/venv/bin/pip" install -e "$ROOT/src/packages/manga_common"
+{installs}
+systemctl daemon-reload
+{chr(10).join(restart)}
+{health}
+{deferred}
+echo "ROLLBACK_OK"
+"""
+        return script
 
     async def _build_script(self, server, services: list[tuple[str, int]]) -> str:
         root = self.settings.deploy_root.rstrip("/")

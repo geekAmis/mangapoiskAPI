@@ -73,11 +73,12 @@ function StorageCard({
   );
 }
 
-export function MediaStoragePanel() {
+export function MediaStoragePanel({ active = true }: { active?: boolean }) {
   const query = useQuery({
     queryKey: ['admin', 'media-stats'],
     queryFn: ({ signal }) => adminApi.getMediaStats(signal),
-    refetchInterval: 60_000,
+    enabled: active,
+    refetchInterval: active ? 60_000 : false,
     retry: 1,
   });
   const data = query.data;

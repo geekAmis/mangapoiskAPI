@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:unit": "node tests/progress.test.mjs && node tests/profiles.test.mjs",
+    "test:admin-tabs": "node --test tests/admin-tabs.test.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

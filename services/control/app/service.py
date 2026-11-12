@@ -7,6 +7,7 @@ import shlex
 import socket
 import uuid
 from datetime import UTC, datetime
+from typing import get_args
 from urllib.parse import urlparse
 
 import httpx
@@ -15,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config import ControlSettings
+from .console import ConsoleExecutor, console_history
 from .crypto import SecretBox
 from .deployer import Deployer
 from .models import Server
@@ -25,12 +27,16 @@ from .repository import (
     get_job,
     get_server,
     job_out,
+    list_jobs,
     list_servers,
     server_out,
     update_server,
 )
 from .schemas import (
     HTTP_SERVICES,
+    AuditOut,
+    ConsoleRequest,
+    ConsoleResultOut,
     DeployResponse,
     JobOut,
     RegistryEndpoint,
@@ -40,6 +46,7 @@ from .schemas import (
     ServerHealthOut,
     ServerOut,
     ServerUpdate,
+    ServiceCode,
     ServiceOut,
     ServiceSpec,
 )
@@ -55,6 +62,7 @@ class ControlService:
         self.box = SecretBox(settings.control_secret_key)
         self.ssh = SSHRunner()
         self.deployer = Deployer(settings, session_factory, self.box, self.ssh, self)
+        self.console_executor = ConsoleExecutor(settings, self)
 
     def _target(self, server: Server) -> SSHTarget:
         return SSHTarget(
@@ -240,6 +248,94 @@ class ControlService:
             )
             await session.commit()
             return DeployResponse(job_id=job.id, status=job.status)
+
+    async def console(
+        self,
+        server_id: uuid.UUID,
+        payload: ConsoleRequest,
+        *,
+        admin: str | None = None,
+    ) -> ConsoleResultOut:
+        return await self.console_executor.execute(server_id, payload, admin=admin)
+
+    async def console_history(
+        self, server_id: uuid.UUID, limit: int = 50
+    ) -> list[AuditOut]:
+        return await console_history(self, server_id, limit)
+
+    async def rollback(self, server_id: uuid.UUID) -> DeployResponse:
+        server = await self._server_model(server_id)
+        if not server.services:
+            raise ValidationError(
+                "На сервере нет настроенных сервисов для rollback.",
+                code="no_services",
+            )
+        job = await self.deployer.start_rollback(server)
+        async with self.session_factory() as session:
+            await audit(
+                session,
+                "deployment.rollback_started",
+                server_id=server.id,
+                details={"job_id": str(job.id)},
+            )
+            await session.commit()
+        return DeployResponse(job_id=job.id, status=job.status)
+
+    async def change_port(
+        self, server_id: uuid.UUID, code: str, port: int
+    ) -> DeployResponse:
+        server = await self._server_model(server_id)
+        services = {item.code: item.port for item in server.services}
+        if code not in services:
+            raise ValidationError(
+                f"Сервис {code} не настроен на этом сервере.",
+                code="service_not_configured",
+            )
+        if any(other != code and value == port for other, value in services.items()):
+            raise ValidationError(
+                f"Порт {port} уже занят другим сервисом.", code="port_in_use"
+            )
+        updated = [
+            ServiceSpec(code=item, port=(port if item == code else value))
+            for item, value in services.items()
+        ]
+        await self.update(server_id, ServerUpdate(services=updated))
+        return await self.deploy(
+            server_id, [ServiceSpec(code=code, port=port)], update=True
+        )
+
+    async def add_service(
+        self, server_id: uuid.UUID, code: str, port: int
+    ) -> DeployResponse:
+        server = await self._server_model(server_id)
+        services = {item.code: item.port for item in server.services}
+        if code in services:
+            raise ValidationError(
+                f"Сервис {code} уже настроен на этом сервере.",
+                code="service_exists",
+            )
+        if code not in get_args(ServiceCode):
+            raise ValidationError(
+                f"Неизвестный микросервис {code}.", code="service_unknown"
+            )
+        if any(value == port for value in services.values()):
+            raise ValidationError(
+                f"Порт {port} уже занят другим сервисом.", code="port_in_use"
+            )
+        updated = [
+            ServiceSpec(code=item, port=value) for item, value in services.items()
+        ]
+        updated.append(ServiceSpec(code=code, port=port))
+        await self.update(server_id, ServerUpdate(services=updated))
+        return await self.deploy(
+            server_id, [ServiceSpec(code=code, port=port)], update=True
+        )
+
+    async def jobs(self, limit: int = 30) -> list[JobOut]:
+        await self.deployer.reap_stale_jobs()
+        async with self.session_factory() as session:
+            rows = await list_jobs(session, limit)
+            return [job_out(row) for row in rows]
 
     async def job(self, job_id: uuid.UUID) -> JobOut:
         await self.deployer.reap_stale_jobs()
