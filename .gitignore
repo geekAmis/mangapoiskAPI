@@ -44,3 +44,9 @@ apps/android/**/build/
 data.txt
 *.pem
 *.key
+
+# Local agent/editor skill instructions are not part of the product
+Skill.md
+skill.md
+SKILL.md
+**/SKILL.md

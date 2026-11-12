@@ -276,11 +276,17 @@ function errorFromResponse(response: Response, body: unknown): AdminApiError {
 
 async function adminRequest<T>(
   path: string,
-  options: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown; auth?: boolean; signal?: AbortSignal } = {},
+  options: {
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    body?: unknown;
+    formData?: FormData;
+    auth?: boolean;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<T> {
-  const { method = 'GET', body, auth = true, signal } = options;
+  const { method = 'GET', body, formData, auth = true, signal } = options;
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined && !formData) headers['Content-Type'] = 'application/json';
 
   let requestToken: string | null = null;
   if (auth) {
@@ -293,7 +299,7 @@ async function adminRequest<T>(
   try {
     response = await fetch(buildAdminUrl(path), {
       method,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: formData ?? (body === undefined ? undefined : JSON.stringify(body)),
       headers,
       credentials: 'same-origin',
       signal,
@@ -375,6 +381,15 @@ export const adminApi = {
       method: 'PUT',
       body: { cookie },
     }),
+
+  importSourceCookieHar: (code: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return adminRequest<AdminSourceCookie>(
+      `/sources/${encodeURIComponent(code)}/cookie/har`,
+      { method: 'POST', formData: form },
+    );
+  },
 
   getReportedComments: (signal?: AbortSignal) =>
     adminRequest<AdminCommentPage>('/comments?reported=true&limit=50', { signal }),

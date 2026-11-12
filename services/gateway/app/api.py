@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from manga_common.auth import constant_time_compare, create_access_token
 from manga_common.errors import (
@@ -1308,6 +1309,100 @@ async def admin_put_source_cookie(
         "PUT",
         f"/internal/sources/{quote(code, safe='')}/cookie",
         json={"cookie": payload.cookie},
+    )
+
+
+_MAX_HAR_BYTES = 50 * 1024 * 1024
+_HAR_SOURCE_HOSTS: dict[str, tuple[str, ...]] = {
+    "remanga": ("remanga.org",),
+    "mangalib": ("mangalib.me", "mangalib.org"),
+    "mangapoisk": ("mangapoisk.me", "mangapoisk.org", "mangapoisk.ru"),
+    "mangadex": ("mangadex.org",),
+    "readmanga": ("readmanga.live",),
+}
+
+
+def _extract_har_cookie(payload: Any, code: str) -> str | None:
+    """Find the most complete Cookie header for a source inside a HAR file."""
+
+    if not isinstance(payload, dict):
+        return None
+    log = payload.get("log")
+    if not isinstance(log, dict):
+        return None
+    entries = log.get("entries")
+    if not isinstance(entries, list):
+        return None
+
+    hosts = _HAR_SOURCE_HOSTS.get(code, ())
+    candidates: list[str] = []
+    source_host_hits: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        request_data = entry.get("request")
+        if not isinstance(request_data, dict):
+            continue
+        url = request_data.get("url")
+        host = (urlparse(url).hostname or "").lower() if isinstance(url, str) else ""
+        headers = request_data.get("headers")
+        if not isinstance(headers, list):
+            continue
+        cookie = ""
+        for header in headers:
+            if not isinstance(header, dict):
+                continue
+            if str(header.get("name", "")).lower() != "cookie":
+                continue
+            value = str(header.get("value", "")).strip()
+            if value:
+                cookie = value
+                break
+        if not cookie:
+            continue
+        candidates.append(cookie)
+        if hosts and any(host == item or host.endswith("." + item) for item in hosts):
+            source_host_hits.append(cookie)
+
+    if hosts:
+        if not source_host_hits:
+            return None
+        candidates = source_host_hits
+    if not candidates:
+        return None
+    if code == "remanga":
+        preferred = [item for item in candidates if "auth:token" in item]
+        if preferred:
+            candidates = preferred
+    return max(candidates, key=len)
+
+
+@router.post("/admin/sources/{code}/cookie/har")
+async def admin_import_source_cookie_har(
+    request: Request,
+    code: str,
+    file: UploadFile = File(...),
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    """Extract and store a source cookie from an uploaded browser HAR file."""
+
+    raw = await file.read(_MAX_HAR_BYTES + 1)
+    if len(raw) > _MAX_HAR_BYTES:
+        raise ValidationError("HAR-файл слишком большой (максимум 50 МБ)", code="har_too_large")
+    try:
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValidationError("Файл не является корректным HAR", code="har_invalid") from exc
+    cookie = _extract_har_cookie(payload, code)
+    if not cookie:
+        raise ValidationError(
+            "В HAR не найдены cookie для этого источника. Откройте сайт источника, авторизуйтесь и сохраните HAR заново.",
+            code="har_cookie_not_found",
+        )
+    return await request.app.state.parser.request(
+        "PUT",
+        f"/internal/sources/{quote(code, safe='')}/cookie",
+        json={"cookie": cookie},
     )
 
 

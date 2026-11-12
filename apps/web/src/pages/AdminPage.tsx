@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -91,6 +91,7 @@ function detailsSummary(entry: AdminAuditEntry): string {
 function SourceCookieRow({ source }: { source: SourceOut }) {
   const queryClient = useQueryClient();
   const [value, setValue] = useState('');
+  const harInputRef = useRef<HTMLInputElement>(null);
   const stateQuery = useQuery({
     queryKey: ['admin', 'source-cookie', source.code],
     queryFn: ({ signal }) => adminApi.getSourceCookie(source.code, signal),
@@ -104,6 +105,15 @@ function SourceCookieRow({ source }: { source: SourceOut }) {
       toast.success(next.configured ? 'Cookie сохранён' : 'Cookie очищен');
     },
     onError: (error) => toast.error(adminErrorMessage(error, 'Не удалось сохранить cookie')),
+  });
+  const harMutation = useMutation({
+    mutationFn: (file: File) => adminApi.importSourceCookieHar(source.code, file),
+    onSuccess: (next) => {
+      setValue('');
+      queryClient.setQueryData(['admin', 'source-cookie', source.code], next);
+      toast.success('Cookie из HAR сохранён');
+    },
+    onError: (error) => toast.error(adminErrorMessage(error, 'В HAR не нашлись подходящие cookie')),
   });
 
   return (
@@ -152,11 +162,32 @@ function SourceCookieRow({ source }: { source: SourceOut }) {
             >
               Очистить
             </button>
+            <input
+              ref={harInputRef}
+              type="file"
+              accept=".har,application/json"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) harMutation.mutate(file);
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn--outline btn--sm"
+              disabled={harMutation.isPending}
+              onClick={() => harInputRef.current?.click()}
+              title="Извлечь cookie из сохранённого HAR-файла"
+            >
+              {harMutation.isPending ? <DancingSpinner size={14} /> : <Icon name="download" size={14} />}
+              Из HAR
+            </button>
           </div>
           <p className="admin-cookie-row__note">
             {state?.updated_at
               ? `Обновлён ${formatDateTime(state.updated_at)}. Значение хранится на сервере и никогда не возвращается в браузер.`
-              : 'Значение хранится на сервере и никогда не возвращается в браузер.'}
+              : 'Можно вставить заголовок Cookie вручную или загрузить HAR — сервер сам найдёт cookie источника.'}
           </p>
         </>
       )}
