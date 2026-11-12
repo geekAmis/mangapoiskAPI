@@ -21,6 +21,8 @@
 | 7 | `fix/android-https` | `a9ac0e5` | `cb0db11` | Capacitor HTTPS build, network security config |
 | 8 | `feat/search` | `a8e73f2` | `e7ebf53` | PG `pg_trgm`/`unaccent`, SQLite FTS5, typo/translit/synonyms, `/manga/suggest`, combobox/history |
 | 9 | `fix/ops-critical` (draft PR #62) | `80d72c8` | `ae2e3db` | UFW/backup/swap runbooks, restic backup/restore scripts, systemd units, control memory drop-in |
+| 10 | `fix/catalog-migration-startup` | `6baa295` | `12fb014` | fast startup, background batched search backfill, fallback search, progress API, reindex CLI |
+| 11 | `fix/deploy-health` | `5f15ce6` | `52ddcd1` | configurable 600s health gate, SSH/read/stale timeouts, job cancel/reaper, pre-start hook, control migration |
 
 ## 2. Разрешённые конфликты
 
@@ -42,6 +44,9 @@
 | `apps/web/src/components/layout/AppLayout.tsx` | `useProgressSync` + header/mobile-sticky ad slots |
 | `apps/mobile/README.md` | HTTPS-инструкции Android + ограничение Web Push/Capacitor |
 | `docs/OPS.md` | объединены три части: аудит надёжности #44, media LRU #56, firewall/backup/swap runbook PR #62 |
+| `services/catalog/app/{migrations,search,search_fts,repository,main}.py` | startup оставлен schema-only; добавлены `SearchBackfillWorker`, legacy-FTS bootstrap, progress API и reindex CLI (#63) |
+| `services/control/app/{deployer,ssh,service,api,models}.py` | health/read/stale-таймауты, отмена job, stale reaper, pre-start hook и additive `last_output_at` (#63) |
+| `docs/OPS.md` после #63 | runbook поиска §9, deploy health §10, changelog §11; нумерация выровнена |
 | `apps/web/src/api/client.ts`, `packages/manga_common/schemas.py` | сохранены retention/search/notifications типы |
 
 Добавлены/расширены тесты на стыках:
@@ -53,17 +58,20 @@
 
 ## 3. Тестовая матрица
 
-Финальный прогон на `release/v1.2-integration` после merge `fix/ops-critical`.
+Финальный прогон на `release/v1.2-integration` после merge обоих hotfix #63.
 
 | Проверка | Команда | Результат |
 |---|---|---|
 | Lint | `ruff check packages services tests` | PASS |
-| Backend | `pytest` | **331 passed, 1 skipped** (network), 14 warnings, 155.74 s |
+| Backend | `pytest` | **343 passed, 1 skipped** (network), 14 warnings, 213.77 s |
 | Web types | `npm run typecheck` | PASS |
 | Web build | `npm run build` | PASS |
 | Web unit | `npm run test:unit` | 4/4 PASS |
 | Mobile web build | `npm run build:www` (apps/mobile) | PASS, plain-HTTP fallback отсутствует |
 | Ops scripts syntax | `bash -n scripts/ops/*.sh` | PASS |
+| Catalog startup, 78 275 rows | `scripts/benchmark_migration.py --titles 78275 --batch-size 500` | lifespan **1.349 s**, bootstrap 1.205 s, schema 0.144 s |
+| Search during backfill, 78k | same benchmark | search 259.35 ms / suggest 137.53 ms, 300 результатов; после первого батча 293.78/148.03 ms |
+| Background backfill, 78k | same benchmark | 158.28 s, 491.4 строк/с, повторный запуск 0 строк |
 | Search benchmark (SQLite) | `scripts/benchmark_search.py --titles 5000 --runs 7` | search p50 25.37 ms / p95 40.43 ms; suggest p50 19.70 ms / p95 32.81 ms |
 
 Коммит-доказательство бенчмарка:
@@ -92,8 +100,8 @@
 1. **PostgreSQL search path не проверен вживую.** Локально нет PostgreSQL;
    проверены SQL-компиляция, миграция и SQLite FTS5. Перед production нужно
    прогнать `BENCHMARK_DATABASE_URL=postgresql+asyncpg://... python
-   scripts/benchmark_search.py` и проверить `pg_trgm`/`unaccent` + GIN-индексы
-   на копии БД.
+   scripts/benchmark_search.py`, а также `scripts/reindex_catalog.py` на
+   PG-копии; проверить `pg_trgm`/`unaccent` + GIN-индексы и поведение backfill.
 2. **Android APK не собран в этой сессии.** Нет Android SDK; проверен
    `apps/mobile` web build и `npm run build:www`. Release signing/on-device QA
    остаются за владельцем Android-ветки.
@@ -112,6 +120,14 @@
    390×844.
 7. Полный `pytest -m network` не запускался (сетевые тесты по умолчанию
    skipped).
+8. **Порядок retry deploy критичен:** сначала control с `fix/deploy-health`,
+   затем catalog. Старый control с 80-секундным gate всё ещё отклонит catalog,
+   даже если catalog startup уже быстрый. Control DB migration additive
+   (`last_output_at`); перед деплоем control нужен backup `control.db`.
+9. **Search backfill — фоновый writer.** На время backfill latency поиска
+   выше (~250–300 мс на 78k) из-за on-demand нормализации; после завершения
+   возвращается обычный p95. Не запускать второй catalog/backfill параллельно
+   без проверки lease.
 
 ## 6. Hotfix #63 — startup backfill
 
@@ -131,9 +147,12 @@ Production RC падал на 80-секундном health gate: старый
   `/internal/stats`, продолжение после рестарта без дублей;
 - поиск/подсказки во время миграции используют legacy-колонки и не дают 500.
 
-Замер на 78 275 строках: **lifespan 1.37 с** (было 123.6 с), процесс →
-`/health` **6.9 с**, фоновый backfill 179 с (~436 строк/с), повторный запуск
-0 строк.  JSON: `docs/benchmarks/migration-sqlite-78275.json`.
+Замер на 78 275 строках (интеграционный прогон): **lifespan 1.349 с**
+(было 123.6 с), schema 0.144 с, legacy-FTS bootstrap 1.205 с; фоновый
+backfill **158.28 с** (~491 строка/с), повторный запуск **0 строк**.
+Поиск во время backfill: 259.35 мс / suggest 137.53 мс, результаты есть;
+после первого батча 293.78 / 148.03 мс. JSON:
+`docs/benchmarks/migration-sqlite-78275.json`.
 
 Перед повторным деплоем:
 
@@ -142,3 +161,40 @@ Production RC падал на 80-секундном health gate: старый
 3. Deploy; контроль `/health` < 10 с и
    `/internal/search/backfill` до `status=completed`.
 4. Rollback — OPS §9.4.
+
+## 7. Hotfix #63 — deploy health и stale jobs
+
+Ветка: `fix/deploy-health` от `b480407`. Control больше не ограничен фиксированным
+80-секундным health gate.
+
+- `DEPLOY_HEALTH_TIMEOUT_SECONDS=600` (30–7200), poll 2 с;
+  в логе `HEALTH_WAIT` / `HEALTH_OK` / `HEALTH_FAIL` с номером попытки.
+- `DEPLOY_READ_TIMEOUT_SECONDS=900` ограничивает тишину SSH-стрима;
+  `DEPLOY_STALE_JOB_SECONDS=1800` — heartbeat для stale reaper.
+- `DEPLOY_TIMEOUT_SECONDS=3600`, `DEPLOY_PRE_START_TIMEOUT_SECONDS=1800`.
+- `SSHRunHandle` умеет закрывать канал/клиент из другого потока; control
+  отслеживает активные job tasks и умеет отменять их через
+  `POST /api/v1/admin/jobs/{job_id}/cancel` (gateway proxy).
+- `DEPLOY_PRE_START_COMMAND` выполняется после install и до restart, с
+  отдельным таймаутом; подходит для `scripts/reindex_catalog.py`.
+- Control DB получает additive-колонку `last_output_at`; `GET
+  /api/v1/admin/jobs/{job_id}` её возвращает.
+
+## 8. Retry deploy sequence
+
+1. Снять encrypted backup (`catalog.db`/`pg_dump`, OPS §9.1).
+2. Задеплоить **control** с `fix/deploy-health`; дождаться health. Это должно
+   произойти до catalog, чтобы новый health gate уже действовал.
+3. Опционально остановить catalog и выполнить
+   `scripts/reindex_catalog.py --database-url "$CATALOG_DATABASE_URL"
+   --batch-size 500` (78k ≈ 2.5 мин). Если пропустить — backfill пойдёт фоном.
+4. Задеплоить **catalog** и дождаться `/health` 200; ожидаемо <10 с. Смотреть
+   `HEALTH_WAIT`/`HEALTH_OK` в job log.
+5. Проверить `/internal/search/backfill` и `/internal/stats.search_backfill`;
+   дождаться `status=completed` (78k ≈ 160 с). Поиск/подсказки доступны всё
+   время через legacy-FTS.
+6. Если job замолчал — `POST /api/v1/admin/jobs/{job_id}/cancel` или ждать
+   stale reaper; не запускать второй deploy параллельно.
+7. Затем comments/library/notifier/media/scheduler/gateway и web; полная
+   verification matrix. Rollback — OPS §9.4; откат кода на main безопасен,
+   schema additive.

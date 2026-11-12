@@ -1069,7 +1069,7 @@ ufw delete allow from <peer-ip> to any port 8108 proto tcp
 `catalog` теперь делает только быстрые schema-изменения на старте.  Строки
 каталога нормализуются фоновым воркером; health не ждёт 78k строк.
 
-### 10.1 Backup
+### 9.1 Backup
 
 SQLite (каталог остановлен или используется online backup):
 
@@ -1085,7 +1085,7 @@ pg_dump "$CATALOG_DATABASE_URL" -Fc -f /root/backups/catalog-$(date +%F-%H%M).du
 
 Не копируйте `catalog.db` вместе с `-wal`/`-shm` во время работы сервиса.
 
-### 10.2 Optional pre-deploy reindex
+### 9.2 Optional pre-deploy reindex
 
 Можно прогнать заранее, пока каталог остановлен; это сокращает окно фоновой
 работы после деплоя:
@@ -1101,7 +1101,7 @@ cd /opt/mangapoisk
 — только после изменения алгоритма нормализации, `--rebuild-fts` — при
 подозрении на повреждённый SQLite FTS.
 
-### 10.3 Deploy and progress
+### 9.3 Deploy and progress
 
 1. Deploy catalog.  `/health` должен стать `ok` за **<10 с**; в логе:
    `catalog startup ready in ...` и `search backfill started in background`.
@@ -1120,7 +1120,7 @@ cd /opt/mangapoisk
 5. `sqlite3 ... "PRAGMA wal_checkpoint(TRUNCATE);"` после завершения, если
    нужно уменьшить `-wal` перед бэкапом.
 
-### 10.4 Rollback
+### 9.4 Rollback
 
 1. Rollback control job to the previous release.
 2. Если каталог не стартует или БД повреждена — восстановить backup из 10.1
@@ -1132,7 +1132,7 @@ cd /opt/mangapoisk
    после аварии: новый деплой просто продолжит backfill.  Перед повторным
    деплоем проверить `scripts/reindex_catalog.py` на staging-копии.
 
-### 10.5 Ожидаемые числа
+### 9.5 Ожидаемые числа
 
 | Операция | 78 275 строк |
 |---|---|
@@ -1142,19 +1142,6 @@ cd /opt/mangapoisk
 | процесс → `/health` 200 | **~6.9 с** |
 | полный фоновый backfill | ~179 с (≈436 строк/с) |
 | повторный запуск | 0 строк |
-
-## 10. Change log
-
-* 2026-11-12: search backfill moved out of catalog startup into a batched,
-  resumable worker with WAL/busy_timeout and progress endpoint (#63).
-* 2026-11-12: UFW enabled on `primary-85`, `jump-83`, `aeza-2`; `8108`
-  restricted to peer IPs; HTTP/HTTPS/SSH and existing services preserved.
-* 2026-11-12: encrypted restic backups to `jump-83`, 6-hourly timer,
-  7 daily / 4 weekly / 3 monthly retention; restore drills passed on
-  `primary-85` and `jump-83`.
-* 2026-11-12: 2 GB swap on `primary-85`, 1 GB on `jump-83`,
-  `vm.swappiness=10`; control cgroup guardrail `MemoryHigh=1G`,
-  `MemoryMax=1536M`.
 
 ## 10. Deploy health and stale jobs
 
@@ -1180,3 +1167,18 @@ pre-start step; deploy catalog alone and watch health attempts; cancel stale
 jobs before retrying; deploy the remaining services; verify `/api/v1/health`,
 sitemap/robots and admin panels; roll back and stop if catalog remains
 unhealthy.
+
+## 11. Change log
+
+* 2026-11-12: search backfill moved out of catalog startup into a batched,
+  resumable worker with WAL/busy_timeout and progress endpoint (#63).
+* 2026-11-12: deploy health gate is configurable (600s default), SSH reads
+  are bounded, jobs can be cancelled and stale runners are reaped (#63).
+* 2026-11-12: UFW enabled on `primary-85`, `jump-83`, `aeza-2`; `8108`
+  restricted to peer IPs; HTTP/HTTPS/SSH and existing services preserved.
+* 2026-11-12: encrypted restic backups to `jump-83`, 6-hourly timer,
+  7 daily / 4 weekly / 3 monthly retention; restore drills passed on
+  `primary-85` and `jump-83`.
+* 2026-11-12: 2 GB swap on `primary-85`, 1 GB on `jump-83`,
+  `vm.swappiness=10`; control cgroup guardrail `MemoryHigh=1G`,
+  `MemoryMax=1536M`.
