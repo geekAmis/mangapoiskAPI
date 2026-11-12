@@ -12,13 +12,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, listItems, resolveApiUrl } from '../api/client';
 import type { PageOut } from '../api/types';
+import { AdSlot } from '../components/ads/AdSlot';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { QueryCacheBridge } from '../components/QueryCacheBridge';
 import { DancingLoader, DancingSpinner } from '../components/DancingLoader';
 import { useReaderZoom } from '../components/ReaderZoom';
+import { RecommendationShelf } from '../components/RecommendationShelf';
 import { SearchBox } from '../components/SearchBox';
 import { ThemePicker } from '../components/ThemeSwitcher';
+import { trackEvent } from '../lib/analytics';
 import { humanizeError } from '../lib/errors';
 import {
   chapterHeading,
@@ -31,7 +34,9 @@ import {
 } from '../lib/format';
 import { useDebouncedCallback, useReducedMotion } from '../lib/hooks';
 import { absoluteUrl, useSeo } from '../lib/seo';
+import { recordLocalReadingDay, saveLocalProgress } from '../lib/progress';
 import { queryKeys } from '../lib/queryClient';
+import { useReadingResume } from '../lib/useReading';
 import { useAuthStore } from '../stores/auth';
 import {
   clampSpeed,
@@ -94,6 +99,10 @@ export default function ReaderPage() {
 
   const initialPageHandledRef = useRef<string | null>(null);
   const progressErrorShownRef = useRef(false);
+  const lastReadingDayRef = useRef('');
+  const readStartedRef = useRef('');
+  const readCompletedRef = useRef('');
+  const finishedRef = useRef('');
   const lastSwipeAtRef = useRef(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const pagedMultiTouchRef = useRef(false);
@@ -137,11 +146,7 @@ export default function ReaderPage() {
   });
   const manga = mangaQuery.data;
 
-  const progressQuery = useQuery({
-    queryKey: queryKeys.progress,
-    queryFn: ({ signal }) => api.getProgress(signal),
-    enabled: Boolean(user) && Boolean(chapter),
-  });
+  const resume = useReadingResume();
 
   const bookmarksQuery = useQuery({
     queryKey: queryKeys.bookmarks,
@@ -196,13 +201,50 @@ export default function ReaderPage() {
   const requestedPage = searchParams.get('page');
 
   const saveProgress = useDebouncedCallback((page: number) => {
-    if (!chapter || !user) return;
+    if (!chapter) return;
+    const total = Math.max(totalPages, chapter.page_count || 0);
+    const today = new Date().toDateString();
+    if (lastReadingDayRef.current !== today) {
+      lastReadingDayRef.current = today;
+      if (!user) recordLocalReadingDay();
+      void queryClient.invalidateQueries({ queryKey: ['streak'] });
+    }
+    // Anonymous users get a complete localStorage copy; signed-in users get
+    // the same copy plus the account position.  The merge endpoint resolves
+    // which one is newer when they next sign in.
+    saveLocalProgress({
+      manga_id: chapter.manga_id,
+      chapter_id: chapter.id,
+      page,
+      total_pages: total,
+      owner_id: user?.id ?? null,
+      finished: Boolean(!chapter.next_chapter_id && total > 0 && page >= total),
+      manga: {
+        id: chapter.manga_id,
+        title: manga?.title ?? `Глава ${chapter.number}`,
+        poster_url: manga?.poster_url ?? null,
+        source: manga?.source ?? chapter.source,
+        adult: Boolean(manga?.adult),
+        genres: manga?.genres ?? [],
+        rating: manga?.rating ?? null,
+        chapters_count: manga?.chapters_count ?? 0,
+        status: manga?.status ?? null,
+      },
+      chapter: {
+        id: chapter.id,
+        volume: chapter.volume,
+        number: chapter.number,
+        title: chapter.title,
+        page_count: chapter.page_count || totalPages,
+      },
+    });
+    if (!user) return;
     api
       .upsertProgress({
         manga_id: chapter.manga_id,
         chapter_id: chapter.id,
         page,
-        total_pages: Math.max(totalPages, chapter.page_count || 0),
+        total_pages: total,
       })
       .catch((error: unknown) => {
         if (!progressErrorShownRef.current) {
@@ -212,14 +254,44 @@ export default function ReaderPage() {
       });
   }, 850);
 
-  const progressItems = listItems(progressQuery.data);
   const savedProgress = chapter
-    ? progressItems.find((item) => item.chapter_id === chapter.id)
+    ? resume.items.find((item) => item.chapter_id === chapter.id)
     : undefined;
   const resumePage =
     savedProgress && savedProgress.page > 1 && savedProgress.page <= totalPages
       ? savedProgress.page
       : null;
+
+  useEffect(() => {
+    if (!chapter || totalPages === 0) return;
+    if (readStartedRef.current === chapter.id) return;
+    readStartedRef.current = chapter.id;
+    trackEvent('read_start', {
+      surface: 'reader',
+      mangaId: chapter.manga_id,
+      chapterId: chapter.id,
+    });
+  }, [chapter, totalPages]);
+
+  useEffect(() => {
+    if (!chapter || totalPages === 0 || currentPage < totalPages) return;
+    if (readCompletedRef.current !== chapter.id) {
+      readCompletedRef.current = chapter.id;
+      trackEvent('read_complete', {
+        surface: 'reader',
+        mangaId: chapter.manga_id,
+        chapterId: chapter.id,
+      });
+    }
+    if (!chapter.next_chapter_id && finishedRef.current !== chapter.id) {
+      finishedRef.current = chapter.id;
+      trackEvent('finish', {
+        surface: 'reader',
+        mangaId: chapter.manga_id,
+        chapterId: chapter.id,
+      });
+    }
+  }, [chapter, currentPage, totalPages]);
 
   useEffect(() => {
     saveProgress.cancel();
@@ -264,16 +336,12 @@ export default function ReaderPage() {
 
   useEffect(() => {
     if (!chapter) return;
-    if (!user) {
-      setProgressEnabled(false);
-      return;
-    }
     if (initialPageHandledRef.current !== chapter.id) return;
     if (requestedPage) {
       setProgressEnabled(true);
       return;
     }
-    if (progressQuery.isLoading) return;
+    if (!resume.isReady) return;
     if (savedProgress && savedProgress.page > 1 && savedProgress.page <= totalPages && !resumeDismissed) {
       setProgressEnabled(false);
       return;
@@ -281,18 +349,17 @@ export default function ReaderPage() {
     setProgressEnabled(true);
   }, [
     chapter,
-    user,
     requestedPage,
-    progressQuery.isLoading,
+    resume.isReady,
     savedProgress,
     totalPages,
     resumeDismissed,
   ]);
 
   useEffect(() => {
-    if (!chapter || !user || !progressEnabled || totalPages === 0) return;
+    if (!chapter || !progressEnabled || totalPages === 0) return;
     saveProgress.debounced(currentPage);
-  }, [chapter, user, progressEnabled, currentPage, totalPages, saveProgress]);
+  }, [chapter, progressEnabled, currentPage, totalPages, saveProgress]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -685,12 +752,11 @@ export default function ReaderPage() {
   const currentPageData = pages[currentPage - 1];
   const currentPageIsTall = isTallPage(currentPageData);
   const showResume = Boolean(
-    user &&
-      resumePage &&
+    resumePage &&
       !resumeDismissed &&
       !requestedPage &&
-      progressQuery.isSuccess &&
-      progressQuery.data,
+      resume.isReady &&
+      !progressEnabled,
   );
 
   const chaptersForSheet = useMemo(() => {
@@ -941,6 +1007,7 @@ export default function ReaderPage() {
               />
             ))}
           </div>
+          <AdSlot placement="post-chapter" adult={manga?.adult ?? false} />
         </main>
       ) : (
         <main
@@ -982,6 +1049,17 @@ export default function ReaderPage() {
           </button>
         </main>
       )}
+
+      {currentPage >= totalPages && !chapter.next_chapter_id ? (
+        <div className="reader-completion">
+          <RecommendationShelf
+            title="Что почитать дальше"
+            surface="reader_completion"
+            seedMangaId={chapter.manga_id}
+            limit={12}
+          />
+        </div>
+      ) : null}
 
       {zoom.enabled && zoom.isZoomed ? (
         <button type="button" className="reader-zoom-reset" onClick={zoom.reset} aria-label="Сбросить масштаб">

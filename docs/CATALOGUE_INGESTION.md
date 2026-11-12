@@ -30,14 +30,39 @@ Supported adapter sort names: `popular`, `updated`, `new`, `rating`, `title`,
 | `SCRAPER_REQUESTS_PER_MINUTE` | `36` | Per-source adapter limiter (1.67 s/request). |
 | `CATALOGUE_INCREMENTAL_INTERVAL_SECONDS` | `900` | Refresh first pages every 15 min. |
 | `CATALOGUE_INCREMENTAL_PAGES` | `2` | Pages refreshed for `updated` and `popular`. |
-| `CATALOGUE_FULL_REFRESH_INTERVAL_SECONDS` | `604800` | Full pass / metadata refresh weekly. |
-| `CATALOGUE_FULL_RETRY_SECONDS` | `900` | Retry delay after a failed page. |
-| `CATALOGUE_ENRICHMENT_CONCURRENCY` | `2` | Detail fetches per source. |
-| `CATALOGUE_ENRICHMENT_BATCH_SIZE` | `50` | Pending titles fetched per poll. |
+| `CATALOGUE_FULL_REFRESH_INTERVAL_SECONDS` | `604800` | Full catalogue pass weekly. |
+| `CATALOGUE_FULL_RETRY_SECONDS` | `900` | Base retry delay after a failed page. |
+| `CATALOGUE_PAGE_RETRIES` | `2` | Extra attempts for one catalogue page before it counts as a failure. |
+| `CATALOGUE_FAILURE_THRESHOLD` | `3` | Consecutive failures before the per-source circuit is `blocked`. |
+| `CATALOGUE_CIRCUIT_BASE_SECONDS` | `900` | First circuit backoff. |
+| `CATALOGUE_CIRCUIT_MAX_SECONDS` | `86400` | Maximum circuit backoff (24 h). |
+| `CATALOGUE_ENRICHMENT_CONCURRENCY` | `3` | Detail fetches per source (bounded by the 36/min limiter). |
+| `CATALOGUE_ENRICHMENT_BATCH_SIZE` | `100` | Pending titles fetched per poll. |
+| `CATALOGUE_ENRICHMENT_FAILURE_THRESHOLD` | `5` | Source failures before enrichment circuit opens. |
+| `CATALOGUE_METADATA_REFRESH_BATCH` | `100` | Bounded metadata rotation per incremental cycle. |
+| `CATALOGUE_METADATA_REFRESH_MAX_BACKLOG` | `5000` | Rotation is paused while this many details are pending. |
 
-A full pass is resumable through the `crawl_state` table.  The weekly pass
-marks every source title for metadata re-enrichment; enrichment runs alongside
-the page crawl and is bounded by the adapter limiter.
+A full pass is resumable through the `crawl_state` table.  It never resets the
+whole source: new titles are queued by `last_synced_at IS NULL`, and existing
+titles are refreshed by a bounded rotation (100 per incremental cycle) once the
+backlog is below the configured threshold.
+
+### End states, retries, circuit breaker
+
+- A documented catalogue end is a successful response with no items and
+  `has_next=false` (MangaLib page 698 in the current API; MangaPoisk's last
+  page).  That is recorded as `completed`.
+- A `404`/`403`/timeout/5xx on one page is retried up to
+  `CATALOGUE_PAGE_RETRIES` times with jittered backoff.  It is **not** treated
+  as end-of-catalogue: during the reliability audit MangaLib pages 200/201/202
+  returned normal payloads and the real end was an empty page 698.
+- Persistent failures open a per-source circuit stored in `crawl_state` mode
+  `health`/`enrichment`: `status=blocked`, `failure_count`, `failure_kind`,
+  `last_success_at`, `next_run_at`.  The scheduler sleeps until `next_run_at`
+  instead of retrying every 15 minutes.  A success resets the circuit to `ok`.
+- Enrichment failures are persisted per title in `manga.enrichment_retry_at`
+  with exponential backoff, so a block of failing titles is skipped instead of
+  starving the queue.
 
 ## Storage
 
@@ -47,8 +72,11 @@ the page crawl and is bounded by the adapter limiter.
   `rating`, `quality`, `chapters_count`, `updated_at`/`source_updated_at` and
   `is_primary`.  Primary = highest rating, then quality, chapter count,
   freshness.  All group covers are returned in manga detail.
-- `crawl_state`: `source`, `mode` (`full`/`incremental`), `page`, `status`,
-  `last_error`, `next_run_at`, `total_pages`, `items_seen`, `items_imported`.
+- `crawl_state`: `source`, `mode` (`full`/`incremental`/`health`/`enrichment`),
+  `page`, `status`, `last_error`, `next_run_at`, `total_pages`, `items_seen`,
+  `items_imported`, `last_success_at`, `failure_count`, `failure_kind`.
+- `manga` enrichment columns: `enrichment_attempts`, `enrichment_retry_at`,
+  `enrichment_last_attempt_at`, `enrichment_last_error`.
 
 Migrations are additive and run in `ensure_runtime_schema()` for SQLite and
 PostgreSQL.  New tables are also created by `create_all`.
@@ -65,9 +93,15 @@ PostgreSQL.  New tables are also created by `create_all`.
 - `GET /internal/home/updates?limit=25` — latest chapters across titles with
   `manga_id`, `manga_title`, `poster_url`, `source`, chapter id/number/title,
   `published_at`, `added_at`.
-- `GET|PUT /internal/crawl-state/{source}?mode=full` — persistent cursor.
-- `GET /internal/manga/pending?source=…&limit=…` — enrichment queue.
-- `POST /internal/maintenance/reset-enrichment?source=…` — weekly refresh.
+- `GET|PUT /internal/crawl-state/{source}?mode=full|incremental|health|enrichment`
+  — persistent cursor and circuit state.
+- `GET /internal/manga/pending?source=…&limit=…` — enrichment queue
+  (popularity-first, future retry titles skipped).
+- `GET /internal/enrichment/stats` — backlog, retry/failed counters, per-source
+  last success and ETA.
+- `POST /internal/manga/{id}/enrichment-failure` — persist retry backoff.
+- `POST /internal/maintenance/rotate-enrichment?source=…&limit=100` — bounded
+  metadata refresh; `reset-enrichment` is a bounded alias.
 
 `MangaOut` now includes `description_missing`, `description_fallback`,
 `genre_slugs`, `genre_details` and `covers`.  `genres` stays a human-readable
@@ -94,3 +128,22 @@ dominate (roughly two HTTP requests per title):
   pass including chapter lists, with usable titles appearing progressively as
   enrichment completes.  A description-only pass would be about half that.
   Incremental refreshes and weekly full passes are much cheaper after that.
+
+## Enrichment backlog
+
+The queue is drained at the source limiter rate (36 requests/min per source,
+≈2 requests per title).  Sources run in parallel, so the 27.6k historical
+backlog splits roughly as:
+
+- MangaLib 11.5k → ≈ 10.7 h
+- Remanga 9.9k → ≈ 9.2 h
+- MangaPoisk 6.1k → ≈ 5.7 h
+
+Overall ≈ **11 h** if all sources are healthy; the serial-equivalent total is
+`27,600 × 2 / 36 ≈ 1,533 minutes ≈ 26 h`.  A circuit-blocked source does not
+stop the other queues.
+
+Titles are ordered by popularity (`rating_count`, then `rating`) and failures
+receive persistent exponential retry delays (5 min → 10 min → … → 6 h), so the
+queue keeps moving through healthy titles.  `/internal/enrichment/stats` and
+the admin «Каталог и обогащение» panel show the live backlog and ETA.

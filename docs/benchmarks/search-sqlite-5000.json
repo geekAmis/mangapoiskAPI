@@ -1,0 +1,28 @@
+{
+  "dialect": "sqlite",
+  "database": "sqlite+aiosqlite:///C:/Users/836D~1/AppData/Local/Temp/mangapoisk-search-bench-6yo9iboj/benchmark.db",
+  "titles": 5000,
+  "queries": 28,
+  "runs": 7,
+  "search": {
+    "samples": 196,
+    "p50_ms": 25.37,
+    "p95_ms": 40.43,
+    "p95_sample_ms": 42.47,
+    "mean_ms": 26.4,
+    "max_ms": 42.17
+  },
+  "suggest": {
+    "samples": 196,
+    "p50_ms": 19.7,
+    "p95_ms": 32.81,
+    "p95_sample_ms": 32.91,
+    "mean_ms": 20.81,
+    "max_ms": 33.85
+  },
+  "sizes": {
+    "database_bytes": 26546176,
+    "index_bytes": 0,
+    "fts_text_bytes": 2149240
+  }
+}

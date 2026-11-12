@@ -10,7 +10,7 @@
  * data lives in IndexedDB, while API requests stay network-only.
  */
 
-const CACHE_VERSION = 'v5-2026-11-12';
+const CACHE_VERSION = 'v6-2026-11-12-notifications';
 const CACHE_PREFIX = 'mangapoisk-';
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `${CACHE_PREFIX}runtime-${CACHE_VERSION}`;
@@ -254,6 +254,76 @@ self.addEventListener('fetch', (event) => {
   } else {
     event.respondWith(staleWhileRevalidate(request));
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* Web Push: chapter notifications                                     */
+/* ------------------------------------------------------------------ */
+
+self.addEventListener('push', (event) => {
+  let payload = null;
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch {
+      payload = { title: 'MangaPoisk Reborn', body: event.data.text() };
+    }
+  }
+  if (!payload || typeof payload !== 'object') {
+    payload = { title: 'MangaPoisk Reborn', body: 'Новое уведомление' };
+  }
+
+  const data = payload.data && typeof payload.data === 'object' ? payload.data : {};
+  const options = {
+    body: typeof payload.body === 'string' ? payload.body : '',
+    icon: payload.icon || '/icons/icon-192.png',
+    badge: payload.badge || '/icons/favicon.svg',
+    tag: typeof payload.tag === 'string' ? payload.tag : undefined,
+    renotify: Boolean(payload.renotify),
+    data: {
+      url: typeof data.url === 'string' ? data.url : '/',
+      ...data,
+    },
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(
+      typeof payload.title === 'string' ? payload.title : 'MangaPoisk Reborn',
+      options,
+    ),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const target = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/';
+  const absolute = new URL(target, self.location.origin).href;
+
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const client of clientList) {
+        if ('focus' in client) {
+          await client.focus();
+          if ('navigate' in client) {
+            try {
+              await client.navigate(absolute);
+            } catch {
+              /* The focused tab may navigate itself; opening a new one is not required. */
+            }
+          }
+          return;
+        }
+      }
+      if (self.clients.openWindow) {
+        await self.clients.openWindow(absolute);
+      }
+    })(),
+  );
 });
 
 self.addEventListener('message', (event) => {

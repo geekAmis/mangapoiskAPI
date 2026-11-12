@@ -1,16 +1,39 @@
 from __future__ import annotations
 
+import math
 import re
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
-from sqlalchemy import Integer, String, and_, case, cast, desc, exists, func, or_, select, update
+from sqlalchemy import (
+    Integer,
+    String,
+    and_,
+    case,
+    cast,
+    desc,
+    exists,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import Chapter, CrawlState, Manga, MangaCover, Source
+from .models import (
+    Chapter,
+    CrawlState,
+    Manga,
+    MangaCover,
+    MangaRelation,
+    SearchBackfillState,
+    Source,
+)
 from .normalization import (
     GENRE_LABELS,
     canonical_genre,
@@ -19,9 +42,31 @@ from .normalization import (
     parse_genre_filter,
     status_key,
 )
-from .schemas import CatalogStats, SourceStats
+from .schemas import (
+    CatalogStats,
+    EnrichmentSourceStats,
+    SearchBackfillStats,
+    SourceStats,
+)
+from .search import (
+    SearchQuery,
+    analyze_query,
+    dedupe_ranked_groups,
+    expansion_terms,
+    filter_relevant,
+    fts_match_query,
+    rank_rows,
+    token_coverage,
+)
+from .search_fts import fts_available, sync_search_fts
 
 DESCRIPTION_FALLBACK = "Упс. Описание не нашлось в источниках"
+ENRICHMENT_FAILED_ATTEMPTS = 5
+ENRICHMENT_STALE_HOURS = 24
+SEARCH_CANDIDATE_LIMIT = 300
+SUGGESTION_CANDIDATE_LIMIT = 180
+PENDING_FALLBACK_LIMIT = 500
+SUGGESTION_PENDING_FALLBACK_LIMIT = 200
 
 
 async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
@@ -61,6 +106,13 @@ async def ensure_source(session: AsyncSession, code: str, name: str | None = Non
         session.add(source)
         await session.flush()
     return source
+
+
+async def list_sources(session: AsyncSession) -> list[Source]:
+    """Return every registered source ordered for the admin/source picker."""
+
+    result = await session.scalars(select(Source).order_by(Source.name.asc()))
+    return list(result.all())
 
 
 async def find_manga(session: AsyncSession, manga_id: uuid.UUID) -> Manga | None:
@@ -256,6 +308,9 @@ async def merge_group_metadata(session: AsyncSession, group_key: str | None) -> 
         variant.status = variant.status or best_status
         variant.title_en = variant.title_en or best_title_en
         variant.title_alt = variant.title_alt or best_title_alt
+        variant.refresh_search_fields()
+    for variant in variants:
+        await sync_search_fts(session, variant.id, variant.search_blob)
     await session.flush()
 
 
@@ -328,8 +383,13 @@ async def upsert_manga_detail(
     manga.url = detail.url or manga.url
     manga.group_key = compute_group_key(manga.title)
     manga.last_synced_at = datetime.now(UTC)
+    manga.enrichment_attempts = 0
+    manga.enrichment_retry_at = None
+    manga.enrichment_last_error = None
+    manga.enrichment_last_attempt_at = manga.last_synced_at
     if detail.chapters_count is not None:
         manga.chapters_count = max(int(manga.chapters_count or 0), int(detail.chapters_count))
+    manga.refresh_search_fields()
     await session.flush()
 
     new_chapters: list[Chapter] = []
@@ -374,6 +434,7 @@ async def upsert_manga_detail(
 
     await upsert_cover(session, manga, detail.poster_url or manga.poster_url)
     await merge_group_metadata(session, manga.group_key)
+    await sync_search_fts(session, manga.id, manga.search_blob)
     await refresh_group_primary_cover(session, manga.group_key)
     return manga, created, new_chapters
 
@@ -420,10 +481,12 @@ async def upsert_manga_summary(
     if summary.chapters_count:
         manga.chapters_count = max(int(manga.chapters_count or 0), int(summary.chapters_count))
     manga.last_synced_at = None if created else manga.last_synced_at
+    manga.refresh_search_fields()
     await session.flush()
 
     await upsert_cover(session, manga, summary.poster_url or manga.poster_url)
     await merge_group_metadata(session, manga.group_key)
+    await sync_search_fts(session, manga.id, manga.search_blob)
     await refresh_group_primary_cover(session, manga.group_key)
     return manga, created
 
@@ -498,7 +561,6 @@ async def update_chapter_pages(
 
 def _manga_conditions(
     *,
-    query: str | None = None,
     source: str | None = None,
     genre: str | None = None,
     genres: list[str] | None = None,
@@ -507,16 +569,6 @@ def _manga_conditions(
     include_empty: bool = False,
 ) -> list[Any]:
     conditions: list[Any] = []
-    if query:
-        pattern = f"%{query.strip()}%"
-        conditions.append(
-            or_(
-                Manga.title.ilike(pattern),
-                Manga.title_en.ilike(pattern),
-                Manga.title_alt.ilike(pattern),
-                Manga.description.ilike(pattern),
-            )
-        )
     if source:
         conditions.append(Manga.source == source)
     requested = (
@@ -545,6 +597,216 @@ def _manga_conditions(
     return conditions
 
 
+def _group_expr():
+    return func.coalesce(func.nullif(Manga.group_key, ""), cast(Manga.id, String))
+
+
+def _legacy_search_text():
+    """Lower-cased legacy columns used while a row awaits normalization."""
+
+    return func.lower(
+        func.coalesce(Manga.title, "")
+        + " "
+        + func.coalesce(Manga.title_en, "")
+        + " "
+        + func.coalesce(Manga.title_alt, "")
+        + " "
+        + func.coalesce(Manga.description, "")
+    )
+
+
+def _legacy_filter(terms: list[str]):
+    # The fallback is intentionally narrow: it only touches rows the background
+    # worker has not normalized yet, and the partial ``search_indexed`` index
+    # keeps that set cheap to find.
+    legacy_text = _legacy_search_text()
+    return and_(
+        Manga.search_indexed.is_(False),
+        or_(*[legacy_text.contains(term, autoescape=True) for term in terms[:32]]),
+    )
+
+
+async def _search_filter(
+    session: AsyncSession,
+    query: SearchQuery,
+    *,
+    candidate_limit: int = SEARCH_CANDIDATE_LIMIT,
+):
+    """SQL candidate filter backed by FTS5 (SQLite), LIKE and trigram indexes."""
+
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite" and await fts_available(session):
+        has_rows = await session.scalar(text("SELECT 1 FROM manga_search_fts LIMIT 1"))
+        if has_rows:
+            match = fts_match_query(query)
+            if not match:
+                return None
+            return text(
+                "id IN (SELECT manga_id FROM manga_search_fts "
+                "WHERE manga_search_fts MATCH :fts_query "
+                "ORDER BY bm25(manga_search_fts) LIMIT :fts_limit)"
+            ).bindparams(fts_query=match, fts_limit=candidate_limit)
+    terms = expansion_terms(query, dialect=dialect)
+    if not terms:
+        return None
+    blob_filter = or_(
+        *[Manga.search_blob.contains(term, autoescape=True) for term in terms]
+    )
+    return or_(blob_filter, _legacy_filter(terms))
+
+
+def _candidate_order(query: SearchQuery):
+    normalized = query.normalized
+    preliminary = case(
+        (Manga.search_title == normalized, 0),
+        (Manga.search_title.startswith(normalized), 1),
+        (Manga.search_names.contains(normalized, autoescape=True), 2),
+        (Manga.search_blob.contains(normalized, autoescape=True), 3),
+        else_=4,
+    )
+    return (
+        preliminary,
+        desc(Manga.chapters_count),
+        desc(Manga.rating_count),
+        desc(Manga.rating),
+        desc(Manga.updated_at),
+    )
+
+
+async def _pending_candidates(
+    session: AsyncSession,
+    conditions: list[Any],
+    *,
+    limit: int,
+) -> list[Manga]:
+    """Bounded legacy scan used only when indexed candidates have no relevant hit.
+
+    Exact/legacy tokens are already covered by FTS, but a typo/transliteration
+    query cannot match the raw legacy body.  Scanning a popularity-bounded
+    slice of the still-pending rows keeps that edge case useful during the
+    ~2.5 minute migration without scanning all 78k rows.
+    """
+
+    return list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*conditions, Manga.search_indexed.is_(False))
+                .order_by(
+                    desc(Manga.rating_count),
+                    desc(Manga.chapters_count),
+                    desc(Manga.rating),
+                )
+                .limit(limit)
+            )
+        ).all()
+    )
+
+
+async def search_manga(
+    session: AsyncSession,
+    query: SearchQuery,
+    *,
+    source: str | None = None,
+    genre: str | None = None,
+    genres: list[str] | None = None,
+    year: int | None = None,
+    status: str | None = None,
+    include_empty: bool = False,
+    page: int = 1,
+    limit: int = 24,
+) -> tuple[list[Manga], int]:
+    """Rank local catalogue rows by relevance, then paginate title groups."""
+
+    conditions = _manga_conditions(
+        source=source,
+        genre=genre,
+        genres=genres,
+        year=year,
+        status=status,
+        include_empty=include_empty,
+    )
+    search_filter = await _search_filter(session, query)
+    if search_filter is None:
+        return [], 0
+    indexed_conditions = [*conditions, search_filter]
+
+    candidates = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*indexed_conditions)
+                .order_by(*_candidate_order(query))
+                .limit(SEARCH_CANDIDATE_LIMIT)
+            )
+        ).all()
+    )
+    ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, candidates)))
+    if not ranked:
+        pending = await _pending_candidates(
+            session, conditions, limit=PENDING_FALLBACK_LIMIT
+        )
+        ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, pending)))
+    start = (page - 1) * limit
+    items = [row for row, _score, _reason in ranked[start : start + limit]]
+    return items, len(ranked)
+
+
+async def suggest_manga(
+    session: AsyncSession,
+    raw_query: str,
+    *,
+    limit: int = 6,
+) -> list[tuple[Manga, str]]:
+    """Top local title suggestions.  This function never touches the parser."""
+
+    query = analyze_query(raw_query)
+    if query.is_empty:
+        return []
+    conditions = _manga_conditions(include_empty=False)
+    search_filter = await _search_filter(
+        session, query, candidate_limit=SUGGESTION_CANDIDATE_LIMIT
+    )
+    if search_filter is None:
+        return []
+    indexed_conditions = [*conditions, search_filter]
+    candidates = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*indexed_conditions)
+                .order_by(*_candidate_order(query))
+                .limit(SUGGESTION_CANDIDATE_LIMIT)
+            )
+        ).all()
+    )
+    ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, candidates)))
+    # Suggestions are a precision surface: a title that only shares one word
+    # with a multi-word query should not sit next to the real answer.  Ranking
+    # still scans the full filtered list, so this does not affect recall.
+    need = len(query.tokens)
+
+    def pick(items):  # type: ignore[no-untyped-def]
+        chosen: list[tuple[Manga, str]] = []
+        for row, _score, reason in items:
+            if need > 1 and token_coverage(query, row) < need:
+                continue
+            chosen.append((row, reason))
+            if len(chosen) >= limit:
+                break
+        return chosen
+
+    result = pick(ranked)
+    if not result:
+        pending = await _pending_candidates(
+            session, conditions, limit=SUGGESTION_PENDING_FALLBACK_LIMIT
+        )
+        result = pick(
+            filter_relevant(dedupe_ranked_groups(rank_rows(query, pending)))
+        )
+    return result
+
+
 async def list_manga(
     session: AsyncSession,
     *,
@@ -559,8 +821,26 @@ async def list_manga(
     page: int = 1,
     limit: int = 24,
 ) -> tuple[list[Manga], int]:
+    search_query = analyze_query(query)
+    if (query or "").strip() and search_query.is_empty:
+        # A punctuation-only / stopword-only query must not silently turn into
+        # an unfiltered catalogue dump.
+        return [], 0
+    if not search_query.is_empty:
+        return await search_manga(
+            session,
+            search_query,
+            source=source,
+            genre=genre,
+            genres=genres,
+            year=year,
+            status=status,
+            include_empty=include_empty,
+            page=page,
+            limit=limit,
+        )
+
     conditions = _manga_conditions(
-        query=query,
         source=source,
         genre=genre,
         genres=genres,
@@ -579,7 +859,7 @@ async def list_manga(
 
     # One card per normalised title group.  The representative is the variant
     # with the most chapters, then the best rating, then the freshest row.
-    group_expr = func.coalesce(func.nullif(Manga.group_key, ""), cast(Manga.id, String))
+    group_expr = _group_expr()
     total = int(
         (
             await session.scalar(
@@ -622,6 +902,50 @@ async def list_manga(
     return items, total
 
 
+async def sitemap_entries(
+    session: AsyncSession, *, limit: int = 50_000
+) -> list[tuple[uuid.UUID, datetime | None, datetime | None]]:
+    """One lightweight row per canonical title group for sitemap generation.
+
+    The public sitemap used to call the paginated catalogue list ~65 times for
+    a few thousand titles, which made a cold build take 79 s.  This query keeps
+    the same group-dedup semantics but returns the whole set in one round trip:
+    only id and lastmod fields are selected, no cards/covers are serialized.
+    """
+
+    group_expr = _group_expr()
+    ranked = (
+        select(
+            Manga.id.label("manga_id"),
+            Manga.last_chapter_at.label("last_chapter_at"),
+            Manga.updated_at.label("updated_at"),
+            func.row_number()
+            .over(
+                partition_by=group_expr,
+                order_by=(
+                    desc(Manga.chapters_count),
+                    desc(Manga.last_chapter_at),
+                    desc(Manga.updated_at),
+                ),
+            )
+            .label("row_number"),
+        )
+        .where(*_manga_conditions())
+        .subquery()
+    )
+    rows = await session.execute(
+        select(
+            ranked.c.manga_id,
+            ranked.c.last_chapter_at,
+            ranked.c.updated_at,
+        )
+        .where(ranked.c.row_number == 1)
+        .order_by(desc(ranked.c.last_chapter_at), desc(ranked.c.updated_at))
+        .limit(max(1, limit))
+    )
+    return [(row[0], row[1], row[2]) for row in rows.all()]
+
+
 async def backfill_group_keys(session: AsyncSession) -> int:
     rows = list(
         (
@@ -632,6 +956,8 @@ async def backfill_group_keys(session: AsyncSession) -> int:
     )
     for manga in rows:
         manga.group_key = compute_group_key(manga.title)
+        manga.refresh_search_fields()
+        await sync_search_fts(session, manga.id, manga.search_blob)
     await session.flush()
     return len(rows)
 
@@ -693,48 +1019,129 @@ async def stale_manga(
     return list(result.all())
 
 
+def _enrichment_pending_condition(now: datetime | None = None) -> Any:
+    """Titles that still need a detail import.
+
+    A title is pending when it was never enriched, or when it still has no
+    chapter rows and its last successful sync is older than the stale window.
+    ``enrichment_retry_at`` is deliberately not part of this predicate so the
+    same condition can be used for pending/retry counters.
+    """
+
+    current = now or datetime.now(UTC)
+    return or_(
+        Manga.last_synced_at.is_(None),
+        and_(
+            ~exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+            or_(
+                Manga.last_synced_at.is_(None),
+                Manga.last_synced_at < current - timedelta(hours=ENRICHMENT_STALE_HOURS),
+            ),
+        ),
+    )
+
+
+def _enrichment_available_condition(now: datetime | None = None) -> Any:
+    current = now or datetime.now(UTC)
+    return and_(
+        _enrichment_pending_condition(current),
+        or_(Manga.enrichment_retry_at.is_(None), Manga.enrichment_retry_at <= current),
+    )
+
+
 async def pending_enrichment(
     session: AsyncSession, *, source: str | None = None, limit: int = 50
 ) -> list[Manga]:
     """Titles discovered by the crawler but not yet hydrated with detail.
 
-    ``last_synced_at`` is the primary marker, but old deployments also contain
-    summaries that were marked synced while still having zero chapters.  Those
-    are re-queued explicitly so the production QA dead-end cards heal after the
-    first crawl pass.
+    Ordering is popularity-first, then oldest discovery.  Titles with a future
+    ``enrichment_retry_at`` are skipped so a block of permanently failing
+    titles cannot starve the rest of the queue (the pre-fix behaviour).
     """
 
-    conditions: list[Any] = [
-        or_(
-            Manga.last_synced_at.is_(None),
-            and_(
-                ~exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
-                or_(
-                    Manga.last_synced_at.is_(None),
-                    Manga.last_synced_at < datetime.now(UTC) - timedelta(hours=24),
-                ),
-            ),
-        )
-    ]
+    now = datetime.now(UTC)
+    conditions: list[Any] = [_enrichment_available_condition(now)]
     if source:
         conditions.append(Manga.source == source)
     result = await session.scalars(
-        select(Manga).where(*conditions).order_by(Manga.created_at.asc()).limit(limit)
+        select(Manga)
+        .where(*conditions)
+        .order_by(
+            case((Manga.rating_count.is_(None), 1), else_=0),
+            desc(Manga.rating_count),
+            case((Manga.rating.is_(None), 1), else_=0),
+            desc(Manga.rating),
+            Manga.created_at.asc(),
+        )
+        .limit(limit)
     )
     return list(result.all())
 
 
-async def reset_enrichment(session: AsyncSession, *, source: str | None = None) -> int:
-    """Mark titles for a weekly full metadata refresh."""
+async def record_enrichment_failure(
+    session: AsyncSession,
+    manga_id: uuid.UUID,
+    *,
+    error: str,
+    permanent: bool = False,
+    base_seconds: int = 300,
+    max_seconds: int = 21600,
+) -> Manga | None:
+    """Persist an exponential retry clock for one title."""
 
-    conditions = []
+    manga = await session.get(Manga, manga_id)
+    if manga is None:
+        return None
+    attempts = int(manga.enrichment_attempts or 0) + 1
+    now = datetime.now(UTC)
+    if permanent:
+        delay = max(1, max_seconds)
+    else:
+        delay = min(
+            max(1, base_seconds) * (2 ** min(max(0, attempts - 1), 12)),
+            max(1, max_seconds),
+        )
+    manga.enrichment_attempts = attempts
+    manga.enrichment_last_attempt_at = now
+    manga.enrichment_retry_at = now + timedelta(seconds=delay)
+    manga.enrichment_last_error = (error or "")[:4000]
+    await session.flush()
+    return manga
+
+
+async def rotate_enrichment(
+    session: AsyncSession, *, source: str | None = None, limit: int = 500
+) -> int:
+    """Queue a bounded rotation of already-enriched titles for refresh."""
+
+    conditions = [Manga.last_synced_at.is_not(None)]
     if source:
         conditions.append(Manga.source == source)
-    result = await session.execute(
-        update(Manga).where(*conditions).values(last_synced_at=None)
+    ids = list(
+        (
+            await session.scalars(
+                select(Manga.id)
+                .where(*conditions)
+                .order_by(Manga.last_synced_at.asc())
+                .limit(max(1, limit))
+            )
+        ).all()
+    )
+    if not ids:
+        return 0
+    await session.execute(
+        update(Manga).where(Manga.id.in_(ids)).values(last_synced_at=None)
     )
     await session.flush()
-    return int(result.rowcount or 0)
+    return len(ids)
+
+
+async def reset_enrichment(
+    session: AsyncSession, *, source: str | None = None, limit: int = 500
+) -> int:
+    """Backward-compatible bounded alias for :func:`rotate_enrichment`."""
+
+    return await rotate_enrichment(session, source=source, limit=limit)
 
 
 async def latest_updates(
@@ -825,6 +1232,10 @@ async def upsert_crawl_state(session: AsyncSession, values: dict[str, Any]) -> C
         "items_seen",
         "items_imported",
         "last_run_at",
+        "last_success_at",
+        "failure_count",
+        "failure_kind",
+        "eta_seconds",
     ):
         if field in values:
             setattr(state, field, values[field])
@@ -832,27 +1243,500 @@ async def upsert_crawl_state(session: AsyncSession, values: dict[str, Any]) -> C
     return state
 
 
-async def list_sources(session: AsyncSession) -> list[Source]:
-    result = await session.scalars(select(Source).order_by(Source.name.asc()))
-    return list(result.all())
+async def enrichment_stats(
+    session: AsyncSession,
+    *,
+    rate_per_minute: int = 36,
+    requests_per_title: int = 2,
+) -> dict[str, Any]:
+    """Aggregate backlog/retry counters for the admin panel and logs."""
+
+    now = datetime.now(UTC)
+    total = int((await session.scalar(select(func.count(Manga.id)))) or 0)
+    pending_condition = _enrichment_pending_condition(now)
+    available_condition = _enrichment_available_condition(now)
+    retry_condition = and_(
+        pending_condition, Manga.enrichment_retry_at > now
+    )
+    failed_condition = and_(
+        pending_condition, Manga.enrichment_attempts >= ENRICHMENT_FAILED_ATTEMPTS
+    )
+
+    pending_total = int(
+        (await session.scalar(select(func.count(Manga.id)).where(available_condition))) or 0
+    )
+    retrying_total = int(
+        (await session.scalar(select(func.count(Manga.id)).where(retry_condition))) or 0
+    )
+    failed_total = int(
+        (await session.scalar(select(func.count(Manga.id)).where(failed_condition))) or 0
+    )
+    oldest_pending = await session.scalar(
+        select(func.min(Manga.created_at)).where(available_condition)
+    )
+    last_success = await session.scalar(select(func.max(Manga.last_synced_at)))
+
+    source_rows: list[EnrichmentSourceStats] = []
+    source_codes = [
+        str(row[0])
+        for row in (
+            await session.execute(select(Manga.source).distinct().order_by(Manga.source))
+        ).all()
+    ]
+    for source in source_codes:
+        source_filter = Manga.source == source
+        source_total = int(
+            (await session.scalar(select(func.count(Manga.id)).where(source_filter))) or 0
+        )
+        source_pending = int(
+            (
+                await session.scalar(
+                    select(func.count(Manga.id)).where(
+                        source_filter, available_condition
+                    )
+                )
+            )
+            or 0
+        )
+        source_retrying = int(
+            (
+                await session.scalar(
+                    select(func.count(Manga.id)).where(source_filter, retry_condition)
+                )
+            )
+            or 0
+        )
+        source_failed = int(
+            (
+                await session.scalar(
+                    select(func.count(Manga.id)).where(source_filter, failed_condition)
+                )
+            )
+            or 0
+        )
+        source_last_success = await session.scalar(
+            select(func.max(Manga.last_synced_at)).where(source_filter)
+        )
+        source_rows.append(
+            EnrichmentSourceStats(
+                source=source,
+                total=source_total,
+                pending=source_pending,
+                retrying=source_retrying,
+                failed=source_failed,
+                last_success_at=source_last_success,
+            )
+        )
+
+    estimated_seconds = 0
+    if pending_total and rate_per_minute > 0:
+        estimated_seconds = int(
+            (pending_total * max(1, requests_per_title) / rate_per_minute) * 60
+        )
+    return {
+        "total": total,
+        "pending": pending_total,
+        "retrying": retrying_total,
+        "failed": failed_total,
+        "oldest_pending_at": oldest_pending,
+        "last_success_at": last_success,
+        "requests_per_title": max(1, requests_per_title),
+        "rate_per_minute": max(1, rate_per_minute),
+        "estimated_seconds": estimated_seconds,
+        "sources": source_rows,
+    }
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+async def search_backfill_stats(session: AsyncSession) -> SearchBackfillStats | None:
+    state = await session.get(SearchBackfillState, 1)
+    if state is None:
+        return None
+    total = max(0, int(state.total or 0))
+    normalized = min(total, max(0, int(state.normalized or 0)))
+    remaining = max(0, total - normalized)
+    return SearchBackfillStats(
+        status=state.status,
+        total=total,
+        normalized=normalized,
+        remaining=remaining,
+        legacy_indexed=int(state.legacy_indexed or 0),
+        failed=int(state.failed or 0),
+        batch_size=int(state.batch_size or 0),
+        rate_per_second=state.rate_per_second,
+        eta_seconds=state.eta_seconds,
+        progress_percent=round(normalized / total * 100, 1) if total else 100.0,
+        started_at=_aware(state.started_at),
+        finished_at=_aware(state.finished_at),
+        last_error=state.last_error,
+    )
 
 
 async def stats(session: AsyncSession) -> CatalogStats:
     manga_total = int((await session.scalar(select(func.count(Manga.id)))) or 0)
     chapter_total = int((await session.scalar(select(func.count(Chapter.id)))) or 0)
+    now = datetime.now(UTC)
+    pending_total = int(
+        (
+            await session.scalar(
+                select(func.count(Manga.id)).where(_enrichment_available_condition(now))
+            )
+        )
+        or 0
+    )
+    retrying_total = int(
+        (
+            await session.scalar(
+                select(func.count(Manga.id)).where(
+                    _enrichment_pending_condition(now),
+                    Manga.enrichment_retry_at > now,
+                )
+            )
+        )
+        or 0
+    )
     rows = (
         await session.execute(
             select(
                 Manga.source,
                 func.count(Manga.id),
-                func.coalesce(func.sum(Manga.chapters_count), 0),
+                func.coalesce(
+                    func.sum(case((Manga.last_synced_at.is_(None), 1), else_=0)), 0
+                ),
             ).group_by(Manga.source)
         )
     ).all()
+    chapter_rows = (
+        await session.execute(
+            select(Chapter.source, func.count(Chapter.id)).group_by(Chapter.source)
+        )
+    ).all()
+    chapters_by_source = {str(row[0]): int(row[1]) for row in chapter_rows}
     sources = [
-        SourceStats(source=row[0], manga=int(row[1]), chapters=int(row[2])) for row in rows
+        SourceStats(
+            source=row[0],
+            manga=int(row[1]),
+            chapters=chapters_by_source.get(str(row[0]), 0),
+            pending=int(row[2] or 0),
+        )
+        for row in rows
     ]
-    return CatalogStats(manga=manga_total, chapters=chapter_total, sources=sources)
+    source_pending_total = sum(item.pending for item in sources)
+    return CatalogStats(
+        manga=manga_total,
+        chapters=chapter_total,
+        pending=source_pending_total,
+        sources=sources,
+        pending_enrichment=pending_total,
+        retrying_enrichment=retrying_total,
+        search_backfill=await search_backfill_stats(session),
+    )
+
+
+def _freshness_score(manga: Manga, now: datetime) -> float:
+    moment = manga.last_chapter_at or manga.updated_at or manga.created_at
+    if moment is None:
+        return 0.25
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    age = (now - moment).total_seconds() / 86400
+    if age <= 30:
+        return 1.0
+    if age <= 180:
+        return 0.7
+    if age <= 365:
+        return 0.45
+    return 0.2
+
+
+def _recommendation_score(
+    manga: Manga,
+    *,
+    weights: Counter[str],
+    max_affinity: int,
+    related: bool,
+    now: datetime,
+    personalized: bool,
+    seed_only: bool,
+) -> float:
+    affinity = 0.0
+    if max_affinity > 0:
+        raw = sum(weights.get(slug, 0) for slug in genre_slugs(manga.genres or []))
+        affinity = min(1.0, raw / max_affinity)
+    rating = max(0.0, min(1.0, (manga.rating or 0.0) / 10.0))
+    popularity = min(1.0, math.log1p(max(0, manga.rating_count or 0)) / 11.5)
+    freshness = _freshness_score(manga, now)
+    boost = 0.18 if related else 0.0
+    if personalized:
+        return 0.55 * affinity + 0.18 * rating + 0.12 * freshness + 0.10 * popularity + boost
+    if seed_only:
+        return 0.48 * affinity + 0.20 * rating + 0.20 * freshness + 0.12 * popularity + boost
+    return 0.45 * rating + 0.30 * freshness + 0.25 * popularity
+
+
+async def recommend_manga(
+    session: AsyncSession,
+    *,
+    seed_manga_id: uuid.UUID | None = None,
+    history_ids: list[uuid.UUID] | None = None,
+    bookmark_ids: list[uuid.UUID] | None = None,
+    exclude_ids: list[uuid.UUID] | None = None,
+    limit: int = 12,
+) -> tuple[list[Manga], str]:
+    """Simple explainable recommendations from the local catalogue.
+
+    Ranking uses genre affinity (history/bookmarks/seed), rating, freshness and
+    popularity.  Read titles are excluded by id and by normalised title group so
+    another source variant of an already-read title never appears.  Titles with
+    no chapters are never recommended.
+    """
+
+    history = list(dict.fromkeys(history_ids or []))
+    bookmarks = list(dict.fromkeys(bookmark_ids or []))
+    explicit_excludes = list(dict.fromkeys(exclude_ids or []))
+    focus_ids = list(dict.fromkeys(([seed_manga_id] if seed_manga_id else []) + history + bookmarks))
+    excluded_ids = set(focus_ids + explicit_excludes)
+    focus = list(
+        (await session.scalars(select(Manga).where(Manga.id.in_(focus_ids)))).all()
+    ) if focus_ids else []
+    focus_by_id = {manga.id: manga for manga in focus}
+
+    weights: Counter[str] = Counter()
+    if seed_manga_id and seed_manga_id in focus_by_id:
+        for slug in genre_slugs(focus_by_id[seed_manga_id].genres or []):
+            weights[slug] += 3
+    for manga_id in history:
+        manga = focus_by_id.get(manga_id)
+        if manga:
+            for slug in genre_slugs(manga.genres or []):
+                weights[slug] += 2
+    for manga_id in bookmarks:
+        manga = focus_by_id.get(manga_id)
+        if manga:
+            for slug in genre_slugs(manga.genres or []):
+                weights[slug] += 1
+
+    excluded_groups = {
+        (manga.group_key or str(manga.id)) for manga in focus if manga.id in excluded_ids
+    }
+    for raw in explicit_excludes:
+        row = await find_manga(session, raw)
+        if row is not None:
+            excluded_groups.add(row.group_key or str(row.id))
+
+    related_ids: set[uuid.UUID] = set()
+    if focus_ids:
+        relation_rows = list(
+            (
+                await session.scalars(
+                    select(MangaRelation).where(
+                        or_(
+                            MangaRelation.from_manga_id.in_(focus_ids),
+                            MangaRelation.to_manga_id.in_(focus_ids),
+                        )
+                    )
+                )
+            ).all()
+        )
+        focus_set = set(focus_ids)
+        for relation in relation_rows:
+            if relation.from_manga_id in focus_set:
+                related_ids.add(relation.to_manga_id)
+            if relation.to_manga_id in focus_set:
+                related_ids.add(relation.from_manga_id)
+    related_ids -= excluded_ids
+
+    conditions: list[Any] = [
+        Manga.chapters_count > 0,
+        exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+    ]
+    if excluded_ids:
+        conditions.append(Manga.id.notin_(list(excluded_ids)))
+    candidates = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*conditions)
+                .order_by(
+                    desc(Manga.rating_count),
+                    desc(Manga.rating),
+                    desc(Manga.last_chapter_at),
+                    desc(Manga.updated_at),
+                )
+                .limit(500)
+            )
+        ).all()
+    )
+
+    now = datetime.now(UTC)
+    max_affinity = max(weights.values(), default=0)
+    personalized = bool(history or bookmarks)
+    seed_only = bool(seed_manga_id and not personalized)
+    scored: list[tuple[float, Manga]] = []
+    seen_groups: set[str] = set()
+    for manga in candidates:
+        group = manga.group_key or str(manga.id)
+        if manga.id in excluded_ids or group in excluded_groups or group in seen_groups:
+            continue
+        seen_groups.add(group)
+        score = _recommendation_score(
+            manga,
+            weights=weights,
+            max_affinity=max_affinity,
+            related=manga.id in related_ids,
+            now=now,
+            personalized=personalized,
+            seed_only=seed_only,
+        )
+        scored.append((score, manga))
+    scored.sort(key=lambda item: (item[0], item[1].rating or 0), reverse=True)
+
+    chosen: list[Manga] = []
+    genre_counts: Counter[str] = Counter()
+    # First pass keeps the shelf varied; a second pass fills the remainder from
+    # any genre if the catalogue is too small.
+    for _score, manga in scored:
+        if len(chosen) >= limit:
+            break
+        slugs = genre_slugs(manga.genres or [])
+        primary = slugs[0] if slugs else ""
+        if primary and genre_counts[primary] >= 3:
+            continue
+        chosen.append(manga)
+        if primary:
+            genre_counts[primary] += 1
+    if len(chosen) < limit:
+        chosen_ids = {manga.id for manga in chosen}
+        for _, manga in scored:
+            if len(chosen) >= limit:
+                break
+            if manga.id not in chosen_ids:
+                chosen.append(manga)
+                chosen_ids.add(manga.id)
+
+    if personalized:
+        strategy = "personalized"
+    elif seed_only:
+        strategy = "related"
+    else:
+        strategy = "popular"
+    return chosen, strategy
+
+
+async def upsert_relation(
+    session: AsyncSession,
+    *,
+    from_manga_id: uuid.UUID,
+    to_manga_id: uuid.UUID,
+    relation: str,
+    series_key: str | None = None,
+) -> MangaRelation:
+    existing = await session.scalar(
+        select(MangaRelation).where(
+            MangaRelation.relation == relation,
+            or_(
+                and_(
+                    MangaRelation.from_manga_id == from_manga_id,
+                    MangaRelation.to_manga_id == to_manga_id,
+                ),
+                and_(
+                    MangaRelation.from_manga_id == to_manga_id,
+                    MangaRelation.to_manga_id == from_manga_id,
+                ),
+            ),
+        )
+    )
+    normalized_key = (series_key or "").strip()[:180] or None
+    if relation != "series":
+        normalized_key = None
+    if existing is None:
+        existing = MangaRelation(
+            from_manga_id=from_manga_id,
+            to_manga_id=to_manga_id,
+            relation=relation,
+            series_key=normalized_key,
+        )
+        session.add(existing)
+    elif normalized_key:
+        existing.series_key = normalized_key
+    await session.flush()
+    return existing
+
+
+async def manga_relations(
+    session: AsyncSession, manga_id: uuid.UUID
+) -> tuple[list[Manga], list[Manga]]:
+    """Return explicit series and related titles for one manga page."""
+
+    rows = list(
+        (
+            await session.scalars(
+                select(MangaRelation).where(
+                    or_(
+                        MangaRelation.from_manga_id == manga_id,
+                        MangaRelation.to_manga_id == manga_id,
+                    )
+                )
+            )
+        ).all()
+    )
+    series_keys = {
+        row.series_key for row in rows if row.relation == "series" and row.series_key
+    }
+    if series_keys:
+        extra = list(
+            (
+                await session.scalars(
+                    select(MangaRelation).where(
+                        MangaRelation.relation == "series",
+                        MangaRelation.series_key.in_(series_keys),
+                    )
+                )
+            ).all()
+        )
+        known = {(row.from_manga_id, row.to_manga_id, row.relation) for row in rows}
+        rows.extend(
+            row
+            for row in extra
+            if (row.from_manga_id, row.to_manga_id, row.relation) not in known
+        )
+
+    series_ids: set[uuid.UUID] = set()
+    related_ids: set[uuid.UUID] = set()
+    for row in rows:
+        if row.relation == "series":
+            series_ids.update({row.from_manga_id, row.to_manga_id})
+        else:
+            related_ids.update({row.from_manga_id, row.to_manga_id})
+    series_ids.discard(manga_id)
+    related_ids.discard(manga_id)
+    related_ids -= series_ids
+    ids = series_ids | related_ids
+    if not ids:
+        return [], []
+
+    found = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(
+                    Manga.id.in_(ids),
+                    Manga.chapters_count > 0,
+                    exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+                )
+                .order_by(desc(Manga.rating), desc(Manga.rating_count), Manga.title.asc())
+            )
+        ).all()
+    )
+    by_id = {manga.id: manga for manga in found}
+    series = [by_id[item] for item in series_ids if item in by_id]
+    related = [by_id[item] for item in related_ids if item in by_id]
+    return series, related
 
 
 def manga_title(manga: Manga) -> str:

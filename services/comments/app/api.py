@@ -11,12 +11,19 @@ from .auth import CommentUser, optional_comment_user, require_comment_user, requ
 from .schemas import (
     AdminCommentOut,
     AdminReportOut,
+    ChapterFanoutOut,
+    ChapterFanoutRequest,
     CommentCreate,
     CommentOut,
     CommentThreadOut,
     CommentUpdate,
+    FollowCreate,
+    FollowOut,
+    FollowStatusOut,
     LikeOut,
     NotificationListOut,
+    NotificationSettingsIn,
+    NotificationSettingsOut,
     NotificationsReadOut,
     NotificationsReadRequest,
     ReportCreate,
@@ -141,6 +148,58 @@ async def mark_notifications_read(
 ) -> NotificationsReadOut:
     updated = await service.mark_notifications_read(viewer, payload.ids)
     return NotificationsReadOut(updated=updated)
+
+
+@router.post("/notifications/chapters", response_model=ChapterFanoutOut)
+async def fanout_chapters(
+    payload: ChapterFanoutRequest,
+    service: Service,
+) -> ChapterFanoutOut:
+    """Internal scheduler hook: create in-app rows and queue Web Push."""
+
+    return await service.fanout_chapters(payload.events)
+
+
+@router.get("/follows", response_model=list[FollowOut])
+async def list_follows(viewer: Viewer, service: Service) -> list[FollowOut]:
+    return await service.list_follows(viewer)
+
+
+@router.post("/follows", response_model=FollowOut)
+async def follow_title(
+    payload: FollowCreate, viewer: Viewer, service: Service
+) -> FollowOut:
+    return await service.follow_title(viewer, payload)
+
+
+@router.get("/follows/{manga_id}", response_model=FollowStatusOut)
+async def follow_status(
+    manga_id: uuid.UUID, viewer: Viewer, service: Service
+) -> FollowStatusOut:
+    following = await service.follow_status(viewer, manga_id)
+    return FollowStatusOut(manga_id=manga_id, following=following)
+
+
+@router.delete("/follows/{manga_id}")
+async def unfollow_title(
+    manga_id: uuid.UUID, viewer: Viewer, service: Service
+) -> dict[str, bool]:
+    await service.unfollow_title(viewer, manga_id)
+    return {"ok": True}
+
+
+@router.get("/notifications/settings", response_model=NotificationSettingsOut)
+async def get_notification_settings(
+    viewer: Viewer, service: Service
+) -> NotificationSettingsOut:
+    return await service.get_settings(viewer)
+
+
+@router.put("/notifications/settings", response_model=NotificationSettingsOut)
+async def save_notification_settings(
+    payload: NotificationSettingsIn, viewer: Viewer, service: Service
+) -> NotificationSettingsOut:
+    return await service.save_settings(viewer, payload)
 
 
 @router.get("/admin/comments", response_model=Paginated[AdminCommentOut])

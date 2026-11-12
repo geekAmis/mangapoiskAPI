@@ -1,0 +1,11 @@
+su root root
+
+/var/log/mangapoisk-backup.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+}

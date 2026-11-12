@@ -8,7 +8,10 @@ from manga_common.schemas import (
     MangaListResponse,
     MangaOut,
     MangaVariantsOut,
+    RelatedMangaOut,
+    SitemapEntryOut,
     SourceOut,
+    SuggestResponse,
 )
 from manga_common.security import require_internal_token
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
@@ -18,13 +21,20 @@ from .schemas import (
     ChapterDetailInternal,
     CrawlStateIn,
     CrawlStateOut,
+    EnrichmentFailureRequest,
+    EnrichmentStats,
     GenreListOut,
     HomeUpdatesOut,
     ImportRequest,
     ImportResult,
     PagesPatch,
     PendingEnrichmentListOut,
+    RecommendationRequest,
+    RecommendationResult,
     RefreshResult,
+    RelationsIn,
+    RelationsOut,
+    SearchBackfillStats,
     SourceSyncRequest,
 )
 from .service import CatalogService
@@ -40,22 +50,29 @@ def get_service(request: Request) -> CatalogService:
 async def sources(
     service: CatalogService = Depends(get_service),
 ) -> list[SourceOut]:
-    from .repository import list_sources
+    rows = await service.source_rows()
+    return [
+        SourceOut(
+            code=row.code,
+            name=row.name,
+            base_url=row.base_url,
+            language=row.language,
+            enabled=row.enabled,
+            requires_cookies=row.requires_cookies,
+            capabilities=row.capabilities or {},
+        )
+        for row in rows
+    ]
 
-    async with service.session_factory() as session:
-        rows = await list_sources(session)
-        return [
-            SourceOut(
-                code=row.code,
-                name=row.name,
-                base_url=row.base_url,
-                language=row.language,
-                enabled=row.enabled,
-                requires_cookies=row.requires_cookies,
-                capabilities=row.capabilities or {},
-            )
-            for row in rows
-        ]
+
+@router.get("/sitemap", response_model=list[SitemapEntryOut])
+async def sitemap(
+    limit: int = Query(default=50_000, ge=1, le=50_000),
+    service: CatalogService = Depends(get_service),
+) -> list[SitemapEntryOut]:
+    """One row per canonical title for the gateway sitemap collector."""
+
+    return await service.sitemap_entries(limit=limit)
 
 
 @router.post("/sources/sync")
@@ -102,6 +119,17 @@ async def manga_list(
     )
 
 
+@router.get("/manga/suggest", response_model=SuggestResponse)
+async def manga_suggest(
+    q: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=6, ge=1, le=12),
+    service: CatalogService = Depends(get_service),
+) -> SuggestResponse:
+    """Local-only instant suggestions.  Kept separate from live search."""
+
+    return await service.suggest(q, limit=limit)
+
+
 @router.get("/manga/search", response_model=MangaListResponse)
 async def manga_search(
     q: str = Query(min_length=1, max_length=200),
@@ -145,6 +173,26 @@ async def pending_enrichment(
     return await service.pending_enrichment(source=source, limit=limit)
 
 
+@router.get("/enrichment/stats", response_model=EnrichmentStats)
+async def enrichment_stats(
+    rate_per_minute: int = Query(default=36, ge=1, le=600),
+    requests_per_title: int = Query(default=2, ge=1, le=10),
+    service: CatalogService = Depends(get_service),
+) -> EnrichmentStats:
+    return await service.enrichment_stats(
+        rate_per_minute=rate_per_minute, requests_per_title=requests_per_title
+    )
+
+
+@router.post("/manga/{manga_id}/enrichment-failure")
+async def enrichment_failure(
+    manga_id: uuid.UUID,
+    payload: EnrichmentFailureRequest,
+    service: CatalogService = Depends(get_service),
+) -> dict:
+    return await service.record_enrichment_failure(manga_id, payload)
+
+
 @router.get("/genres", response_model=GenreListOut)
 async def genres(
     service: CatalogService = Depends(get_service),
@@ -160,6 +208,31 @@ async def home_updates(
     return await service.home_updates(limit=limit)
 
 
+@router.post("/recommendations", response_model=RecommendationResult)
+async def recommendations(
+    payload: RecommendationRequest,
+    service: CatalogService = Depends(get_service),
+) -> RecommendationResult:
+    return await service.recommendations(payload)
+
+
+@router.get("/manga/{manga_id}/related", response_model=RelatedMangaOut)
+async def related_manga(
+    manga_id: uuid.UUID,
+    service: CatalogService = Depends(get_service),
+) -> RelatedMangaOut:
+    return await service.related(manga_id)
+
+
+@router.put("/manga/{manga_id}/relations", response_model=RelationsOut)
+async def link_relations(
+    manga_id: uuid.UUID,
+    payload: RelationsIn,
+    service: CatalogService = Depends(get_service),
+) -> RelationsOut:
+    return await service.link_relations(manga_id, payload)
+
+
 @router.get("/crawl-state", response_model=list[CrawlStateOut])
 async def crawl_states(
     source: str | None = Query(default=None, max_length=64),
@@ -171,7 +244,9 @@ async def crawl_states(
 @router.get("/crawl-state/{source}", response_model=CrawlStateOut)
 async def crawl_state(
     source: str,
-    mode: str = Query(default="full", pattern="^(full|incremental)$"),
+    mode: str = Query(
+        default="full", pattern="^(full|incremental|health|enrichment)$"
+    ),
     service: CatalogService = Depends(get_service),
 ) -> CrawlStateOut:
     from manga_common.errors import NotFoundError
@@ -294,9 +369,31 @@ async def maintenance_refresh(
 @router.post("/maintenance/reset-enrichment")
 async def maintenance_reset_enrichment(
     source: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=500, ge=1, le=5000),
     service: CatalogService = Depends(get_service),
 ) -> dict[str, int]:
-    return {"queued": await service.reset_enrichment(source=source)}
+    return {"queued": await service.reset_enrichment(source=source, limit=limit)}
+
+
+@router.post("/maintenance/rotate-enrichment")
+async def maintenance_rotate_enrichment(
+    source: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=500, ge=1, le=5000),
+    service: CatalogService = Depends(get_service),
+) -> dict[str, int]:
+    return {"queued": await service.rotate_enrichment(source=source, limit=limit)}
+
+
+@router.get("/search/backfill", response_model=SearchBackfillStats)
+async def search_backfill(
+    service: CatalogService = Depends(get_service),
+) -> SearchBackfillStats:
+    from manga_common.errors import NotFoundError
+
+    state = await service.search_backfill()
+    if state is None:
+        raise NotFoundError("Search backfill state not found")
+    return state
 
 
 @router.get("/stats", response_model=CatalogStats)

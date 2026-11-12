@@ -79,7 +79,12 @@ export function Header() {
         </nav>
 
         <div className="site-header__search">
-          <SearchBox value={currentQuery} onSubmit={submitSearch} ariaLabel="Поиск по каталогу" />
+          <SearchBox
+            value={currentQuery}
+            onSubmit={submitSearch}
+            ariaLabel="Поиск по каталогу"
+            enableSuggestions
+          />
         </div>
 
         <div className="site-header__actions">
@@ -160,6 +165,7 @@ export function Header() {
             autoFocus
             ariaLabel="Поиск по каталогу"
             placeholder="Что будем читать?"
+            enableSuggestions
           />
           <button
             type="button"

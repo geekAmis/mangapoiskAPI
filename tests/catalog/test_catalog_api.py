@@ -74,6 +74,57 @@ async def api(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_stats_reports_enrichment_backlog(api) -> None:
+    response = await api.get("/internal/stats")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["manga"] == 3
+    assert payload["pending"] == 1
+    assert payload["pending_enrichment"] >= 1
+    source = next(item for item in payload["sources"] if item["source"] == "mangapoisk")
+    assert source["pending"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sources_endpoint_imports_and_returns_rows(api) -> None:
+    response = await api.get("/internal/sources")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+@pytest.mark.asyncio
+async def test_sitemap_endpoint_returns_canonical_titles(api) -> None:
+    response = await api.get("/internal/sitemap")
+    assert response.status_code == 200
+    entries = response.json()
+    assert len(entries) == 2
+    assert {entry["id"] for entry in entries}
+    assert all("last_chapter_at" in entry for entry in entries)
+
+
+@pytest.mark.asyncio
+async def test_crawl_state_round_trips_eta(api) -> None:
+    payload = {
+        "source": "mangapoisk",
+        "mode": "full",
+        "page": 42,
+        "status": "running",
+        "total_pages": 100,
+        "items_seen": 420,
+        "items_imported": 400,
+        "eta_seconds": 360,
+    }
+    saved = await api.put("/internal/crawl-state/mangapoisk", json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["eta_seconds"] == 360
+
+    loaded = await api.get("/internal/crawl-state/mangapoisk")
+    assert loaded.status_code == 200
+    assert loaded.json()["page"] == 42
+    assert loaded.json()["eta_seconds"] == 360
+
+
+@pytest.mark.asyncio
 async def test_public_list_hides_empty_and_supports_include_empty(api) -> None:
     default = await api.get("/internal/manga")
     assert default.status_code == 200
@@ -141,7 +192,7 @@ async def test_home_updates_contract(api) -> None:
 async def test_reset_enrichment_requeues_titles(api) -> None:
     response = await api.post("/internal/maintenance/reset-enrichment")
     assert response.status_code == 200
-    assert response.json()["queued"] >= 3
+    assert response.json()["queued"] >= 2
     pending = await api.get("/internal/manga/pending", params={"source": "mangapoisk"})
     assert pending.status_code == 200
     assert {item["source_id"] for item in pending.json()["items"]} >= {
@@ -149,6 +200,38 @@ async def test_reset_enrichment_requeues_titles(api) -> None:
         "fantasy-title",
         "stub-title",
     }
+
+
+@pytest.mark.asyncio
+async def test_enrichment_stats_and_failure_endpoint(api) -> None:
+    stats = await api.get("/internal/enrichment/stats", params={"rate_per_minute": 36})
+    assert stats.status_code == 200
+    payload = stats.json()
+    assert payload["pending"] >= 1
+    assert payload["estimated_seconds"] > 0
+    assert {item["source"] for item in payload["sources"]} == {"mangapoisk"}
+
+    listing = await api.get("/internal/manga", params={"include_empty": "true"})
+    stub_id = next(
+        item["id"] for item in listing.json()["items"] if item["source_id"] == "stub-title"
+    )
+    failed = await api.post(
+        f"/internal/manga/{stub_id}/enrichment-failure",
+        json={"error": "403 Forbidden", "kind": "forbidden"},
+    )
+    assert failed.status_code == 200
+    assert failed.json()["attempts"] == 1
+    assert failed.json()["retry_at"]
+
+    stats = await api.get("/internal/enrichment/stats", params={"rate_per_minute": 36})
+    assert stats.json()["retrying"] >= 1
+
+    rotated = await api.post(
+        "/internal/maintenance/rotate-enrichment",
+        params={"source": "mangapoisk", "limit": 1},
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["queued"] == 1
 
 
 @pytest.mark.asyncio

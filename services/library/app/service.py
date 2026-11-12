@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from manga_common.auth import (
     create_access_token,
@@ -15,15 +15,22 @@ from manga_common.auth import (
 )
 from manga_common.errors import ConflictError, NotFoundError, UnauthorizedError
 from manga_common.schemas import (
+    AnalyticsEventIn,
+    AnalyticsIngestOut,
+    AnalyticsRetentionOut,
     BookmarkOut,
+    ProgressMergeItem,
+    ProgressMergeOut,
     ProgressOut,
     ReaderSettings,
+    StreakOut,
     TokenPair,
     UserOut,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .analytics import compute_retention
 from .config import LibrarySettings
 from .models import User
 from .repository import (
@@ -37,14 +44,20 @@ from .repository import (
     get_settings,
     get_user,
     get_user_by_email,
+    insert_analytics_events,
+    list_analytics_events,
     list_bookmarks,
     list_progress,
+    list_reading_days,
+    merge_progress,
+    record_reading_day,
     remove_bookmark,
     revoke_all_tokens,
     revoke_refresh_token,
     upsert_progress,
     upsert_settings,
 )
+from .streak import compute_streak
 
 logger = logging.getLogger(__name__)
 
@@ -225,8 +238,75 @@ class LibraryService:
                 page=page,
                 total_pages=total_pages,
             )
+            await record_reading_day(session, user_id=user_id, read_at=datetime.now(UTC))
             await session.commit()
             return ProgressOut.model_validate(row)
+
+    async def merge_local_progress(
+        self,
+        user_id: uuid.UUID,
+        items: list[ProgressMergeItem],
+        read_days: list[datetime] | None = None,
+    ) -> ProgressMergeOut:
+        now = datetime.now(UTC)
+        async with self.session_factory() as session:
+            merged, unchanged, ignored = await merge_progress(
+                session,
+                user_id=user_id,
+                items=[
+                    (
+                        item.manga_id,
+                        item.chapter_id,
+                        item.page,
+                        item.total_pages,
+                        item.read_at,
+                    )
+                    for item in items
+                ],
+            )
+            for moment in read_days or []:
+                normalized = as_utc(moment)
+                if normalized is not None:
+                    await record_reading_day(
+                        session, user_id=user_id, read_at=min(normalized, now)
+                    )
+            await session.commit()
+            return ProgressMergeOut(merged=merged, unchanged=unchanged, ignored=ignored)
+
+    async def streak(self, user_id: uuid.UUID, timezone: str | None) -> StreakOut:
+        async with self.session_factory() as session:
+            rows = await list_reading_days(session, user_id)
+            return compute_streak(
+                [row.last_read_at for row in rows],
+                timezone=timezone,
+                now=datetime.now(UTC),
+            )
+
+    async def ingest_analytics(self, events: list[AnalyticsEventIn]) -> AnalyticsIngestOut:
+        rows = [
+            {
+                "event": event.event,
+                "client_id": event.client_id,
+                "surface": event.surface,
+                "manga_id": event.manga_id,
+                "chapter_id": event.chapter_id,
+                "dedupe_key": event.dedupe_key,
+                "created_at": datetime.now(UTC),
+            }
+            for event in events
+        ]
+        async with self.session_factory() as session:
+            accepted, duplicates = await insert_analytics_events(session, rows)
+            await session.commit()
+            return AnalyticsIngestOut(accepted=accepted, duplicates=duplicates)
+
+    async def analytics_retention(self, days: int = 30) -> AnalyticsRetentionOut:
+        now = datetime.now(UTC)
+        async with self.session_factory() as session:
+            events = await list_analytics_events(
+                session, since=now - timedelta(days=max(1, min(days, 90)) + 30)
+            )
+        return compute_retention(events, days=days, now=now)
 
     async def delete_progress(self, user_id: uuid.UUID, manga_id: uuid.UUID) -> bool:
         async with self.session_factory() as session:

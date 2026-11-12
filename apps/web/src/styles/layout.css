@@ -133,6 +133,10 @@
   padding: 0 0 12px;
   animation: fade-in 160ms ease;
 }
+.mobile-search .searchbox {
+  flex: 1;
+  min-width: 0;
+}
 
 .header-login {
   margin-left: 4px;
@@ -349,6 +353,13 @@
   .mobile-search {
     width: 100%;
     padding: 0 16px 10px;
+  }
+  .search-suggest {
+    top: calc(100% + 6px);
+    border-radius: 14px;
+  }
+  .search-suggest__list {
+    max-height: min(52vh, 370px);
   }
   .brand__mark {
     width: 30px;
@@ -698,6 +709,53 @@
   margin-top: 7px;
   border-radius: 50%;
   background: var(--accent);
+}
+.notifications__item--chapter {
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  cursor: default;
+}
+.notifications__item--chapter:hover {
+  background: transparent;
+}
+.notifications__main {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 4px 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.notifications__main:hover {
+  background: var(--surface-2);
+}
+.notifications__avatar--chapter {
+  border-radius: 8px;
+}
+.notifications__unsub {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.notifications__unsub:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.notifications__unsub:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 .notifications__empty {
   padding: 20px 14px;

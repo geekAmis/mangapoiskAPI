@@ -2,7 +2,9 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, listItems, resolveApiUrl } from '../api/client';
+import { notificationsApi } from '../api/notifications';
 import type { ChapterOut, MangaDetailOut, MangaVariantOut } from '../api/types';
+import { AdSlot } from '../components/ads/AdSlot';
 import { ChapterRow } from '../components/ChapterRow';
 import { CommentsSection } from '../components/CommentsSection';
 import { EmptyState } from '../components/EmptyState';
@@ -12,6 +14,8 @@ import { DancingSpinner } from '../components/DancingLoader';
 import { Modal } from '../components/Modal';
 import { Poster } from '../components/Poster';
 import { Rating } from '../components/Rating';
+import { RecommendationShelf } from '../components/RecommendationShelf';
+import { RelatedShelf } from '../components/RelatedShelf';
 import { SearchBox } from '../components/SearchBox';
 import { Skeleton } from '../components/Skeleton';
 import {
@@ -44,6 +48,7 @@ import {
 import { useOfflineTitle } from '../lib/offlineHooks';
 import { formatBytes, jobPercent, offlineTitleStats, type DownloadJobStatus } from '../lib/offlineTypes';
 import { queryKeys } from '../lib/queryClient';
+import { useReadingResume } from '../lib/useReading';
 import { useAuthStore } from '../stores/auth';
 import { useReaderStore } from '../stores/reader';
 import { toast } from '../stores/toast';
@@ -232,11 +237,15 @@ export default function MangaPage() {
     enabled: Boolean(user),
   });
 
-  const progressQuery = useQuery({
-    queryKey: queryKeys.progress,
-    queryFn: ({ signal }) => api.getProgress(signal),
-    enabled: Boolean(user),
+  const resume = useReadingResume();
+
+  const followQuery = useQuery({
+    queryKey: ['follow', id],
+    queryFn: () => notificationsApi.followStatus(id),
+    enabled: Boolean(user) && Boolean(id),
+    staleTime: 60_000,
   });
+  const isFollowing = followQuery.data?.following ?? false;
 
   const viewTitle = activeVariant?.title ?? manga?.title;
   const seoTitle = viewTitle
@@ -290,7 +299,7 @@ export default function MangaPage() {
   const bookmarks = listItems(bookmarksQuery.data);
   const isBookmarked = bookmarks.some((bookmark) => bookmark.manga_id === id);
 
-  const progressItems = listItems(progressQuery.data);
+  const progressItems = resume.items;
   const variantIds = useMemo(() => new Set([id, ...variants.map((variant) => variant.id)]), [id, variants]);
   const progress = progressItems.find((item) => variantIds.has(item.manga_id));
 
@@ -305,6 +314,34 @@ export default function MangaPage() {
     },
     onError: (error: unknown) => {
       toast.error(humanizeError(error, 'Не удалось обновить закладку'));
+    },
+  });
+
+  const followMutation = useMutation({
+    mutationFn: async () => {
+      if (isFollowing) {
+        await notificationsApi.unfollow(id);
+        return false;
+      }
+      await notificationsApi.follow(
+        id,
+        manga?.title ?? 'Тайтл',
+        manga?.poster_url ?? null,
+        manga?.source ?? null,
+      );
+      return true;
+    },
+    onSuccess: (nowFollowing) => {
+      void queryClient.invalidateQueries({ queryKey: ['follow', id] });
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      toast.success(
+        nowFollowing
+          ? 'Вы следите за новыми главами. Уведомление появится в колокольчике.'
+          : 'Вы больше не следите за новыми главами этого тайтла',
+      );
+    },
+    onError: (error: unknown) => {
+      toast.error(humanizeError(error, 'Не удалось обновить подписку на главы'));
     },
   });
 
@@ -423,8 +460,21 @@ export default function MangaPage() {
   const playLoading = Boolean(bestVariant) && bestVariantId !== id && bestMangaQuery.isLoading;
 
   const progressChapter = progress
-    ? (chapters.find((chapter) => chapter.id === progress.chapter_id) ?? progress.chapter ?? null)
+    ? (chapters.find((chapter) => chapter.id === progress.chapter_id) ?? null)
     : null;
+  const activeProgress =
+    progressItems.find((item) => item.manga_id === activeVariantId) ?? progress ?? null;
+  const lastChapter = [...chapters].sort(compareChapters).at(-1) ?? null;
+  const lastChapterTotal = activeProgress
+    ? activeProgress.total_pages || lastChapter?.page_count || 0
+    : 0;
+  const finishedTitle = Boolean(
+    activeProgress &&
+      lastChapter &&
+      activeProgress.chapter_id === lastChapter.id &&
+      lastChapterTotal > 0 &&
+      activeProgress.page >= lastChapterTotal,
+  );
 
   // Одиночная загрузка всегда берёт главу выбранного источника, чтобы
   // идентификатор тайтла в офлайн-манифесте совпадал с главой. Приоритет —
@@ -515,6 +565,14 @@ export default function MangaPage() {
       return;
     }
     bookmarkMutation.mutate();
+  };
+
+  const toggleFollow = () => {
+    if (!user) {
+      navigate(`/login?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`);
+      return;
+    }
+    followMutation.mutate();
   };
 
   const queueDeviceDownload = async () => {
@@ -682,6 +740,17 @@ export default function MangaPage() {
             >
               <Icon name="bookmark" size={17} />
               {isBookmarked ? 'В библиотеке' : 'В закладки'}
+            </button>
+            <button
+              type="button"
+              className={`btn ${isFollowing ? 'btn--primary' : 'btn--outline'} btn--block`}
+              onClick={toggleFollow}
+              disabled={followMutation.isPending || (Boolean(user) && followQuery.isLoading)}
+              aria-pressed={isFollowing}
+              title="Получать уведомление о каждой новой главе"
+            >
+              <Icon name="bell" size={17} />
+              {isFollowing ? 'Вы следите за главами' : 'Следить за главами'}
             </button>
             {chapterDownloadTarget && chapterDownloadDone ? (
               <Link
@@ -947,6 +1016,16 @@ export default function MangaPage() {
             </div>
           ) : null}
 
+          {finishedTitle ? (
+            <RecommendationShelf
+              title="Что почитать дальше"
+              surface="manga_completion"
+              seedMangaId={id}
+              limit={12}
+              className="manga-completion"
+            />
+          ) : null}
+
           {viewManga.description ? (
             <div className="manga-description">
               <div className="manga-description__head">
@@ -1195,7 +1274,11 @@ export default function MangaPage() {
             </div>
           )}
         </section>
+
+        <AdSlot placement="sidebar" adult={viewManga.adult} />
       </div>
+
+      <RelatedShelf mangaId={id} />
 
       <CommentsSection mangaId={manga.id} />
 

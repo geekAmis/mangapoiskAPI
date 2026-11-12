@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
 
@@ -46,12 +47,14 @@ from manga_common.schemas import (
     RegisterRequest,
     SearchResponse,
     SourceOut,
+    SuggestResponse,
     TokenPair,
     UserOut,
 )
 from manga_common.security import (
     UserClaims,
     admin_auth_version,
+    optional_user,
     require_admin,
     require_internal_token,
     require_user,
@@ -400,6 +403,55 @@ async def sources(request: Request) -> list[SourceOut]:
 
 
 # ---------------------------------------------------------------------------
+# Advertising
+# ---------------------------------------------------------------------------
+
+
+def _is_donor(user: UserClaims | None) -> bool:
+    """Best-effort entitlement check for the current account.
+
+    The library service does not expose a billing model yet.  Donor/Pro roles
+    and flags are read from the JWT claims so a future entitlement service can
+    activate them without changing the ads API.
+    """
+
+    if user is None:
+        return False
+    if user.role.lower() in {"pro", "donor", "supporter", "subscriber"}:
+        return True
+    raw = user.raw or {}
+    for key in ("is_donor", "donor", "is_pro", "pro", "subscription_active"):
+        if bool(raw.get(key)):
+            return True
+    return False
+
+
+@router.get("/ads/config")
+async def public_ads_config(
+    request: Request,
+    response: Response,
+    adult: bool = Query(default=False),
+    consent: bool = Query(default=False),
+    user: UserClaims | None = Depends(optional_user),
+) -> list[dict[str, Any]]:
+    """Public ad slots for the current audience; never includes secrets."""
+
+    response.headers["Cache-Control"] = "private, max-age=30"
+    try:
+        return await control(request).ads_public(
+            audience="authenticated" if user is not None else "guest",
+            donor=_is_donor(user),
+            adult=adult,
+            consent=consent,
+        )
+    except Exception as exc:
+        # Ads are optional: a control outage must not break a page or log a
+        # browser-visible error.
+        logger.debug("advertising config unavailable: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Catalogue
 # ---------------------------------------------------------------------------
 
@@ -497,6 +549,23 @@ async def _live_search(
     imported = await asyncio.gather(*(import_one(item) for item in summaries))
     items = [item for item in imported if item is not None]
     return items, len(items)
+
+
+@router.get("/manga/suggest", response_model=SuggestResponse)
+async def manga_suggest(
+    request: Request,
+    q: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=6, ge=1, le=12),
+) -> SuggestResponse:
+    """Instant suggestions from the local index only.
+
+    This endpoint deliberately has no ``live`` flag and never calls the parser,
+    unlike ``/manga/search`` which keeps a controlled fallback for an explicit
+    submit.
+    """
+
+    catalog, _, _, _ = clients(request)
+    return await catalog.suggest(q, limit=limit)
 
 
 @router.get("/manga/search", response_model=SearchResponse)
@@ -1121,6 +1190,205 @@ class AdminMe(BaseModel):
     role: str = "admin"
 
 
+class CrawlStateView(BaseModel):
+    source: str
+    mode: str
+    status: str
+    page: int = 1
+    total_pages: int | None = None
+    items_seen: int = 0
+    items_imported: int = 0
+    eta_seconds: int | None = None
+    last_error: str | None = None
+    last_run_at: datetime | None = None
+    next_run_at: datetime | None = None
+
+
+class CrawlerSourceView(BaseModel):
+    source: str
+    manga: int = 0
+    chapters: int = 0
+    pending: int = 0
+    full: CrawlStateView | None = None
+    incremental: CrawlStateView | None = None
+    progress_percent: float | None = None
+    eta_seconds: int | None = None
+
+
+class CrawlerArchiveView(BaseModel):
+    total: int = 0
+    done: int = 0
+    failed: int = 0
+    pending: int = 0
+    done_bytes: int = 0
+    db_bytes: int = 0
+    cap_bytes: int = 0
+    usage_percent: float = 0.0
+
+
+class CrawlerStatusOut(BaseModel):
+    generated_at: datetime
+    catalog_manga: int = 0
+    catalog_chapters: int = 0
+    enrichment_pending: int = 0
+    sources: list[CrawlerSourceView] = Field(default_factory=list)
+    archive: CrawlerArchiveView = Field(default_factory=CrawlerArchiveView)
+    image_cache_bytes: int = 0
+    image_cache_files: int = 0
+    search_backfill: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+def _parse_dt(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _crawl_state_view(raw: dict[str, Any]) -> CrawlStateView:
+    return CrawlStateView(
+        source=str(raw.get("source") or ""),
+        mode=str(raw.get("mode") or "full"),
+        status=str(raw.get("status") or "pending"),
+        page=max(1, int(raw.get("page") or 1)),
+        total_pages=int(raw["total_pages"]) if raw.get("total_pages") is not None else None,
+        items_seen=max(0, int(raw.get("items_seen") or 0)),
+        items_imported=max(0, int(raw.get("items_imported") or 0)),
+        eta_seconds=int(raw["eta_seconds"]) if raw.get("eta_seconds") is not None else None,
+        last_error=str(raw["last_error"]) if raw.get("last_error") else None,
+        last_run_at=_parse_dt(raw.get("last_run_at")),
+        next_run_at=_parse_dt(raw.get("next_run_at")),
+    )
+
+
+def _build_crawler_status(
+    catalog_stats: dict[str, Any],
+    crawl_states: list[dict[str, Any]],
+    media_stats: dict[str, Any],
+    *,
+    generated_at: datetime | None = None,
+    warnings: list[str] | None = None,
+) -> CrawlerStatusOut:
+    """Merge catalogue, crawl-state and media payloads for the admin panel.
+
+    Pure function: it takes already-fetched service payloads, so the dashboard
+    endpoint can degrade gracefully when one upstream is unavailable and the
+    merge logic stays unit-testable.
+    """
+
+    now = generated_at or datetime.now(UTC)
+    issues = list(warnings or [])
+
+    stats_by_source: dict[str, dict[str, Any]] = {}
+    raw_sources = catalog_stats.get("sources")
+    if isinstance(raw_sources, list):
+        for item in raw_sources:
+            if isinstance(item, dict) and item.get("source"):
+                stats_by_source[str(item["source"])] = item
+
+    states_by_source: dict[str, dict[str, CrawlStateView]] = {}
+    for raw in crawl_states:
+        if not isinstance(raw, dict):
+            continue
+        view = _crawl_state_view(raw)
+        if not view.source or view.mode not in {"full", "incremental"}:
+            continue
+        states_by_source.setdefault(view.source, {})[view.mode] = view
+
+    sources: list[CrawlerSourceView] = []
+    for code in sorted(set(stats_by_source) | set(states_by_source)):
+        stat = stats_by_source.get(code, {})
+        modes = states_by_source.get(code, {})
+        full = modes.get("full")
+        incremental = modes.get("incremental")
+        progress = None
+        if full and full.total_pages:
+            progress = round(min(100.0, full.page / full.total_pages * 100), 1)
+        eta = full.eta_seconds if full and full.status == "running" else None
+        sources.append(
+            CrawlerSourceView(
+                source=code,
+                manga=int(stat.get("manga") or 0),
+                chapters=int(stat.get("chapters") or 0),
+                pending=int(stat.get("pending") or 0),
+                full=full,
+                incremental=incremental,
+                progress_percent=progress,
+                eta_seconds=eta,
+            )
+        )
+        for state in (full, incremental):
+            if state and state.status == "failed":
+                detail = f" — {state.last_error[:140]}" if state.last_error else ""
+                issues.append(f"{code}: {state.mode}-обход завершился ошибкой{detail}")
+            if (
+                state
+                and state.status == "running"
+                and state.last_run_at is not None
+                and now - state.last_run_at > timedelta(minutes=15)
+            ):
+                issues.append(
+                    f"{code}: {state.mode}-обход не обновлял прогресс более 15 минут"
+                )
+
+    raw_archive = media_stats.get("archives")
+    archive = CrawlerArchiveView.model_validate(raw_archive) if isinstance(raw_archive, dict) else CrawlerArchiveView()
+    if archive.cap_bytes and archive.usage_percent >= 80:
+        issues.append(
+            f"Архив глав заполнен на {archive.usage_percent:.1f}% — LRU скоро начнёт удалять старые главы"
+        )
+
+    pending = int(
+        catalog_stats.get("pending") or catalog_stats.get("pending_enrichment") or 0
+    )
+    if pending >= 5000:
+        issues.append(f"Очередь обогащения: {pending} тайтлов без деталей")
+
+    image_cache = media_stats.get("image_cache")
+    image_cache = image_cache if isinstance(image_cache, dict) else {}
+    image_cache_bytes = int(
+        media_stats.get("image_cache_bytes") or image_cache.get("used_bytes") or 0
+    )
+    image_cache_files = int(
+        media_stats.get("image_cache_files") or image_cache.get("files") or 0
+    )
+    search_backfill = catalog_stats.get("search_backfill")
+    if isinstance(search_backfill, dict):
+        if search_backfill.get("status") == "failed":
+            detail = str(search_backfill.get("last_error") or "")[:140]
+            issues.append(f"Поисковый backfill каталога остановился{': ' + detail if detail else ''}")
+        elif search_backfill.get("status") in {"pending", "running"}:
+            normalized = int(search_backfill.get("normalized") or 0)
+            total = int(search_backfill.get("total") or 0)
+            if total:
+                issues.append(
+                    f"Поисковый backfill каталога: {normalized}/{total} "
+                    f"({search_backfill.get('progress_percent', 0)}%)"
+                )
+    else:
+        search_backfill = None
+
+    return CrawlerStatusOut(
+        generated_at=now,
+        catalog_manga=int(catalog_stats.get("manga") or 0),
+        catalog_chapters=int(catalog_stats.get("chapters") or 0),
+        enrichment_pending=pending,
+        sources=sources,
+        archive=archive,
+        image_cache_bytes=image_cache_bytes,
+        image_cache_files=image_cache_files,
+        search_backfill=search_backfill,
+        warnings=issues,
+    )
+
+
 def control(request: Request) -> ControlClient:
     return request.app.state.control
 
@@ -1182,6 +1450,65 @@ async def admin_login(request: Request, payload: AdminLoginRequest) -> AdminToke
 @router.get("/admin/me", response_model=AdminMe)
 async def admin_me(user: UserClaims = Depends(require_admin)) -> AdminMe:
     return AdminMe(username=str(user.raw.get("username", "admin")), role=user.role)
+
+
+@router.get("/admin/catalogue")
+async def admin_catalogue(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> dict[str, Any]:
+    catalog, _, _, _ = clients(request)
+    return {
+        "stats": await catalog.stats(),
+        "enrichment": await catalog.enrichment_stats(),
+        "crawl_states": await catalog.crawl_states(),
+    }
+
+
+@router.get("/admin/media/stats")
+async def admin_media_stats(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> dict[str, Any]:
+    """Image-cache and chapter-archive usage for the admin storage panel."""
+
+    _, _, _, media = clients(request)
+    return await media.stats()
+
+
+@router.get("/admin/crawl", response_model=CrawlerStatusOut)
+async def admin_crawl_status(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> CrawlerStatusOut:
+    """Live crawler/storage snapshot for the admin dashboard.
+
+    Upstreams are independent: a media outage must not hide crawl progress and
+    a crawl-state outage must not hide archive usage.  Each failure becomes a
+    warning shown in the panel instead of a silent blank section.
+    """
+
+    catalog, _, _, media = clients(request)
+    results = await asyncio.gather(
+        catalog.stats(),
+        catalog.crawl_states(),
+        media.stats(),
+        return_exceptions=True,
+    )
+    warnings: list[str] = []
+    labels = ("каталог", "состояние краулера", "медиа-архив")
+    values: list[Any] = []
+    for label, result in zip(labels, results, strict=True):
+        if isinstance(result, Exception):
+            logger.warning("admin crawl snapshot: %s unavailable: %s", label, result)
+            warnings.append(f"Источник «{label}» недоступен: {result}")
+            values.append({} if label != "состояние краулера" else [])
+        else:
+            values.append(result)
+    stats_payload, states_payload, media_payload = values
+    return _build_crawler_status(
+        stats_payload if isinstance(stats_payload, dict) else {},
+        states_payload if isinstance(states_payload, list) else [],
+        media_payload if isinstance(media_payload, dict) else {},
+        warnings=warnings,
+    )
 
 
 @router.get("/admin/servers")
@@ -1270,6 +1597,15 @@ async def admin_job(
     user: UserClaims = Depends(require_admin),
 ) -> dict[str, Any]:
     return await control(request).job(str(job_id))
+
+
+@router.post("/admin/jobs/{job_id}/cancel")
+async def admin_cancel_job(
+    request: Request,
+    job_id: uuid.UUID,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).cancel_job(str(job_id))
 
 
 @router.get("/admin/registry")
@@ -1423,6 +1759,68 @@ async def admin_failover(
     registry = await control(request).refresh_registry()
     updated = await _apply_registry(request, registry)
     return {"updated": updated, "registry": registry}
+
+
+@router.get("/admin/ads")
+async def admin_ads(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> list[dict[str, Any]]:
+    return await control(request).ads()
+
+
+@router.post("/admin/ads")
+async def admin_create_ad(
+    request: Request,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).create_ad(payload)
+
+
+@router.patch("/admin/ads/{provider_id}")
+async def admin_update_ad(
+    request: Request,
+    provider_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).update_ad(str(provider_id), payload)
+
+
+@router.delete("/admin/ads/{provider_id}")
+async def admin_delete_ad(
+    request: Request,
+    provider_id: uuid.UUID,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    await control(request).delete_ad(str(provider_id))
+    return {"ok": True}
+
+
+class AdSecretIn(BaseModel):
+    value: str = Field(min_length=1, max_length=20_000)
+
+
+@router.put("/admin/ads/{provider_id}/secrets/{name}")
+async def admin_set_ad_secret(
+    request: Request,
+    provider_id: uuid.UUID,
+    name: str,
+    payload: AdSecretIn,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).set_ad_secret(str(provider_id), name, payload.value)
+
+
+@router.delete("/admin/ads/{provider_id}/secrets/{name}")
+async def admin_delete_ad_secret(
+    request: Request,
+    provider_id: uuid.UUID,
+    name: str,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    await control(request).delete_ad_secret(str(provider_id), name)
+    return {"ok": True}
 
 
 @router.get("/admin/audit")

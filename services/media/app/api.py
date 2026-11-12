@@ -1,15 +1,30 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
 from manga_common.errors import NotFoundError, ValidationError
 from manga_common.schemas import ExportJobOut, OkResponse
 from manga_common.security import require_internal_token
+from pydantic import BaseModel
 
-from .archive import ArchiveManager, ArchiveRequest, ArchiveState, ArchiveSummary
-from .cache import MediaCache, resolve_width
+from .archive import (
+    ArchiveManager,
+    ArchiveRequest,
+    ArchiveState,
+    ArchiveStats,
+    ArchiveSummary,
+)
+from .cache import (
+    MediaCache,
+    MediaCacheStats,
+    resolve_width,
+    usage_level,
+    usage_percent,
+)
 from .exporter import ExportManager, ExportRequest
 
 router = APIRouter(prefix="/internal", dependencies=[Depends(require_internal_token)])
@@ -30,6 +45,153 @@ def get_exports(request: Request) -> ExportManager:
 
 def get_archives(request: Request) -> ArchiveManager:
     return request.app.state.archives
+
+
+class ImageCacheStatsOut(BaseModel):
+    used_bytes: int
+    cap_bytes: int
+    files: int
+    evictions: int
+    last_pruned_at: datetime | None
+    usage_percent: float
+    level: Literal["ok", "warning", "critical", "unbounded"]
+
+
+class ArchiveStatsOut(BaseModel):
+    total: int
+    done: int
+    failed: int
+    pending: int
+    done_bytes: int
+    db_bytes: int
+    cap_bytes: int
+    evictions: int
+    last_pruned_at: datetime | None
+    usage_percent: float
+    level: Literal["ok", "warning", "critical", "unbounded"]
+
+
+class MediaStatsOut(BaseModel):
+    generated_at: datetime
+    image_cache: ImageCacheStatsOut
+    archives: ArchiveStatsOut
+    warnings: list[str]
+
+
+class PruneResultOut(BaseModel):
+    removed: int
+    freed_bytes: int
+    used_bytes: int
+    cap_bytes: int
+    dry_run: bool
+
+
+class MaintenancePruneOut(BaseModel):
+    dry_run: bool
+    image_cache: PruneResultOut
+    archives: PruneResultOut
+
+
+def _image_stats_payload(stats: MediaCacheStats) -> ImageCacheStatsOut:
+    return ImageCacheStatsOut(
+        used_bytes=stats.used_bytes,
+        cap_bytes=stats.cap_bytes,
+        files=stats.files,
+        evictions=stats.evictions,
+        last_pruned_at=stats.last_pruned_at,
+        usage_percent=stats.usage_percent,
+        level=stats.level,  # type: ignore[arg-type]
+    )
+
+
+def _archive_stats_payload(stats: ArchiveStats, cap_bytes: int) -> ArchiveStatsOut:
+    return ArchiveStatsOut(
+        total=stats.total,
+        done=stats.done,
+        failed=stats.failed,
+        pending=stats.pending,
+        done_bytes=stats.done_bytes,
+        db_bytes=stats.db_bytes,
+        cap_bytes=cap_bytes,
+        evictions=stats.evictions,
+        last_pruned_at=stats.last_pruned_at,
+        usage_percent=usage_percent(stats.done_bytes, cap_bytes),
+        level=usage_level(stats.done_bytes, cap_bytes),  # type: ignore[arg-type]
+    )
+
+
+def _storage_warnings(
+    image: ImageCacheStatsOut, archives: ArchiveStatsOut
+) -> list[str]:
+    warnings: list[str] = []
+    if image.level == "critical":
+        warnings.append(
+            f"Кэш изображений заполнен на {image.usage_percent:.1f}% — LRU удаляет старые файлы"
+        )
+    elif image.level == "warning":
+        warnings.append(
+            f"Кэш изображений заполнен на {image.usage_percent:.1f}% — приближается к лимиту"
+        )
+    if archives.level == "critical":
+        warnings.append(
+            f"Архив глав заполнен на {archives.usage_percent:.1f}% — LRU удаляет старые главы"
+        )
+    elif archives.level == "warning":
+        warnings.append(
+            f"Архив глав заполнен на {archives.usage_percent:.1f}% — приближается к лимиту"
+        )
+    return warnings
+
+
+@router.get("/stats", response_model=MediaStatsOut)
+async def stats(
+    cache: MediaCache = Depends(get_cache),
+    archives: ArchiveManager = Depends(get_archives),
+) -> MediaStatsOut:
+    image_stats = _image_stats_payload(await cache.stats())
+    archive_stats = _archive_stats_payload(await archives.stats(), archives.max_bytes)
+    return MediaStatsOut(
+        generated_at=datetime.now(UTC),
+        image_cache=image_stats,
+        archives=archive_stats,
+        warnings=_storage_warnings(image_stats, archive_stats),
+    )
+
+
+@router.post("/maintenance/prune", response_model=MaintenancePruneOut)
+async def prune_storage(
+    dry_run: bool = Query(
+        default=True,
+        description="Only report what would be evicted. Set false to delete.",
+    ),
+    cache: MediaCache = Depends(get_cache),
+    archives: ArchiveManager = Depends(get_archives),
+) -> MaintenancePruneOut:
+    """Run both LRU sweeps.
+
+    Destructive calls stay behind the internal token and require an explicit
+    ``dry_run=false``; the default is a read-only report.
+    """
+
+    image_result = await cache.prune(dry_run=dry_run)
+    archive_result = await archives.prune(dry_run=dry_run)
+    return MaintenancePruneOut(
+        dry_run=dry_run,
+        image_cache=PruneResultOut(
+            removed=image_result.removed,
+            freed_bytes=image_result.freed_bytes,
+            used_bytes=image_result.used_bytes,
+            cap_bytes=image_result.cap_bytes,
+            dry_run=image_result.dry_run,
+        ),
+        archives=PruneResultOut(
+            removed=archive_result.removed,
+            freed_bytes=archive_result.freed_bytes,
+            used_bytes=archive_result.used_bytes,
+            cap_bytes=archive_result.cap_bytes,
+            dry_run=archive_result.dry_run,
+        ),
+    )
 
 
 @router.get("/image")

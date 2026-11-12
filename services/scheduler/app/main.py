@@ -26,11 +26,12 @@ class SchedulerSettings(Settings):
     sync_batch_size: int = 5
     cleanup_interval_seconds: int = 21600
     notify_new_chapters: bool = True
+    chapter_notifications_enabled: bool = True
     catalogue_import_enabled: bool = True
     catalogue_import_interval_seconds: int = 21600
     catalogue_import_per_source_limit: int = 60
     catalogue_enrichment_enabled: bool = True
-    catalogue_enrichment_concurrency: int = 2
+    catalogue_enrichment_concurrency: int = 3
     catalogue_enrichment_limit: int = 30
     # Full-catalogue crawler (MangaPoisk + MangaLib + Remanga).
     catalogue_crawl_enabled: bool = True
@@ -40,7 +41,14 @@ class SchedulerSettings(Settings):
     catalogue_incremental_interval_seconds: int = 900
     catalogue_incremental_pages: int = 2
     catalogue_full_retry_seconds: int = 900
-    catalogue_enrichment_batch_size: int = 50
+    catalogue_enrichment_batch_size: int = 100
+    catalogue_page_retries: int = 2
+    catalogue_failure_threshold: int = 3
+    catalogue_circuit_base_seconds: int = 900
+    catalogue_circuit_max_seconds: int = 86400
+    catalogue_metadata_refresh_batch: int = 100
+    catalogue_metadata_refresh_max_backlog: int = 5000
+    catalogue_enrichment_failure_threshold: int = 5
     # 36 requests/minute = one request every 1.67 s, inside the requested
     # 1.5-2 s politeness window (the adapters also enforce this per source).
     scraper_requests_per_minute: int = 36
@@ -133,6 +141,55 @@ class Scheduler:
             await self._post(
                 self.settings.notifier_url, "/internal/notify/new-chapters", json=payload
             )
+        if events and self.settings.chapter_notifications_enabled:
+            await self.dispatch_chapter_notifications(events)
+
+    async def dispatch_chapter_notifications(self, events: list[dict]) -> bool:
+        """Fan out imported chapters to followed users (in-app + Web Push).
+
+        The comments service owns the follow table and the in-app dedupe key
+        ``(user, manga, chapter)``.  A duplicate delivery from a retried refresh
+        is harmless: it creates zero new rows and the notifier skips already
+        delivered Web Push chapters.
+        """
+
+        if not events:
+            return False
+        normalized = [
+            {
+                "manga_id": event["manga_id"],
+                "chapter_id": event["chapter_id"],
+                "manga_title": event["manga_title"],
+                "chapter_label": event["chapter_label"],
+                "source": event.get("source"),
+                "chapter_url": None,
+            }
+            for event in events
+        ]
+        # The comments API caps one request at 50 events; a large import burst
+        # must not silently drop everything after the first page.
+        success = True
+        created = 0
+        for index in range(0, len(normalized), 50):
+            batch = normalized[index : index + 50]
+            result = await self._post(
+                self.settings.comments_url,
+                "/internal/notifications/chapters",
+                json={"events": batch},
+            )
+            if result is None:
+                logger.warning(
+                    "chapter notification fan-out failed for events %s-%s",
+                    index,
+                    index + len(batch),
+                )
+                success = False
+                continue
+            created += int(result.get("created", 0))
+        logger.info(
+            "chapter notifications: events=%s created=%s", len(normalized), created
+        )
+        return success
 
     async def import_catalogue(self, now: datetime | None = None) -> None:
         """Populate the catalogue from every enabled source's landing page.

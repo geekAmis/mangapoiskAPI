@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -124,6 +124,14 @@ class MangaListResponse(BaseModel):
     has_next: bool
 
 
+class SitemapEntryOut(BaseModel):
+    """Minimal catalogue row used by the gateway sitemap collector."""
+
+    id: UUID
+    last_chapter_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class HomeUpdateOut(BaseModel):
     manga_id: UUID
     manga_title: str
@@ -149,6 +157,24 @@ class SearchResponse(BaseModel):
     limit: int
     has_next: bool
     live: bool = False
+
+
+class SearchSuggestionOut(BaseModel):
+    """One instant-search suggestion.  It never triggers an upstream request."""
+
+    id: UUID
+    title: str
+    title_en: str | None = None
+    poster_url: str | None = None
+    year: int | None = None
+    source: str
+    reason: str = "title"
+
+
+class SuggestResponse(BaseModel):
+    query: str = ""
+    items: list[SearchSuggestionOut] = Field(default_factory=list)
+    total: int = 0
 
 
 class TranslatorOut(BaseModel):
@@ -251,6 +277,97 @@ class ProgressOut(ORMModel):
 
 class HistoryItem(ProgressOut):
     pass
+
+
+class ProgressMergeItem(BaseModel):
+    """One locally stored reading position sent after sign-in.
+
+    ``read_at`` is the client's wall-clock timestamp for the position.  The
+    server keeps the newer of the local and account copies, so opening an old
+    device never rewinds progress or reorders history.
+    """
+
+    manga_id: UUID
+    chapter_id: UUID
+    page: int = Field(default=1, ge=1)
+    total_pages: int = Field(default=0, ge=0)
+    read_at: datetime
+
+
+class ProgressMergeRequest(BaseModel):
+    items: list[ProgressMergeItem] = Field(default_factory=list, max_length=100)
+    # Anonymous reading days, so a streak earned before sign-in follows the
+    # account to another device instead of restarting at one day.
+    read_days: list[datetime] = Field(default_factory=list, max_length=400)
+
+
+class ProgressMergeOut(BaseModel):
+    merged: int = 0
+    unchanged: int = 0
+    ignored: int = 0
+
+
+class StreakOut(BaseModel):
+    current: int = 0
+    longest: int = 0
+    read_today: bool = False
+    timezone: str = "UTC"
+    last_read_on: str | None = None
+    days: list[str] = Field(default_factory=list)
+
+
+class RecommendationListOut(BaseModel):
+    items: list[MangaOut] = Field(default_factory=list)
+    strategy: Literal["personalized", "popular", "related"] = "popular"
+
+
+class RelatedMangaOut(BaseModel):
+    series: list[MangaOut] = Field(default_factory=list)
+    related: list[MangaOut] = Field(default_factory=list)
+
+
+AnalyticsEventName = Literal[
+    "impression",
+    "click",
+    "read_start",
+    "read_complete",
+    "finish",
+]
+
+
+class AnalyticsEventIn(BaseModel):
+    event: AnalyticsEventName
+    dedupe_key: str = Field(min_length=8, max_length=96)
+    client_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    surface: str = Field(default="", max_length=32)
+    manga_id: UUID | None = None
+    chapter_id: UUID | None = None
+
+
+class AnalyticsEventsIn(BaseModel):
+    events: list[AnalyticsEventIn] = Field(default_factory=list, max_length=50)
+
+
+class AnalyticsIngestOut(BaseModel):
+    accepted: int = 0
+    duplicates: int = 0
+
+
+class AnalyticsRetentionCohort(BaseModel):
+    cohort: str
+    size: int = 0
+    d1: int = 0
+    d7: int = 0
+    d30: int = 0
+    d1_rate: float = 0.0
+    d7_rate: float = 0.0
+    d30_rate: float = 0.0
+
+
+class AnalyticsRetentionOut(BaseModel):
+    days: int = 30
+    generated_at: datetime
+    cohorts: list[AnalyticsRetentionCohort] = Field(default_factory=list)
 
 
 class ReaderSettings(BaseModel):

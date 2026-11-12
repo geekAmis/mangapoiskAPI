@@ -195,6 +195,46 @@ export interface AdminCommentReport {
   comment: AdminComment | null;
 }
 
+export interface AdminCatalogueState {
+  source: string;
+  mode: string;
+  page: number;
+  status: string;
+  last_error: string | null;
+  next_run_at: string | null;
+  last_success_at: string | null;
+  failure_count: number;
+  failure_kind: string | null;
+}
+
+export interface AdminCatalogueHealth {
+  stats: {
+    manga: number;
+    chapters: number;
+    pending_enrichment: number;
+    retrying_enrichment: number;
+    sources: Array<{ source: string; manga: number; chapters: number }>;
+  };
+  enrichment: {
+    total: number;
+    pending: number;
+    retrying: number;
+    failed: number;
+    oldest_pending_at: string | null;
+    last_success_at: string | null;
+    estimated_seconds: number;
+    sources: Array<{
+      source: string;
+      total: number;
+      pending: number;
+      retrying: number;
+      failed: number;
+      last_success_at: string | null;
+    }>;
+  };
+  crawl_states: AdminCatalogueState[];
+}
+
 export interface AdminAuditEntry {
   id: string;
   action: string;
@@ -203,6 +243,159 @@ export interface AdminAuditEntry {
   created_at: string | null;
 }
 
+export interface AdminCrawlState {
+  source: string;
+  mode: 'full' | 'incremental';
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+  page: number;
+  total_pages: number | null;
+  items_seen: number;
+  items_imported: number;
+  eta_seconds: number | null;
+  last_error: string | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+}
+
+export interface AdminCrawlerSource {
+  source: string;
+  manga: number;
+  chapters: number;
+  pending: number;
+  full: AdminCrawlState | null;
+  incremental: AdminCrawlState | null;
+  progress_percent: number | null;
+  eta_seconds: number | null;
+}
+
+export interface AdminCrawlerArchive {
+  total: number;
+  done: number;
+  failed: number;
+  pending: number;
+  done_bytes: number;
+  db_bytes: number;
+  cap_bytes: number;
+  usage_percent: number;
+}
+
+export interface AdminCrawlerStatus {
+  generated_at: string;
+  catalog_manga: number;
+  catalog_chapters: number;
+  enrichment_pending: number;
+  sources: AdminCrawlerSource[];
+  archive: AdminCrawlerArchive;
+  image_cache_bytes: number;
+  image_cache_files: number;
+  warnings: string[];
+}
+
+export type AdminStorageLevel = 'ok' | 'warning' | 'critical' | 'unbounded';
+
+export interface AdminImageCacheStats {
+  used_bytes: number;
+  cap_bytes: number;
+  files: number;
+  evictions: number;
+  last_pruned_at: string | null;
+  usage_percent: number;
+  level: AdminStorageLevel;
+}
+
+export interface AdminArchiveStats {
+  total: number;
+  done: number;
+  failed: number;
+  pending: number;
+  done_bytes: number;
+  db_bytes: number;
+  cap_bytes: number;
+  evictions: number;
+  last_pruned_at: string | null;
+  usage_percent: number;
+  level: AdminStorageLevel;
+}
+
+export interface AdminMediaStats {
+  generated_at: string;
+  image_cache: AdminImageCacheStats;
+  archives: AdminArchiveStats;
+  warnings: string[];
+}
+
+export type AdProviderType =
+  | 'yandex'
+  | 'adfox'
+  | 'google'
+  | 'custom_html'
+  | 'custom_script';
+
+export type AdPlacement =
+  | 'header'
+  | 'sidebar'
+  | 'in-feed'
+  | 'post-chapter'
+  | 'mobile-sticky';
+
+export type AdAudience = 'guest' | 'authenticated' | 'both';
+
+export interface AdminAdSecret {
+  name: string;
+  configured: boolean;
+  hint: string;
+  updated_at: string | null;
+}
+
+export interface AdminAdProvider {
+  id: string;
+  name: string;
+  type: AdProviderType;
+  enabled: boolean;
+  priority: number;
+  placement: AdPlacement;
+  audience: AdAudience;
+  frequency_cap: number;
+  format: string;
+  width: number | null;
+  height: number | null;
+  schedule_days: number[];
+  schedule_start: string;
+  schedule_end: string;
+  timezone: string;
+  config: Record<string, unknown>;
+  custom_html: string;
+  custom_script: string;
+  exclude_adult: boolean;
+  hide_for_donors: boolean;
+  require_consent: boolean;
+  secrets: AdminAdSecret[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminAdProviderInput {
+  name: string;
+  type: AdProviderType;
+  enabled: boolean;
+  priority: number;
+  placement: AdPlacement;
+  audience: AdAudience;
+  frequency_cap: number;
+  format: string;
+  width: number | null;
+  height: number | null;
+  schedule_days: number[];
+  schedule_start: string;
+  schedule_end: string;
+  timezone: string;
+  config: Record<string, unknown>;
+  custom_html: string;
+  custom_script: string;
+  exclude_adult: boolean;
+  hide_for_donors: boolean;
+  require_consent: boolean;
+}
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -334,6 +527,11 @@ export const adminApi = {
 
   me: (signal?: AbortSignal) => adminRequest<AdminMe>('/me', { signal }),
 
+  getMediaStats: (signal?: AbortSignal) =>
+    adminRequest<AdminMediaStats>('/media/stats', { signal }),
+  getCrawlerStatus: (signal?: AbortSignal) =>
+    adminRequest<AdminCrawlerStatus>('/crawl', { signal }),
+
   listServers: (signal?: AbortSignal) => adminRequest<AdminServer[]>('/servers', { signal }),
 
   createServer: (payload: AdminServerCreate) =>
@@ -372,6 +570,9 @@ export const adminApi = {
     }),
 
   getRegistry: (signal?: AbortSignal) => adminRequest<AdminRegistry>('/registry', { signal }),
+
+  getCatalogueHealth: (signal?: AbortSignal) =>
+    adminRequest<AdminCatalogueHealth>('/catalogue', { signal }),
 
   getSourceCookie: (code: string, signal?: AbortSignal) =>
     adminRequest<AdminSourceCookie>(`/sources/${encodeURIComponent(code)}/cookie`, { signal }),
@@ -416,6 +617,32 @@ export const adminApi = {
 
   getAudit: (limit = 100, signal?: AbortSignal) =>
     adminRequest<AdminAuditEntry[]>(`/audit?limit=${encodeURIComponent(String(limit))}`, { signal }),
+
+  listAds: (signal?: AbortSignal) => adminRequest<AdminAdProvider[]>('/ads', { signal }),
+
+  createAd: (payload: AdminAdProviderInput) =>
+    adminRequest<AdminAdProvider>('/ads', { method: 'POST', body: payload }),
+
+  updateAd: (id: string, payload: Partial<AdminAdProviderInput>) =>
+    adminRequest<AdminAdProvider>(`/ads/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
+
+  deleteAd: (id: string) =>
+    adminRequest<{ ok: boolean }>(`/ads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  setAdSecret: (id: string, name: string, value: string) =>
+    adminRequest<AdminAdSecret>(
+      `/ads/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`,
+      { method: 'PUT', body: { value } },
+    ),
+
+  deleteAdSecret: (id: string, name: string) =>
+    adminRequest<{ ok: boolean }>(
+      `/ads/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`,
+      { method: 'DELETE' },
+    ),
 };
 
 export function adminErrorMessage(error: unknown, fallback = 'Не удалось выполнить действие.'): string {

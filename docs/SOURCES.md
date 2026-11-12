@@ -9,8 +9,9 @@ best-effort, and the rules every adapter must follow.
 - Public catalogue data only.  No login bypass, no CAPTCHA solving, no DRM or
   paywall circumvention.
 - Respect `robots.txt` and each site's terms.  Do not crawl aggressively.
-- Shared rate limiter (default 30 req/min/source), exponential backoff,
-  `Retry-After`, conditional requests where possible.
+- Shared rate limiter (default 36 req/min/source in the scheduler, 30 in the
+  parser service), exponential backoff, `Retry-After`, conditional requests
+  where possible.
 - Cache aggressively. Metadata and chapter pages use `SCRAPER_CACHE_TTL_SECONDS`
   (10 min by default); images are cached on disk by `media`.
 - Optional cookies are read from environment variables only.  Never log them,
@@ -80,6 +81,12 @@ Mapping:
   the documented `limit` range is 10–60.
 - An empty `q` returns the catalogue. `sort_by=last_chapter_at` gives the
   "latest updates" ordering used by `/internal/home`.
+- Catalogue end state (verified 2026-11-12): page 697 returns 47 items with
+  `has_next_page=false`; page 698 returns `data=[]` with
+  `has_next_page=false`. Pages 200–202 return normal payloads. A `404`/`403` on
+  this endpoint is therefore transient/blocked, not end-of-catalogue; the
+  scheduler retries with backoff and opens a per-source circuit after repeated
+  failures.
 - `GET https://api.imglib.info/api/manga/{slug_url}` requires `Site-Id: 1`
   (without it the API returns 404). The public response includes `rus_name`,
   `eng_name`, `slug_url`, `cover`, `ageRestriction`, `type`, `status` and

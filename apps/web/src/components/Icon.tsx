@@ -308,6 +308,14 @@ const ICONS = {
       <path d="M9.6 20a2.6 2.6 0 0 0 4.8 0" />
     </>
   ),
+  'bell-off': (
+    <>
+      <path d="M6 9.5a6 6 0 0 1 9.7-4.8" />
+      <path d="M18 11.5c0 4 1.2 5.7 1.8 6.4H8.5" />
+      <path d="M9.6 20a2.6 2.6 0 0 0 4.8 0" />
+      <path d="m3.5 3.5 17 17" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

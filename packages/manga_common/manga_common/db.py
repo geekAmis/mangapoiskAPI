@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, MetaData, Uuid, func
+from sqlalchemy import DateTime, MetaData, Uuid, event, func
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -50,11 +52,41 @@ class TimestampMixin:
     )
 
 
+def _configure_sqlite(engine: AsyncEngine) -> None:
+    """WAL + busy timeout make short writer batches coexist with readers.
+
+    Without WAL a long migration transaction blocks every list/search query and
+    a second process can turn that into ``database is locked``.  The timeout is
+    a last-resort guard; the background worker also retries with backoff.
+    """
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _record):  # type: ignore[no-untyped-def]
+        cursor = dbapi_connection.cursor()
+        try:
+            # Timeout first: even a failed WAL switch should leave the
+            # connection able to wait for a competing writer.
+            cursor.execute("PRAGMA busy_timeout=15000")
+            for pragma in (
+                "journal_mode=WAL",
+                "synchronous=NORMAL",
+                "wal_autocheckpoint=1000",
+            ):
+                # Some network/read-only filesystems cannot use WAL; the
+                # worker still retries lock errors with backoff.
+                with contextlib.suppress(Exception):
+                    cursor.execute(f"PRAGMA {pragma}")
+        finally:
+            cursor.close()
+
+
 def create_engine(database_url: str, *, echo: bool = False, pool_size: int = 10) -> AsyncEngine:
     kwargs: dict[str, Any] = {"echo": echo, "pool_pre_ping": True}
     if database_url.startswith("sqlite"):
         kwargs.pop("pool_size", None)
-        return create_async_engine(database_url, **kwargs)
+        engine = create_async_engine(database_url, **kwargs)
+        _configure_sqlite(engine)
+        return engine
     kwargs["pool_size"] = pool_size
     kwargs["max_overflow"] = pool_size
     return create_async_engine(database_url, **kwargs)
@@ -94,3 +126,32 @@ async def ping(engine: AsyncEngine) -> bool:
         return True
     except Exception:
         return False
+
+
+def is_database_locked(exc: BaseException) -> bool:
+    """True for SQLite's transient single-writer contention error."""
+
+    return "database is locked" in str(exc).lower()
+
+
+async def retry_on_locked(
+    operation: Callable[[], Awaitable[Any]],
+    *,
+    attempts: int = 3,
+    base_delay: float = 0.2,
+) -> Any:
+    """Retry a read operation when SQLite reports a transient writer lock.
+
+    Each attempt must open its own session so a rolled-back connection is not
+    reused.  Write paths are intentionally not wrapped: their transactions must
+    be retried by the caller with explicit idempotency semantics.
+    """
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return await operation()
+        except Exception as exc:
+            if attempt >= attempts or not is_database_locked(exc):
+                raise
+            await asyncio.sleep(base_delay * (2 ** (attempt - 1)))
+    raise AssertionError("unreachable")

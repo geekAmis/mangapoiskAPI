@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CommentCreate(BaseModel):
@@ -93,14 +93,24 @@ class NotificationCommentOut(BaseModel):
     created_at: datetime
 
 
+class NotificationChapterOut(BaseModel):
+    manga_id: UUID
+    manga_title: str
+    chapter_id: UUID
+    chapter_label: str
+    url: str | None = None
+    source: str | None = None
+
+
 class NotificationOut(BaseModel):
     id: UUID
     user_id: UUID
-    comment_id: UUID
+    comment_id: UUID | None = None
     type: str
     read_at: datetime | None = None
     created_at: datetime
     comment: NotificationCommentOut | None = None
+    chapter: NotificationChapterOut | None = None
 
 
 class NotificationListOut(BaseModel):
@@ -118,3 +128,80 @@ class NotificationsReadRequest(BaseModel):
 
 class NotificationsReadOut(BaseModel):
     updated: int
+
+
+class FollowCreate(BaseModel):
+    manga_id: UUID
+    manga_title: str = Field(min_length=1, max_length=255)
+    poster_url: str | None = Field(default=None, max_length=2048)
+    source: str | None = Field(default=None, max_length=64)
+    variant_ids: list[UUID] = Field(default_factory=list, max_length=50)
+
+    @field_validator("manga_title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        return value.strip()
+
+
+class FollowOut(BaseModel):
+    manga_id: UUID
+    manga_title: str
+    poster_url: str | None = None
+    source: str | None = None
+    created_at: datetime
+
+
+class FollowStatusOut(BaseModel):
+    manga_id: UUID
+    following: bool
+
+
+class NotificationSettingsIn(BaseModel):
+    in_app_enabled: bool = True
+    web_push_enabled: bool = True
+    max_pushes_per_hour: int = Field(default=5, ge=1, le=60)
+    quiet_hours_start: int | None = Field(default=None, ge=0, le=23)
+    quiet_hours_end: int | None = Field(default=None, ge=0, le=23)
+
+    @model_validator(mode="after")
+    def _quiet_hours_pair(self) -> Self:
+        if (self.quiet_hours_start is None) != (self.quiet_hours_end is None):
+            raise ValueError("Укажите начало и конец тихих часов вместе")
+        return self
+
+
+class NotificationSettingsOut(NotificationSettingsIn):
+    updated_at: datetime
+
+
+class ChapterEventIn(BaseModel):
+    manga_id: UUID
+    chapter_id: UUID
+    manga_title: str = Field(min_length=1, max_length=255)
+    chapter_label: str = Field(min_length=1, max_length=128)
+    chapter_url: str | None = Field(default=None, max_length=2048)
+    source: str | None = Field(default=None, max_length=64)
+    published_at: datetime | None = None
+
+    @field_validator("manga_title", "chapter_label")
+    @classmethod
+    def _strip_event_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class ChapterFanoutRequest(BaseModel):
+    events: list[ChapterEventIn] = Field(min_length=1, max_length=50)
+
+
+class PushRecipientOut(BaseModel):
+    user_id: UUID
+    max_pushes_per_hour: int
+    quiet_hours_start: int | None = None
+    quiet_hours_end: int | None = None
+
+
+class ChapterFanoutOut(BaseModel):
+    created: int
+    followers: int
+    push_recipients: int
+    push: dict | None = None

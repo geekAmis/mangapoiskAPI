@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
+from manga_common.db import retry_on_locked
 from manga_common.errors import NotFoundError, UpstreamError
 from manga_common.schemas import (
     ChapterOut,
@@ -15,6 +17,10 @@ from manga_common.schemas import (
     MangaVariantOut,
     MangaVariantsOut,
     PageOut,
+    RelatedMangaOut,
+    SearchSuggestionOut,
+    SitemapEntryOut,
+    SuggestResponse,
     TranslatorOut,
 )
 from manga_common.source_models import MangaDetail, SourceInfo
@@ -23,10 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .config import CatalogSettings
 from .normalization import GENRE_LABELS, genre_slugs
 from .parser_client import ParserClient
+from .recommendations import recommendation_cache, recommendation_cache_key
 from .repository import (
     DESCRIPTION_FALLBACK,
     chapter_label,
     covers_for_group,
+    enrichment_stats,
     find_manga,
     get_chapter,
     get_crawl_state,
@@ -35,20 +43,33 @@ from .repository import (
     list_crawl_states,
     list_genres,
     list_manga,
+    list_sources,
+    manga_relations,
     ordered_chapter_ids,
     pending_enrichment,
+    recommend_manga,
+    record_enrichment_failure,
+    rotate_enrichment,
+    search_backfill_stats,
     stale_manga,
     stats,
+    suggest_manga,
     update_chapter_pages,
     upsert_crawl_state,
     upsert_manga_detail,
+    upsert_relation,
     upsert_source,
+)
+from .repository import (
+    sitemap_entries as repo_sitemap_entries,
 )
 from .schemas import (
     CatalogStats,
     ChapterDetailInternal,
     CrawlStateIn,
     CrawlStateOut,
+    EnrichmentFailureRequest,
+    EnrichmentStats,
     GenreListOut,
     GenreOut,
     HomeUpdateOut,
@@ -57,8 +78,14 @@ from .schemas import (
     NewChapterEvent,
     PendingEnrichmentListOut,
     PendingEnrichmentOut,
+    RecommendationRequest,
+    RecommendationResult,
     RefreshResult,
+    RelationsIn,
+    RelationsOut,
+    SearchBackfillStats,
 )
+from .search import suggestion_reason
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +131,10 @@ def _crawl_state_out(state) -> CrawlStateOut:  # type: ignore[no-untyped-def]
         items_seen=state.items_seen,
         items_imported=state.items_imported,
         last_run_at=state.last_run_at,
+        last_success_at=state.last_success_at,
+        failure_count=state.failure_count,
+        failure_kind=state.failure_kind,
+        eta_seconds=state.eta_seconds,
         created_at=state.created_at,
         updated_at=state.updated_at,
     )
@@ -207,6 +238,69 @@ class CatalogService:
                 chapters=[_chapter_out(chapter) for chapter in chapters],
             )
 
+    async def recommendations(self, payload: RecommendationRequest) -> RecommendationResult:
+        key = recommendation_cache_key(
+            seed_manga_id=payload.seed_manga_id,
+            history_ids=payload.history_ids,
+            bookmark_ids=payload.bookmark_ids,
+            exclude_ids=payload.exclude_ids,
+            limit=payload.limit,
+        )
+        cached = recommendation_cache.get(key)
+        if cached is not None:
+            return cached
+        async with self.session_factory() as session:
+            rows, strategy = await recommend_manga(
+                session,
+                seed_manga_id=payload.seed_manga_id,
+                history_ids=payload.history_ids,
+                bookmark_ids=payload.bookmark_ids,
+                exclude_ids=payload.exclude_ids,
+                limit=payload.limit,
+            )
+            result = RecommendationResult(
+                items=[_manga_out(row) for row in rows],
+                strategy=strategy,  # type: ignore[arg-type]
+            )
+        recommendation_cache.set(key, result)
+        return result
+
+    async def related(self, manga_id: uuid.UUID) -> RelatedMangaOut:
+        async with self.session_factory() as session:
+            manga = await find_manga(session, manga_id)
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            series, related = await manga_relations(session, manga_id)
+            return RelatedMangaOut(
+                series=[_manga_out(row) for row in series],
+                related=[_manga_out(row) for row in related],
+            )
+
+    async def link_relations(
+        self, manga_id: uuid.UUID, payload: RelationsIn
+    ) -> RelationsOut:
+        async with self.session_factory() as session:
+            manga = await find_manga(session, manga_id)
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            linked = 0
+            for item in payload.items:
+                if item.to_manga_id == manga_id:
+                    raise NotFoundError("Нельзя связать тайтл с самим собой")
+                target = await find_manga(session, item.to_manga_id)
+                if target is None:
+                    raise NotFoundError(f"Manga {item.to_manga_id} not found")
+                await upsert_relation(
+                    session,
+                    from_manga_id=manga_id,
+                    to_manga_id=item.to_manga_id,
+                    relation=item.relation,
+                    series_key=item.series_key,
+                )
+                linked += 1
+            await session.commit()
+            return RelationsOut(linked=linked)
+
     async def manga_by_source(self, source: str, source_id: str) -> MangaDetailOut:
         from .repository import find_manga_by_source
 
@@ -236,27 +330,52 @@ class CatalogService:
         page: int = 1,
         limit: int = 24,
     ) -> MangaListResponse:
-        async with self.session_factory() as session:
-            items, total = await list_manga(
-                session,
-                query=query,
-                source=source,
-                genre=genre,
-                genres=genres,
-                year=year,
-                status=status,
-                include_empty=include_empty,
-                sort=sort,
-                page=page,
-                limit=limit,
-            )
-            return MangaListResponse(
-                items=[_manga_out(item) for item in items],
-                total=total,
-                page=page,
-                limit=limit,
-                has_next=(page - 1) * limit + limit < total,
-            )
+        async def read() -> MangaListResponse:
+            async with self.session_factory() as session:
+                items, total = await list_manga(
+                    session,
+                    query=query,
+                    source=source,
+                    genre=genre,
+                    genres=genres,
+                    year=year,
+                    status=status,
+                    include_empty=include_empty,
+                    sort=sort,
+                    page=page,
+                    limit=limit,
+                )
+                return MangaListResponse(
+                    items=[_manga_out(item) for item in items],
+                    total=total,
+                    page=page,
+                    limit=limit,
+                    has_next=(page - 1) * limit + limit < total,
+                )
+
+        return await retry_on_locked(read)
+
+    async def suggest(self, query: str, *, limit: int = 6) -> SuggestResponse:
+        """Instant local suggestions; this method has no parser dependency."""
+
+        async def read() -> SuggestResponse:
+            async with self.session_factory() as session:
+                rows = await suggest_manga(session, query, limit=limit)
+                items = [
+                    SearchSuggestionOut(
+                        id=row.id,
+                        title=row.title,
+                        title_en=row.title_en,
+                        poster_url=row.poster_url,
+                        year=row.year,
+                        source=row.source,
+                        reason=suggestion_reason(reason),
+                    )
+                    for row, reason in rows
+                ]
+                return SuggestResponse(query=query, items=items, total=len(items))
+
+        return await retry_on_locked(read)
 
     async def chapters(
         self, manga_id: uuid.UUID, *, query: str | None = None, page: int = 1, limit: int = 200
@@ -408,8 +527,37 @@ class CatalogService:
         return len(sources)
 
     async def catalog_stats(self) -> CatalogStats:
+        async def read() -> CatalogStats:
+            async with self.session_factory() as session:
+                return await stats(session)
+
+        return await retry_on_locked(read)
+
+    async def source_rows(self) -> list[Any]:
+        async def read() -> list[Any]:
+            async with self.session_factory() as session:
+                return list(await list_sources(session))
+
+        return await retry_on_locked(read)
+
+    async def sitemap_entries(self, *, limit: int = 50_000) -> list[SitemapEntryOut]:
+        async def read() -> list[SitemapEntryOut]:
+            async with self.session_factory() as session:
+                rows = await repo_sitemap_entries(session, limit=limit)
+                return [
+                    SitemapEntryOut(
+                        id=row[0],
+                        last_chapter_at=row[1],
+                        updated_at=row[2],
+                    )
+                    for row in rows
+                ]
+
+        return await retry_on_locked(read)
+
+    async def search_backfill(self) -> SearchBackfillStats | None:
         async with self.session_factory() as session:
-            return await stats(session)
+            return await search_backfill_stats(session)
 
     async def genres(self) -> GenreListOut:
         async with self.session_factory() as session:
@@ -462,11 +610,55 @@ class CatalogService:
             row = await get_crawl_state(session, source, mode)
             return _crawl_state_out(row) if row is not None else None
 
-    async def reset_enrichment(self, *, source: str | None = None) -> int:
+    async def record_enrichment_failure(
+        self, manga_id: uuid.UUID, payload: EnrichmentFailureRequest
+    ) -> dict[str, Any]:
+        async with self.session_factory() as session:
+            manga = await record_enrichment_failure(
+                session,
+                manga_id,
+                error=payload.error,
+                permanent=payload.permanent,
+                base_seconds=self.settings.enrichment_retry_base_seconds,
+                max_seconds=self.settings.enrichment_retry_max_seconds,
+            )
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            await session.commit()
+            return {
+                "manga_id": str(manga.id),
+                "attempts": manga.enrichment_attempts,
+                "retry_at": manga.enrichment_retry_at.isoformat()
+                if manga.enrichment_retry_at
+                else None,
+            }
+
+    async def enrichment_stats(
+        self, *, rate_per_minute: int = 36, requests_per_title: int = 2
+    ) -> EnrichmentStats:
+        async with self.session_factory() as session:
+            payload = await enrichment_stats(
+                session,
+                rate_per_minute=rate_per_minute,
+                requests_per_title=requests_per_title,
+            )
+            return EnrichmentStats(**payload)
+
+    async def rotate_enrichment(
+        self, *, source: str | None = None, limit: int = 500
+    ) -> int:
+        async with self.session_factory() as session:
+            count = await rotate_enrichment(session, source=source, limit=limit)
+            await session.commit()
+            return count
+
+    async def reset_enrichment(
+        self, *, source: str | None = None, limit: int = 500
+    ) -> int:
         from .repository import reset_enrichment
 
         async with self.session_factory() as session:
-            count = await reset_enrichment(session, source=source)
+            count = await reset_enrichment(session, source=source, limit=limit)
             await session.commit()
             return count
 

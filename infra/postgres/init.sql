@@ -7,6 +7,9 @@ CREATE DATABASE control;
 
 \connect catalog
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- Application-level normalization is accent-insensitive already; unaccent is
+-- kept for SQL diagnostics and future direct queries.
+CREATE EXTENSION IF NOT EXISTS unaccent;
 
 \connect library
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .cache import MediaCache
+from .cache import MediaCache, usage_level
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,27 @@ class ArchiveSummary(BaseModel):
 
 
 @dataclass(slots=True)
+class ArchiveStats:
+    total: int
+    done: int
+    failed: int
+    pending: int
+    done_bytes: int
+    db_bytes: int
+    evictions: int
+    last_pruned_at: datetime | None
+
+
+@dataclass(slots=True)
+class ArchivePruneResult:
+    removed: int
+    freed_bytes: int
+    used_bytes: int
+    cap_bytes: int
+    dry_run: bool
+
+
+@dataclass(slots=True)
 class ArchivedPage:
     data: bytes
     content_type: str
@@ -196,17 +217,22 @@ class ArchiveManager:
         archive_dir: Path,
         threshold_bytes: int = DEFAULT_THRESHOLD_BYTES,
         max_bytes: int = 0,
+        prune_interval_seconds: int = 60 * 60,
     ) -> None:
         self.cache = cache
         self.db_path = Path(db_path).resolve()
         self.root = Path(archive_dir).resolve()
         self.threshold_bytes = max(0, int(threshold_bytes))
         self.max_bytes = max(0, int(max_bytes))
+        self.prune_interval_seconds = max(0, int(prune_interval_seconds))
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._guard = asyncio.Lock()
         self._prune_guard = asyncio.Lock()
+        self._prune_task: asyncio.Task[None] | None = None
+        self._evictions = 0
+        self._last_pruned_at: datetime | None = None
         self._ensure_schema()
 
     # ------------------------------------------------------------------
@@ -366,7 +392,40 @@ class ArchiveManager:
     async def ready(self) -> bool:
         return await asyncio.to_thread(self._ready_sync)
 
+    async def stats(self) -> ArchiveStats:
+        return await asyncio.to_thread(self._stats_sync)
+
+    def _stats_sync(self) -> ArchiveStats:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT status, COUNT(*) AS count, COALESCE(SUM(total_bytes), 0) AS bytes
+                FROM chapter_archives
+                GROUP BY status
+                """
+            ).fetchall()
+        counts = {str(row["status"]): int(row["count"]) for row in rows}
+        done_bytes = int(
+            next((row["bytes"] for row in rows if row["status"] == "done"), 0) or 0
+        )
+        db_bytes = self.db_path.stat().st_size if self.db_path.exists() else 0
+        return ArchiveStats(
+            total=sum(counts.values()),
+            done=counts.get("done", 0),
+            failed=counts.get("failed", 0),
+            pending=counts.get("queued", 0) + counts.get("running", 0),
+            done_bytes=done_bytes,
+            db_bytes=db_bytes,
+            evictions=self._evictions,
+            last_pruned_at=self._last_pruned_at,
+        )
+
     async def close(self) -> None:
+        prune_task = self._prune_task
+        self._prune_task = None
+        if prune_task is not None:
+            prune_task.cancel()
+            await asyncio.gather(prune_task, return_exceptions=True)
         tasks = list(self._tasks.values())
         for task in tasks:
             task.cancel()
@@ -457,58 +516,162 @@ class ArchiveManager:
             await asyncio.to_thread(self._delete_sync, key)
         return row is not None
 
-    async def prune(self) -> int:
+    async def prune(self, *, dry_run: bool = False) -> ArchivePruneResult:
         """Evict least-recently-read chapters until the archive fits its cap."""
 
         if self.max_bytes <= 0:
-            return 0
-        async with self._prune_guard:
-            removed = await asyncio.to_thread(self._prune_sync)
-        if removed:
-            logger.info(
-                "chapter archive LRU evicted %s chapter(s); cap=%s bytes",
-                removed,
-                self.max_bytes,
+            stats = await self.stats()
+            return ArchivePruneResult(
+                removed=0,
+                freed_bytes=0,
+                used_bytes=stats.done_bytes,
+                cap_bytes=0,
+                dry_run=dry_run,
             )
-        return removed
+        async with self._prune_guard:
+            result = await asyncio.to_thread(self._prune_sync, dry_run)
+        if not dry_run:
+            if result.removed:
+                self._evictions += result.removed
+                logger.info(
+                    "chapter archive LRU evicted %s chapter(s), %s bytes; cap=%s bytes",
+                    result.removed,
+                    result.freed_bytes,
+                    self.max_bytes,
+                )
+            self._last_pruned_at = _now()
+        self._log_usage(result.used_bytes)
+        return result
 
-    def _prune_sync(self) -> int:
+    def _prune_sync(self, dry_run: bool) -> ArchivePruneResult:
         with self._connect() as connection:
-            total = int(
+            used_bytes = int(
                 connection.execute(
                     "SELECT COALESCE(SUM(total_bytes), 0) FROM chapter_archives "
                     "WHERE status = 'done'"
                 ).fetchone()[0]
                 or 0
             )
-            if total <= self.max_bytes:
-                return 0
+            if used_bytes <= self.max_bytes:
+                return ArchivePruneResult(
+                    removed=0,
+                    freed_bytes=0,
+                    used_bytes=used_bytes,
+                    cap_bytes=self.max_bytes,
+                    dry_run=dry_run,
+                )
             rows = connection.execute(
                 """
                 SELECT chapter_id, total_bytes, archive_path
                 FROM chapter_archives
                 WHERE status = 'done'
-                ORDER BY COALESCE(last_accessed_at, updated_at) ASC
+                ORDER BY COALESCE(last_accessed_at, updated_at) ASC, chapter_id ASC
                 """
             ).fetchall()
             removed = 0
+            freed_bytes = 0
             for row in rows:
-                if total <= self.max_bytes:
+                if used_bytes <= self.max_bytes:
                     break
-                key = str(row["chapter_id"])
                 size = int(row["total_bytes"] or 0)
-                connection.execute("DELETE FROM page_blobs WHERE chapter_id = ?", (key,))
-                connection.execute("DELETE FROM chapter_archives WHERE chapter_id = ?", (key,))
-                total -= size
+                if not dry_run and not self._remove_archive_files(row):
+                    # Keep the row so the next cycle retries once the file is
+                    # no longer held open by a reader.  Removing metadata while
+                    # the ZIP is still on disk would leave an orphan.
+                    continue
+                key = str(row["chapter_id"])
+                if not dry_run:
+                    connection.execute(
+                        "DELETE FROM page_blobs WHERE chapter_id = ?", (key,)
+                    )
+                    connection.execute(
+                        "DELETE FROM chapter_archives WHERE chapter_id = ?", (key,)
+                    )
+                used_bytes -= size
                 removed += 1
-                archive_path = row["archive_path"]
-                paths = [self.root / f"{key}.zip", self.root / f"{key}.zip.tmp"]
-                if archive_path:
-                    paths.append(Path(str(archive_path)))
-                for path in paths:
-                    with suppress(OSError):
-                        path.unlink(missing_ok=True)
-            return removed
+                freed_bytes += size
+            return ArchivePruneResult(
+                removed=removed,
+                freed_bytes=freed_bytes,
+                used_bytes=max(0, used_bytes),
+                cap_bytes=self.max_bytes,
+                dry_run=dry_run,
+            )
+
+    def _remove_archive_files(self, row: sqlite3.Row) -> bool:
+        key = str(row["chapter_id"])
+        paths: list[Path] = [self.root / f"{key}.zip", self.root / f"{key}.zip.tmp"]
+        archive_path = row["archive_path"]
+        if archive_path:
+            candidate = Path(str(archive_path))
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                resolved = candidate
+            # Never unlink outside the configured archive directory, even if a
+            # stale or tampered row points elsewhere.
+            if resolved.is_relative_to(self.root):
+                paths.append(resolved)
+        seen: set[Path] = set()
+        for path in paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "could not evict chapter archive file; will retry next cycle",
+                    extra={"path": str(path)},
+                )
+                return False
+        return True
+
+    def _log_usage(self, used_bytes: int) -> None:
+        level = usage_level(used_bytes, self.max_bytes)
+        if level == "critical":
+            logger.error(
+                "chapter archive is above 90%% of its cap: %s/%s bytes",
+                used_bytes,
+                self.max_bytes,
+            )
+        elif level == "warning":
+            logger.warning(
+                "chapter archive is above 80%% of its cap: %s/%s bytes",
+                used_bytes,
+                self.max_bytes,
+            )
+
+    def start_periodic_prune(
+        self, interval_seconds: float | None = None
+    ) -> asyncio.Task[None] | None:
+        """Start the hourly archive sweep; returns ``None`` when uncapped."""
+
+        if self.max_bytes <= 0:
+            return None
+        interval = (
+            self.prune_interval_seconds
+            if interval_seconds is None
+            else float(interval_seconds)
+        )
+        if interval <= 0:
+            return None
+        if self._prune_task is not None and not self._prune_task.done():
+            return self._prune_task
+        self._prune_task = asyncio.create_task(
+            self._prune_loop(interval), name="chapter-archive-prune"
+        )
+        return self._prune_task
+
+    async def _prune_loop(self, interval: float) -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self.prune()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("periodic chapter archive prune failed")
 
     # ------------------------------------------------------------------
     # Worker

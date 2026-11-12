@@ -70,6 +70,9 @@ class DeploymentJob(Base, UUIDPrimaryKey, TimestampMixin):
     requested: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     log: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_output_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     server: Mapped[Server] = relationship(back_populates="jobs")
 
@@ -80,3 +83,54 @@ class AuditLog(Base, UUIDPrimaryKey, TimestampMixin):
     action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     server_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     details: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
+
+
+class AdProvider(Base, UUIDPrimaryKey, TimestampMixin):
+    """A configured advertising integration and its slot placement.
+
+    Secret values live in :class:`AdSecret`; this row only keeps non-secret
+    presentation and scheduling data so it can be returned to the admin UI.
+    """
+
+    __tablename__ = "ad_providers"
+
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    placement: Mapped[str] = mapped_column(String(32), nullable=False)
+    audience: Mapped[str] = mapped_column(String(16), nullable=False, default="both")
+    frequency_cap: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    format: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    schedule_days: Mapped[list[int]] = mapped_column(JSONType, nullable=False, default=list)
+    schedule_start: Mapped[str] = mapped_column(String(5), nullable=False, default="00:00")
+    schedule_end: Mapped[str] = mapped_column(String(5), nullable=False, default="23:59")
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Europe/Moscow")
+    config: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
+    custom_html: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    custom_script: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    exclude_adult: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    hide_for_donors: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    require_consent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    secrets: Mapped[list[AdSecret]] = relationship(
+        back_populates="provider", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class AdSecret(Base, UUIDPrimaryKey, TimestampMixin):
+    __tablename__ = "ad_secrets"
+    __table_args__ = (
+        UniqueConstraint("provider_id", "name", name="uq_ad_secrets_provider_name"),
+    )
+
+    provider_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ad_providers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    value_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    hint: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+
+    provider: Mapped[AdProvider] = relationship(back_populates="secrets")

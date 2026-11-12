@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from manga_common.schemas import ChapterOut, MangaDetailOut
+from manga_common.schemas import ChapterOut, MangaDetailOut, MangaOut
 from pydantic import BaseModel, Field
 
 
@@ -51,12 +51,33 @@ class SourceStats(BaseModel):
     source: str
     manga: int
     chapters: int
+    pending: int = 0
+
+
+class SearchBackfillStats(BaseModel):
+    status: str = "pending"
+    total: int = 0
+    normalized: int = 0
+    remaining: int = 0
+    legacy_indexed: int = 0
+    failed: int = 0
+    batch_size: int = 0
+    rate_per_second: float | None = None
+    eta_seconds: int | None = None
+    progress_percent: float = 0.0
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    last_error: str | None = None
 
 
 class CatalogStats(BaseModel):
     manga: int
     chapters: int
+    pending: int = 0
     sources: list[SourceStats]
+    pending_enrichment: int = 0
+    retrying_enrichment: int = 0
+    search_backfill: SearchBackfillStats | None = None
 
 
 class SourceSyncRequest(BaseModel):
@@ -65,8 +86,10 @@ class SourceSyncRequest(BaseModel):
 
 class CrawlStateIn(BaseModel):
     source: str = Field(min_length=1, max_length=64)
-    mode: str = Field(default="full", pattern="^(full|incremental)$")
-    page: int = Field(default=1, ge=1)
+    mode: str = Field(
+        default="full", pattern="^(full|incremental|health|enrichment)$"
+    )
+    page: int = Field(default=1, ge=0)
     status: str = Field(default="pending", max_length=24)
     last_error: str | None = Field(default=None, max_length=4000)
     next_run_at: datetime | None = None
@@ -74,12 +97,44 @@ class CrawlStateIn(BaseModel):
     items_seen: int = Field(default=0, ge=0)
     items_imported: int = Field(default=0, ge=0)
     last_run_at: datetime | None = None
+    last_success_at: datetime | None = None
+    failure_count: int = Field(default=0, ge=0)
+    failure_kind: str | None = Field(default=None, max_length=32)
+    eta_seconds: int | None = Field(default=None, ge=0)
 
 
 class CrawlStateOut(CrawlStateIn):
     id: UUID
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class EnrichmentSourceStats(BaseModel):
+    source: str
+    total: int = 0
+    pending: int = 0
+    retrying: int = 0
+    failed: int = 0
+    last_success_at: datetime | None = None
+
+
+class EnrichmentStats(BaseModel):
+    total: int = 0
+    pending: int = 0
+    retrying: int = 0
+    failed: int = 0
+    oldest_pending_at: datetime | None = None
+    last_success_at: datetime | None = None
+    requests_per_title: int = 2
+    rate_per_minute: int = 36
+    estimated_seconds: int = 0
+    sources: list[EnrichmentSourceStats] = Field(default_factory=list)
+
+
+class EnrichmentFailureRequest(BaseModel):
+    error: str = Field(default="", max_length=4000)
+    kind: str = Field(default="transient", max_length=32)
+    permanent: bool = False
 
 
 class GenreOut(BaseModel):
@@ -130,3 +185,30 @@ class ChapterDetailInternal(ChapterOut):
     prev_chapter_id: UUID | None = None
     next_chapter_id: UUID | None = None
     is_horizontal: bool = False
+
+
+class RecommendationRequest(BaseModel):
+    seed_manga_id: UUID | None = None
+    history_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    bookmark_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    exclude_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    limit: int = Field(default=12, ge=1, le=24)
+
+
+class RecommendationResult(BaseModel):
+    items: list[MangaOut] = Field(default_factory=list)
+    strategy: Literal["personalized", "popular", "related"] = "popular"
+
+
+class RelationIn(BaseModel):
+    to_manga_id: UUID
+    relation: Literal["series", "related"] = "related"
+    series_key: str | None = Field(default=None, max_length=180)
+
+
+class RelationsIn(BaseModel):
+    items: list[RelationIn] = Field(default_factory=list, max_length=50)
+
+
+class RelationsOut(BaseModel):
+    linked: int = 0

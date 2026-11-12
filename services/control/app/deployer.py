@@ -4,6 +4,7 @@ import asyncio
 import logging
 import shlex
 import uuid
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -11,8 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .config import ControlSettings
 from .crypto import SecretBox
 from .models import DeploymentJob
-from .repository import audit, create_job, get_job, get_server, update_server
-from .ssh import SSHRunner, SSHTarget
+from .repository import (
+    audit,
+    create_job,
+    get_job,
+    get_server,
+    list_running_jobs,
+    update_server,
+)
+from .ssh import SSHRunHandle, SSHRunner, SSHTarget
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +67,8 @@ class Deployer:
         self.box = box
         self.ssh = ssh
         self.control = control
-        self._tasks: set[asyncio.Task] = set()
+        self._tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._handles: dict[uuid.UUID, SSHRunHandle] = {}
 
     async def start(self, server, services: list[tuple[str, int]], *, update: bool) -> DeploymentJob:
         async with self.session_factory() as session:
@@ -70,20 +79,72 @@ class Deployer:
                     "services": [{"code": code, "port": port} for code, port in services],
                     "update": update,
                     "host": server.host,
+                    "health_timeout_seconds": self.settings.deploy_health_timeout_seconds,
+                    "read_timeout_seconds": self.settings.deploy_read_timeout_seconds,
+                    "stale_after_seconds": self.settings.deploy_stale_job_seconds,
                 },
             )
             await session.commit()
             job_id = job.id
         task = asyncio.create_task(self._run(job_id, server.id, services, update))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._tasks[job_id] = task
+        task.add_done_callback(lambda _task, key=job_id: self._tasks.pop(key, None))
         return job
 
     async def close(self) -> None:
-        for task in list(self._tasks):
+        for handle in list(self._handles.values()):
+            handle.cancel()
+        self._handles.clear()
+        tasks = list(self._tasks.values())
+        self._tasks.clear()
+        for task in tasks:
             task.cancel()
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def cancel_job(self, job_id: uuid.UUID, reason: str) -> bool:
+        """Cancel a running job and make its failure observable immediately."""
+
+        task = self._tasks.pop(job_id, None)
+        handle = self._handles.pop(job_id, None)
+        if handle is not None:
+            handle.cancel()
+        if task is not None and not task.done():
+            task.cancel()
+        async with self.session_factory() as session:
+            job = await get_job(session, job_id)
+            if job is None or job.status not in {"queued", "running"}:
+                return False
+            now = datetime.now(UTC)
+            job.status = "failed"
+            job.error = reason[:2000]
+            job.last_output_at = now
+            job.log = ((job.log or "") + f"\nCANCELLED: {reason}\n")[-200_000:]
+            await session.commit()
+        return True
+
+    async def reap_stale_jobs(self) -> int:
+        """Fail/cancel running jobs whose heartbeat is older than the limit."""
+
+        async with self.session_factory() as session:
+            jobs = await list_running_jobs(session)
+            now = datetime.now(UTC)
+            stale: list[uuid.UUID] = []
+            for job in jobs:
+                last = job.last_output_at or job.updated_at or job.created_at
+                if last is None:
+                    continue
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=UTC)
+                if (now - last).total_seconds() >= self.settings.deploy_stale_job_seconds:
+                    stale.append(job.id)
+        for job_id in stale:
+            await self.cancel_job(
+                job_id,
+                "Deploy job stalled: no output for "
+                f"{self.settings.deploy_stale_job_seconds}s; cancelled by control",
+            )
+        return len(stale)
 
     async def _target(self, server) -> tuple[SSHTarget, SSHTarget | None]:
         target = SSHTarget(
@@ -121,7 +182,10 @@ class Deployer:
             server = await get_server(session, server_id)
             if job is None or server is None:
                 return
+            if job.status not in {"queued", "running"}:
+                return
             job.status = "running"
+            job.last_output_at = datetime.now(UTC)
             job.log = "Подключение к серверу…\n"
             await session.commit()
             target, jump = await self._target(server)
@@ -134,6 +198,8 @@ class Deployer:
             loop = asyncio.get_running_loop()
             line_queue: asyncio.Queue[str | None] = asyncio.Queue()
             log_buffer = job.log
+            handle = SSHRunHandle()
+            self._handles[job_id] = handle
 
             def on_line(line: str) -> None:
                 loop.call_soon_threadsafe(line_queue.put_nowait, line)
@@ -146,12 +212,14 @@ class Deployer:
                     if line is None:
                         break
                     log_buffer = (log_buffer + line + "\n")[-200_000:]
+                    job.last_output_at = datetime.now(UTC)
                     now = loop.time()
                     if now - last_commit >= 1.5:
                         job.log = log_buffer
                         await session.commit()
                         last_commit = now
                 job.log = log_buffer
+                job.last_output_at = datetime.now(UTC)
 
             pump_task = asyncio.create_task(pump())
             try:
@@ -164,17 +232,30 @@ class Deployer:
                         jump=jump,
                         on_line=on_line,
                         timeout=self.settings.deploy_timeout_seconds,
+                        read_timeout=self.settings.deploy_read_timeout_seconds,
+                        handle=handle,
                     )
                 finally:
                     loop.call_soon_threadsafe(line_queue.put_nowait, None)
-                    await pump_task
+                    try:
+                        await pump_task
+                    except asyncio.CancelledError:
+                        pump_task.cancel()
+                        raise
                 job = await get_job(session, job_id)
                 if job is None:
                     return
                 job.log = output[-200_000:]
+                job.last_output_at = datetime.now(UTC)
                 if code != 0:
                     job.status = "failed"
-                    job.error = f"Скрипт завершился с кодом {code}"
+                    if "HEALTH_FAIL" in output:
+                        job.error = (
+                            "Health check failed after "
+                            f"{self.settings.deploy_health_timeout_seconds}s"
+                        )
+                    else:
+                        job.error = f"Скрипт завершился с кодом {code}"
                 else:
                     job.status = "done"
                     inventory = merge_deployed_services(
@@ -192,15 +273,20 @@ class Deployer:
                         details={"job_id": str(job_id), "services": services},
                     )
                 await session.commit()
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 logger.exception("deployment failed")
                 job = await get_job(session, job_id)
                 if job is not None:
-                    job.status = "failed"
-                    job.error = str(exc)[:2000]
+                    job.last_output_at = datetime.now(UTC)
+                    if job.status != "failed":
+                        job.status = "failed"
+                        job.error = str(exc)[:2000]
                     job.log = ((job.log or "") + f"\nERROR: {exc}")[-200_000:]
                     await session.commit()
             finally:
+                self._handles.pop(job_id, None)
                 try:
                     await self.control.health_check_all()
                 except Exception:
@@ -250,6 +336,8 @@ fi
         health_checks = "\n".join(
             self._health_block(code, port) for code, port in services if code in HTTP_SERVICE_CODES
         )
+        pre_start = self.settings.deploy_pre_start_command.strip()
+        pre_start_arg = shlex.quote(pre_start) if pre_start else "''"
         script = _SCRIPT_TEMPLATE
         replacements = {
             "@@ROOT@@": shlex.quote(root),
@@ -260,6 +348,8 @@ fi
             "@@ENV_EXTRAS@@": env_extras,
             "@@UNITS@@": units,
             "@@INSTALLS@@": installs,
+            "@@PRE_START@@": pre_start_arg,
+            "@@PRE_START_TIMEOUT@@": str(self.settings.deploy_pre_start_timeout_seconds),
             "@@ENABLE@@": enable,
             "@@HEALTH@@": health_checks,
             "@@AFTER@@": deferred,
@@ -298,6 +388,12 @@ fi
             f"LIBRARY_DATABASE_URL=sqlite+aiosqlite:///{root}/data/library.db",
             f"CONTROL_DATABASE_URL=sqlite+aiosqlite:///{root}/data/control.db",
             f"COMMENTS_DATABASE_URL=sqlite+aiosqlite:///{root}/data/comments.db",
+            f"NOTIFIER_DATABASE_URL=sqlite+aiosqlite:///{root}/data/notifier.db",
+            f"COMMENTS_URL={urls.get('comments', 'http://127.0.0.1:8109')}",
+            f"VAPID_PUBLIC_KEY={self.settings.vapid_public_key}",
+            f"VAPID_PRIVATE_KEY={self.settings.vapid_private_key}",
+            f"VAPID_SUBJECT={self.settings.vapid_subject}",
+            f"WEB_PUSH_ENABLED={'true' if self.settings.web_push_enabled else 'false'}",
             f"MEDIA_CACHE_DIR={root}/data/media-cache",
             f"REPLICA_DIR={root}/data/replica",
             f"REPLICA_DATA_ROOT={root}/data",
@@ -322,7 +418,7 @@ fi
             "CATALOGUE_ENRICHMENT_LIMIT=60",
             f"CONTROL_URL={self.settings.control_public_url}",
         ]
-        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica", "comments"):
+        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica"):
             if code in urls:
                 lines.append(f"{code.upper()}_URL={urls[code]}")
         return "\n".join(lines) + "\n"
@@ -411,18 +507,29 @@ UNITEOF
 """
 
     def _health_block(self, code: str, port: int) -> str:
+        timeout = self.settings.deploy_health_timeout_seconds
+        poll = self.settings.deploy_health_poll_seconds
+        attempts = max(1, (timeout + poll - 1) // poll)
+        progress_every = max(1, min(attempts, 10))
         return f"""
 ok=0
-for i in $(seq 1 40); do
-  if curl -fsS "http://127.0.0.1:{port}/health" >/dev/null 2>&1; then ok=1; break; fi
-  sleep 2
+echo "HEALTH_WAIT {code}:{port} timeout={timeout}s attempts={attempts}"
+for i in $(seq 1 {attempts}); do
+  if curl -fsS "http://127.0.0.1:{port}/health" >/dev/null 2>&1; then
+    ok=1
+    echo "HEALTH_OK {code}:{port} attempt=$i"
+    break
+  fi
+  if [ $((i % {progress_every})) -eq 0 ]; then
+    echo "HEALTH_WAIT {code}:{port} attempt=$i/{attempts}"
+  fi
+  sleep {poll}
 done
 if [ "$ok" != "1" ]; then
-  echo "HEALTH_FAIL {code}:{port}"
+  echo "HEALTH_FAIL {code}:{port} timeout={timeout}s attempts={attempts}"
   journalctl -u "mangapoisk-{code}.service" -n 50 --no-pager || true
   exit 1
 fi
-echo "HEALTH_OK {code}:{port}"
 """
 
 
@@ -490,6 +597,12 @@ fi
 "$ROOT/venv/bin/pip" install --upgrade pip >/dev/null
 "$ROOT/venv/bin/pip" install -e "$ROOT/src/packages/manga_common"
 @@INSTALLS@@
+
+echo "== pre-start =="
+if [ -n @@PRE_START@@ ]; then
+  echo "Running pre-start command (timeout @@PRE_START_TIMEOUT@@s)…"
+  timeout @@PRE_START_TIMEOUT@@ bash -lc @@PRE_START@@
+fi
 
 echo "== units =="
 @@UNITS@@

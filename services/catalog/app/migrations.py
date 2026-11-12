@@ -3,13 +3,31 @@ from __future__ import annotations
 import logging
 
 from manga_common.db import Base
-from sqlalchemy import select, text, update
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from .models import Manga
-from .normalization import genres_key, status_key
-
 logger = logging.getLogger(__name__)
+
+_SEARCH_COLUMNS = (
+    "search_title",
+    "search_alt",
+    "search_names",
+    "search_meta",
+    "search_description",
+    "search_blob",
+)
+
+
+async def _try_extension(connection, statement: str, name: str) -> bool:
+    """Create an optional extension without aborting the whole migration."""
+
+    try:
+        async with connection.begin_nested():
+            await connection.execute(text(statement))
+        return True
+    except Exception as exc:  # pragma: no cover - depends on server privileges
+        logger.warning("could not enable %s: %s", name, exc)
+        return False
 
 
 async def ensure_runtime_schema(engine: AsyncEngine) -> None:
@@ -44,11 +62,92 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 )
             if "genres_key" not in manga_columns:
                 await connection.execute(text("ALTER TABLE manga ADD COLUMN genres_key TEXT"))
+            if "enrichment_attempts" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN enrichment_attempts INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "enrichment_retry_at" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN enrichment_retry_at DATETIME")
+                )
+            if "enrichment_last_attempt_at" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN enrichment_last_attempt_at DATETIME")
+                )
+            if "enrichment_last_error" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN enrichment_last_error TEXT")
+                )
+            for column in _SEARCH_COLUMNS:
+                if column not in manga_columns:
+                    await connection.execute(
+                        text(f"ALTER TABLE manga ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+                    )
+            if "search_indexed" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN search_indexed "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
             )
             await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_pending "
+                    "ON manga (search_indexed) WHERE search_indexed = 0"
+                )
+            )
+            await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_title "
+                    "ON manga (search_title)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_enrichment_retry_at "
+                    "ON manga (enrichment_retry_at)"
+                )
+            )
+            result = await connection.execute(text("PRAGMA table_info(crawl_state)"))
+            crawl_columns = {row[1] for row in result.fetchall()}
+            if "last_success_at" not in crawl_columns:
+                await connection.execute(
+                    text("ALTER TABLE crawl_state ADD COLUMN last_success_at DATETIME")
+                )
+            if "failure_count" not in crawl_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE crawl_state ADD COLUMN failure_count "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "failure_kind" not in crawl_columns:
+                await connection.execute(
+                    text("ALTER TABLE crawl_state ADD COLUMN failure_kind VARCHAR(32)")
+                )
+            if "eta_seconds" not in crawl_columns:
+                await connection.execute(
+                    text("ALTER TABLE crawl_state ADD COLUMN eta_seconds INTEGER")
+                )
+            await connection.execute(
+                text(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS manga_search_fts USING fts5("
+                    "manga_id UNINDEXED, body, "
+                    "tokenize = 'unicode61 remove_diacritics 2')"
+                )
             )
         else:
             await connection.execute(
@@ -63,42 +162,138 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             await connection.execute(
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS genres_key TEXT")
             )
+            for column in _SEARCH_COLUMNS:
+                await connection.execute(
+                    text(
+                        f"ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                        f"{column} TEXT NOT NULL DEFAULT ''"
+                    )
+                )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "search_indexed BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "enrichment_attempts INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "enrichment_retry_at TIMESTAMPTZ"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "enrichment_last_attempt_at TIMESTAMPTZ"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS enrichment_last_error TEXT"
+                )
+            )
+            await connection.execute(
+                text("ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ")
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS "
+                    "failure_count INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS failure_kind VARCHAR(32)"
+                )
+            )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
             )
-
-        # Backfill filter keys.  Genres used to be indexed by their raw source
-        # label; the canonical English slug table changed that, so recompute
-        # only rows whose stored key differs.
-        rows = (
             await connection.execute(
-                select(Manga.id, Manga.status, Manga.genres, Manga.genres_key, Manga.status_key)
-            )
-        ).all()
-        updated = 0
-        for row in rows:
-            expected_genres = genres_key(row.genres or [])
-            expected_status = status_key(row.status)
-            if row.genres_key != expected_genres or row.status_key != expected_status:
-                await connection.execute(
-                    update(Manga)
-                    .where(Manga.id == row.id)
-                    .values(genres_key=expected_genres, status_key=expected_status)
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_pending "
+                    "ON manga (search_indexed) WHERE search_indexed = false"
                 )
-                updated += 1
-        if updated:
-            logger.info("backfilled canonical filter keys for %s catalogue entries", updated)
-
-        # Covers created before grouping support need the denormalised key.
-        await connection.execute(
-            text(
-                "UPDATE manga_covers SET group_key = "
-                "(SELECT group_key FROM manga WHERE manga.id = manga_covers.manga_id) "
-                "WHERE group_key IS NULL"
             )
-        )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_title "
+                    "ON manga (search_title)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_enrichment_retry_at "
+                    "ON manga (enrichment_retry_at)"
+                )
+            )
+            await connection.execute(
+                text("ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS eta_seconds INTEGER")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_title_pattern "
+                    "ON manga (search_title text_pattern_ops)"
+                )
+            )
+
+            # pg_trgm accelerates the LIKE '%term%' candidate filter used by
+            # both search and suggestions.  unaccent is kept as a deployment
+            # safety net for SQL-level diagnostics; application matching is
+            # already accent-insensitive because documents and queries are
+            # normalised in Python.
+            trigram = await _try_extension(
+                connection, "CREATE EXTENSION IF NOT EXISTS pg_trgm", "pg_trgm"
+            )
+            await _try_extension(
+                connection, "CREATE EXTENSION IF NOT EXISTS unaccent", "unaccent"
+            )
+            if trigram:
+                for name, column in (
+                    ("ix_manga_search_names_trgm", "search_names"),
+                    ("ix_manga_search_title_trgm", "search_title"),
+                    ("ix_manga_search_blob_trgm", "search_blob"),
+                ):
+                    try:
+                        async with connection.begin_nested():
+                            await connection.execute(
+                                text(
+                                    f"CREATE INDEX IF NOT EXISTS {name} "
+                                    f"ON manga USING gin ({column} gin_trgm_ops)"
+                                )
+                            )
+                    except Exception as exc:  # pragma: no cover - server specific
+                        logger.warning("could not create %s: %s", name, exc)
+
+        # Rows that already carry a normalized document from a previous v1.2
+        # deploy are marked indexed in one cheap statement.  Everything else
+        # is handled by the background worker; startup must never walk 78k
+        # rows in Python and hold the SQLite write lock for minutes.
+        if dialect == "sqlite":
+            await connection.execute(
+                text(
+                    "UPDATE manga SET search_indexed = 1 "
+                    "WHERE search_indexed = 0 AND search_blob <> ''"
+                )
+            )
+        else:
+            await connection.execute(
+                text(
+                    "UPDATE manga SET search_indexed = true "
+                    "WHERE search_indexed = false AND search_blob <> ''"
+                )
+            )
 
     logger.info("catalogue runtime schema is up to date")

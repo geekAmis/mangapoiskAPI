@@ -3,10 +3,18 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
-from manga_common.errors import NotFoundError
 from manga_common.security import require_internal_token
+from pydantic import BaseModel, Field
 
-from .repository import audit_out, get_job, job_out, list_audit
+from .ads import (
+    AdProviderCreate,
+    AdProviderOut,
+    AdProviderUpdate,
+    AdPublicSlotOut,
+    AdSecretOut,
+    AdsService,
+)
+from .repository import audit_out, list_audit
 from .schemas import (
     AuditOut,
     DeployRequest,
@@ -29,6 +37,79 @@ router = APIRouter(prefix="/internal", dependencies=[Depends(require_internal_to
 
 def get_service(request: Request) -> ControlService:
     return request.app.state.service
+
+
+def get_ads_service(request: Request) -> AdsService:
+    return request.app.state.ads
+
+
+@router.get("/ads", response_model=list[AdProviderOut])
+async def ad_providers(ads: AdsService = Depends(get_ads_service)) -> list[AdProviderOut]:
+    return await ads.list()
+
+
+@router.post("/ads", response_model=AdProviderOut)
+async def create_ad_provider(
+    payload: AdProviderCreate, ads: AdsService = Depends(get_ads_service)
+) -> AdProviderOut:
+    return await ads.create(payload)
+
+
+@router.get("/ads/config", response_model=list[AdPublicSlotOut])
+async def ad_public_config(
+    audience: str = Query(default="guest", pattern="^(guest|authenticated)$"),
+    donor: bool = Query(default=False),
+    adult: bool = Query(default=False),
+    consent: bool = Query(default=False),
+    ads: AdsService = Depends(get_ads_service),
+) -> list[AdPublicSlotOut]:
+    return await ads.public_slots(
+        audience="authenticated" if audience == "authenticated" else "guest",
+        donor=donor,
+        adult=adult,
+        consent=consent,
+    )
+
+
+class AdSecretIn(BaseModel):
+    value: str = Field(min_length=1, max_length=20_000)
+
+
+@router.patch("/ads/{provider_id}", response_model=AdProviderOut)
+async def update_ad_provider(
+    provider_id: uuid.UUID,
+    payload: AdProviderUpdate,
+    ads: AdsService = Depends(get_ads_service),
+) -> AdProviderOut:
+    return await ads.update(provider_id, payload)
+
+
+@router.delete("/ads/{provider_id}")
+async def delete_ad_provider(
+    provider_id: uuid.UUID, ads: AdsService = Depends(get_ads_service)
+) -> dict[str, bool]:
+    await ads.delete(provider_id)
+    return {"ok": True}
+
+
+@router.put("/ads/{provider_id}/secrets/{name}", response_model=AdSecretOut)
+async def set_ad_secret(
+    provider_id: uuid.UUID,
+    name: str,
+    payload: AdSecretIn,
+    ads: AdsService = Depends(get_ads_service),
+) -> AdSecretOut:
+    return await ads.set_secret(provider_id, name, payload.value)
+
+
+@router.delete("/ads/{provider_id}/secrets/{name}")
+async def delete_ad_secret(
+    provider_id: uuid.UUID,
+    name: str,
+    ads: AdsService = Depends(get_ads_service),
+) -> dict[str, bool]:
+    await ads.delete_secret(provider_id, name)
+    return {"ok": True}
 
 
 @router.get("/servers", response_model=list[ServerOut])
@@ -96,11 +177,14 @@ async def bootstrap_replica(
 async def job(
     job_id: uuid.UUID, service: ControlService = Depends(get_service)
 ) -> JobOut:
-    async with service.session_factory() as session:
-        row = await get_job(session, job_id)
-        if row is None:
-            raise NotFoundError("Задача деплоя не найдена")
-        return job_out(row)
+    return await service.job(job_id)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobOut)
+async def cancel_job(
+    job_id: uuid.UUID, service: ControlService = Depends(get_service)
+) -> JobOut:
+    return await service.cancel_job(job_id)
 
 
 @router.get("/registry", response_model=RegistryOut)

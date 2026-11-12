@@ -55,6 +55,7 @@ def job_out(job: DeploymentJob) -> JobOut:
         error=job.error,
         created_at=job.created_at,
         updated_at=job.updated_at,
+        last_output_at=job.last_output_at,
     )
 
 
@@ -158,6 +159,13 @@ async def create_job(
 
 async def get_job(session: AsyncSession, job_id: uuid.UUID) -> DeploymentJob | None:
     return await session.get(DeploymentJob, job_id)
+
+
+async def list_running_jobs(session: AsyncSession) -> list[DeploymentJob]:
+    result = await session.scalars(
+        select(DeploymentJob).where(DeploymentJob.status == "running")
+    )
+    return list(result.all())
 
 
 async def update_job(

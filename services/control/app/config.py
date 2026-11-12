@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from manga_common.config import Settings
+from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 
@@ -12,7 +13,17 @@ class ControlSettings(Settings):
     control_database_url: str | None = None
     deploy_root: str = "/opt/mangapoisk-reborn"
     deploy_user: str = "mangapoisk"
-    deploy_timeout_seconds: int = 1800
+    deploy_timeout_seconds: int = Field(default=3600, ge=60, le=86_400)
+    deploy_health_timeout_seconds: int = Field(default=600, ge=30, le=7_200)
+    deploy_health_poll_seconds: int = Field(default=2, ge=1, le=30)
+    deploy_read_timeout_seconds: int = Field(default=900, ge=30, le=7_200)
+    deploy_stale_job_seconds: int = Field(default=1_800, ge=60, le=86_400)
+    deploy_pre_start_command: str = ""
+    deploy_pre_start_timeout_seconds: int = Field(default=1_800, ge=30, le=86_400)
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@example.com"
+    web_push_enabled: bool = False
 
     @property
     def control_dsn(self) -> str:

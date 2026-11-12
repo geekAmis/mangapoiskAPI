@@ -5,7 +5,7 @@ import copy
 import httpx
 import pytest
 import respx
-from manga_common.errors import UpstreamError
+from manga_common.errors import NotFoundError, UpstreamError
 from manga_common.errors import ValidationError as InputValidationError
 from parser_helpers import json_response, load_json
 from services.parser.app.adapters.mangalib import MangaLibAdapter
@@ -113,6 +113,31 @@ async def test_catalogue_rejects_unknown_sort(settings, cache, client) -> None:
     with pytest.raises(InputValidationError) as error:
         await adapter.catalogue(sort="trending")
     assert error.value.code == "invalid_sort"
+
+
+async def test_catalogue_surfaces_404_and_403_for_scheduler_retry(settings, cache, client) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(f"{API}/api/manga").mock(
+            side_effect=[
+                httpx.Response(404, json={"message": "Not Found"}),
+                httpx.Response(403, json={"message": "Forbidden"}),
+                json_response(CATALOGUE),
+            ]
+        )
+        adapter = MangaLibAdapter(client, settings, cache)
+
+        with pytest.raises(NotFoundError):
+            await adapter.catalogue(page=201, sort="popular")
+        with pytest.raises(UpstreamError) as forbidden:
+            await adapter.catalogue(page=201, sort="popular")
+        assert forbidden.value.details["status_code"] == 403
+
+        # The same page succeeds on the next attempt; the fixture is the
+        # documented success shape and is not an end-of-catalogue marker.
+        result = await adapter.catalogue(page=201, sort="popular")
+        assert result.page == 1
+        assert len(result.items) == 2
+        assert route.call_count == 3
 
 
 async def test_manga_falls_back_to_search_and_chapters(settings, cache, client) -> None:

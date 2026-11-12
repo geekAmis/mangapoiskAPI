@@ -146,7 +146,12 @@ Sitemap: https://85.192.37.58.nip.io:8443/sitemap.xml
   превышении нужно делить на sitemap index;
 - кэш в памяти 30 минут, `Cache-Control: public, max-age=900,
   stale-while-revalidate=3600`;
-- при падении каталога отдаётся последняя успешная копия.
+- при падении каталога отдаётся последняя успешная копия;
+- сбор идёт одним запросом `GET /internal/sitemap` (одна SQL-выборка по
+  каноническим группам), а не ~65 страницами `manga_list`; paginated fallback
+  оставлен для совместимости со старым catalog;
+- gateway прогревает кэш в фоне при старте, поэтому холодный запрос после
+  рестарта не должен упираться в 30-секундный nginx timeout.
 
 ## 6. Деплой
 
@@ -161,7 +166,8 @@ location = /sitemap.xml {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 30s;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 120s;
 }
 ```
 
@@ -249,6 +255,21 @@ all_https:       true
 lastmod_sample:  2026-11-12
 XML parse:       ElementTree OK
 ```
+
+После #64 холодная генерация идёт одним запросом `/internal/sitemap` вместо
+~65 страниц `manga_list`. Локальный замер на 6 510 тайтлах:
+
+```
+sitemap_rows: 6510
+query_ms:     57.27
+xml_ms:       10.37
+cold_total:   67.64 ms
+xml_bytes:    625070
+```
+
+Кэш прогревается в фоне при старте gateway; nginx получает
+`proxy_read_timeout 120s` для `location = /sitemap.xml`, чтобы даже холодный
+запрос не упирался в дефолтные 30 с.
 
 Живой `/api/v1/sitemap.xml` на production пока отдаёт 404: код ветки не
 задеплоен. Это ожидаемо и будет проверено lead после деплоя. Локально

@@ -1,12 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api, listItems } from '../api/client';
+import { api } from '../api/client';
+import { AdSlot } from '../components/ads/AdSlot';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { MangaCard } from '../components/MangaCard';
 import { MangaGridSkeleton, Skeleton } from '../components/Skeleton';
 import { Poster } from '../components/Poster';
+import { RecommendationShelf } from '../components/RecommendationShelf';
+import { StreakBadge } from '../components/StreakBadge';
 import { humanizeError } from '../lib/errors';
 import {
   chapterHeading,
@@ -23,6 +26,7 @@ import {
   jsonLdGraph,
   useSeo,
 } from '../lib/seo';
+import { useReadingResume } from '../lib/useReading';
 import { useAuthStore } from '../stores/auth';
 import '../styles/mangalib-home.css';
 
@@ -99,11 +103,7 @@ export default function HomePage() {
     staleTime: 10 * 60_000,
   });
 
-  const progressQuery = useQuery({
-    queryKey: ['library', 'progress'],
-    queryFn: ({ signal }) => api.getProgress(signal),
-    enabled: Boolean(user),
-  });
+  const resume = useReadingResume();
 
   const latestChaptersQuery = useQuery({
     queryKey: ['home', 'updates'],
@@ -115,7 +115,7 @@ export default function HomePage() {
   const popular = popularQuery.data?.items ?? [];
   const latestChapters = latestChaptersQuery.data?.items ?? [];
   const sources = sourcesQuery.data?.filter((source) => source.enabled) ?? [];
-  const continueItems = listItems(progressQuery.data).filter((item) => item.manga);
+  const continueItems = resume.items;
 
   return (
     <>
@@ -127,6 +127,7 @@ export default function HomePage() {
             <p>Читайте онлайн, скачивайте главы в приложение и продолжайте с любого устройства.</p>
           </div>
           <div className="ml-home-intro__actions">
+            <StreakBadge />
             <Link to="/catalogue" className="btn btn--primary">
               <Icon name="compass" size={17} />
               Открыть каталог
@@ -191,58 +192,72 @@ export default function HomePage() {
           )}
         </section>
 
-        {user ? (
-          <section className="ml-panel" aria-labelledby="ml-continue-title">
-            <header className="ml-panel__head">
-              <h2 id="ml-continue-title">Продолжить чтение</h2>
-              <Link to="/library?tab=reading">Вся библиотека</Link>
-            </header>
-            {progressQuery.isLoading ? (
-              <div className="ml-continue" aria-hidden="true">
-                {Array.from({ length: 3 }, (_, index) => (
-                  <Skeleton key={index} height="84px" />
-                ))}
-              </div>
-            ) : progressQuery.isError ? (
-              <InlineError
-                message={humanizeError(progressQuery.error, 'Не удалось загрузить прогресс.')}
-                onRetry={() => void progressQuery.refetch()}
-              />
-            ) : continueItems.length > 0 ? (
-              <div className="ml-continue">
-                {continueItems.slice(0, 4).map((item) => {
-                  const manga = item.manga;
-                  if (!manga) return null;
-                  const percent = progressPercent(item.page, item.total_pages);
-                  return (
-                    <Link className="ml-continue__row" key={item.manga_id} to={`/reader/${item.chapter_id}`}>
-                      <span className="ml-continue__poster">
-                        <Poster src={manga.poster_url} alt="" />
+        <AdSlot placement="in-feed" />
+
+        <section className="ml-panel" aria-labelledby="ml-continue-title">
+          <header className="ml-panel__head">
+            <h2 id="ml-continue-title">Продолжить чтение</h2>
+            <Link to={user ? '/library?tab=reading' : '/catalogue'}>
+              {user ? 'Вся библиотека' : 'Найти тайтл'}
+            </Link>
+          </header>
+          {resume.isLoading ? (
+            <div className="ml-continue" aria-hidden="true">
+              {Array.from({ length: 3 }, (_, index) => (
+                <Skeleton key={index} height="84px" />
+              ))}
+            </div>
+          ) : resume.isError && continueItems.length === 0 ? (
+            <InlineError
+              message={humanizeError(resume.error, 'Не удалось загрузить прогресс.')}
+              onRetry={resume.refetch}
+            />
+          ) : continueItems.length > 0 ? (
+            <div className="ml-continue">
+              {continueItems.slice(0, 4).map((item) => {
+                const percent = progressPercent(item.page, item.total_pages);
+                return (
+                  <Link
+                    className="ml-continue__row"
+                    key={item.manga_id}
+                    to={`/reader/${item.chapter_id}?page=${item.page}`}
+                  >
+                    <span className="ml-continue__poster">
+                      <Poster src={item.poster_url} alt="" />
+                    </span>
+                    <span className="ml-continue__body">
+                      <strong>{item.title}</strong>
+                      <span>
+                        {chapterHeading(item.chapter)} · {formatRelative(item.updated_at)}
                       </span>
-                      <span className="ml-continue__body">
-                        <strong>{manga.title}</strong>
-                        <span>
-                          {item.chapter ? chapterHeading(item.chapter) : 'Глава'} · {formatRelative(item.updated_at)}
-                        </span>
-                        <span className="progress">
-                          <span className="progress__bar" style={{ width: `${percent}%` }} />
-                        </span>
+                      <span className="progress">
+                        <span className="progress__bar" style={{ width: `${percent}%` }} />
                       </span>
-                      <span className="ml-continue__percent">{percent}%</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            ) : (
-              <EmptyState
-                compact
-                icon="book"
-                title="Пока ничего не читали"
-                description="Откройте каталог и выберите историю — прогресс появится здесь."
-              />
-            )}
-          </section>
-        ) : null}
+                    </span>
+                    <span className="ml-continue__percent">{percent}%</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              compact
+              icon="book"
+              title="Пока ничего не читали"
+              description={
+                user
+                  ? 'Откройте каталог и выберите историю — прогресс появится здесь.'
+                  : 'Прогресс сохранится на этом устройстве. Войдите, чтобы синхронизировать его между устройствами.'
+              }
+            />
+          )}
+        </section>
+
+        <RecommendationShelf
+          title="Для вас"
+          surface="home_recommendations"
+          limit={12}
+        />
 
         <section className="ml-panel" aria-labelledby="ml-hot-title">
           <header className="ml-panel__head">

@@ -1,0 +1,54 @@
+{
+  "dialect": "sqlite",
+  "titles": 78275,
+  "batch_size": 500,
+  "schema_ms": 145.06,
+  "bootstrap_ms": 1224.0,
+  "startup_ms": 1369.06,
+  "startup_under_10s": true,
+  "bootstrap": {
+    "total": 78275,
+    "normalized": 0,
+    "pending": 78275,
+    "legacy": 78275
+  },
+  "first_batch_rows": 500,
+  "search_before_normalization": {
+    "label": "after_startup",
+    "search_ms": 255.65,
+    "suggest_ms": 145.29,
+    "search_total": 300,
+    "search_first": "bench-299",
+    "suggest_first": "Человек-бензопила"
+  },
+  "search_after_first_batch": {
+    "label": "after_first_batch",
+    "search_ms": 293.37,
+    "suggest_ms": 152.41,
+    "search_total": 300,
+    "search_first": "bench-78091",
+    "suggest_first": "Человек-бензопила"
+  },
+  "backfill_seconds": 178.6,
+  "backfill_rows": 77775,
+  "throughput_rows_per_second": 435.5,
+  "second_run_rows": 0,
+  "indexed_rows": 78275,
+  "fts_rows": 78275,
+  "state": {
+    "status": "completed",
+    "total": 78275,
+    "normalized": 78275,
+    "remaining": 0,
+    "legacy_indexed": 78275,
+    "failed": 0,
+    "batch_size": 500,
+    "rate_per_second": 435.08,
+    "eta_seconds": 0,
+    "progress_percent": 100.0,
+    "started_at": "2026-11-12T09:48:43.635124Z",
+    "finished_at": "2026-11-12T09:51:43.544079Z",
+    "last_error": null
+  },
+  "database_bytes": 322588672
+}

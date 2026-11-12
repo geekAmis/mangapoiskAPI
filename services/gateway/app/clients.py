@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from manga_common.config import Settings
@@ -15,6 +16,8 @@ from manga_common.errors import (
 )
 from manga_common.http import build_client
 from manga_common.schemas import (
+    AnalyticsIngestOut,
+    AnalyticsRetentionOut,
     BookmarkOut,
     ChapterDetailOut,
     ChapterOut,
@@ -24,9 +27,15 @@ from manga_common.schemas import (
     MangaListResponse,
     MangaOut,
     MangaVariantsOut,
+    ProgressMergeOut,
     ProgressOut,
     ReaderSettings,
+    RecommendationListOut,
+    RelatedMangaOut,
+    SitemapEntryOut,
     SourceOut,
+    StreakOut,
+    SuggestResponse,
     TokenPair,
     UserOut,
 )
@@ -179,6 +188,10 @@ class CatalogClient(InternalClient):
         data = await self.request("GET", "/internal/sources")
         return [SourceOut.model_validate(item) for item in data]
 
+    async def sitemap_entries(self, *, limit: int = 50_000) -> list[SitemapEntryOut]:
+        data = await self.request("GET", "/internal/sitemap", params={"limit": limit})
+        return [SitemapEntryOut.model_validate(item) for item in data]
+
     async def manga_list(self, params: dict[str, Any]) -> MangaListResponse:
         data = await self.request("GET", "/internal/manga", params=params)
         return MangaListResponse.model_validate(data)
@@ -198,6 +211,11 @@ class CatalogClient(InternalClient):
         data = await self.request("GET", "/internal/manga/search", params=params)
         return MangaListResponse.model_validate(data)
 
+    async def suggest(self, q: str, *, limit: int = 6) -> SuggestResponse:
+        params: dict[str, Any] = {"q": q, "limit": limit}
+        data = await self.request("GET", "/internal/manga/suggest", params=params)
+        return SuggestResponse.model_validate(data)
+
     async def manga(self, manga_id: str) -> MangaDetailOut:
         data = await self.request("GET", f"/internal/manga/{manga_id}")
         return MangaDetailOut.model_validate(data)
@@ -205,6 +223,17 @@ class CatalogClient(InternalClient):
     async def variants(self, manga_id: str) -> MangaVariantsOut:
         data = await self.request("GET", f"/internal/manga/{manga_id}/variants")
         return MangaVariantsOut.model_validate(data)
+
+    async def recommendations(self, payload: dict[str, Any]) -> RecommendationListOut:
+        data = await self.request("POST", "/internal/recommendations", json=payload)
+        return RecommendationListOut.model_validate(data)
+
+    async def related(self, manga_id: str) -> RelatedMangaOut:
+        data = await self.request("GET", f"/internal/manga/{manga_id}/related")
+        return RelatedMangaOut.model_validate(data)
+
+    async def link_relations(self, manga_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.request("PUT", f"/internal/manga/{manga_id}/relations", json=payload)
 
     async def chapters(
         self, manga_id: str, *, page: int = 1, limit: int = 200, query: str | None = None
@@ -242,6 +271,13 @@ class CatalogClient(InternalClient):
 
     async def stats(self) -> dict[str, Any]:
         return await self.request("GET", "/internal/stats")
+
+    async def enrichment_stats(self) -> dict[str, Any]:
+        return await self.request("GET", "/internal/enrichment/stats")
+
+    async def crawl_states(self) -> list[dict[str, Any]]:
+        data = await self.request("GET", "/internal/crawl-state")
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
 
 
 class ParserClient(InternalClient):
@@ -355,6 +391,31 @@ class LibraryClient(InternalClient):
         )
         return ReaderSettings.model_validate(data)
 
+    async def merge_progress(
+        self, authorization: str, payload: dict[str, Any]
+    ) -> ProgressMergeOut:
+        data = await self._auth(
+            "POST", "/internal/me/progress/merge", authorization, json=payload
+        )
+        return ProgressMergeOut.model_validate(data)
+
+    async def streak(self, authorization: str, timezone: str | None) -> StreakOut:
+        params = {"timezone": timezone} if timezone else None
+        data = await self._auth(
+            "GET", "/internal/me/streak", authorization, params=params
+        )
+        return StreakOut.model_validate(data)
+
+    async def ingest_analytics(self, payload: dict[str, Any]) -> AnalyticsIngestOut:
+        data = await self.request("POST", "/internal/analytics/events", json=payload)
+        return AnalyticsIngestOut.model_validate(data)
+
+    async def analytics_retention(self, days: int) -> AnalyticsRetentionOut:
+        data = await self.request(
+            "GET", "/internal/analytics/retention", params={"days": days}
+        )
+        return AnalyticsRetentionOut.model_validate(data)
+
 
 class ControlClient(InternalClient):
     service_code = "control"
@@ -377,6 +438,9 @@ class ControlClient(InternalClient):
 
     async def job(self, job_id: str) -> dict[str, Any]:
         return await self.request("GET", f"/internal/jobs/{job_id}")
+
+    async def cancel_job(self, job_id: str) -> dict[str, Any]:
+        return await self.request("POST", f"/internal/jobs/{job_id}/cancel")
 
     async def server_health(self, server_id: str) -> dict[str, Any]:
         return await self.request("GET", f"/internal/servers/{server_id}/health")
@@ -408,9 +472,54 @@ class ControlClient(InternalClient):
     async def audit(self, limit: int = 100) -> list[dict[str, Any]]:
         return await self.request("GET", "/internal/audit", params={"limit": limit})
 
+    async def ads(self) -> list[dict[str, Any]]:
+        return await self.request("GET", "/internal/ads")
+
+    async def create_ad(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.request("POST", "/internal/ads", json=payload)
+
+    async def update_ad(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.request(
+            "PATCH", f"/internal/ads/{provider_id}", json=payload
+        )
+
+    async def delete_ad(self, provider_id: str) -> None:
+        await self.request("DELETE", f"/internal/ads/{provider_id}")
+
+    async def set_ad_secret(
+        self, provider_id: str, name: str, value: str
+    ) -> dict[str, Any]:
+        return await self.request(
+            "PUT",
+            f"/internal/ads/{provider_id}/secrets/{quote(name, safe='')}",
+            json={"value": value},
+        )
+
+    async def delete_ad_secret(self, provider_id: str, name: str) -> None:
+        await self.request(
+            "DELETE", f"/internal/ads/{provider_id}/secrets/{quote(name, safe='')}"
+        )
+
+    async def ads_public(
+        self, *, audience: str, donor: bool, adult: bool, consent: bool
+    ) -> list[dict[str, Any]]:
+        return await self.request(
+            "GET",
+            "/internal/ads/config",
+            params={
+                "audience": audience,
+                "donor": str(donor).lower(),
+                "adult": str(adult).lower(),
+                "consent": str(consent).lower(),
+            },
+        )
+
 
 class MediaClient(InternalClient):
     service_code = "media"
+
+    async def stats(self) -> dict[str, Any]:
+        return await self.request("GET", "/internal/stats")
 
     async def archive_chapter(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("POST", "/internal/archives/chapters", json=payload, timeout=30.0)

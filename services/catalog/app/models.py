@@ -7,6 +7,7 @@ from typing import Any
 from manga_common.db import Base, TimestampMixin, UUIDPrimaryKey
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -15,12 +16,15 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.types import JSON
 
 from .normalization import genres_key, status_key
+from .search import build_search_fields
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
 
@@ -46,6 +50,16 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         Index("ix_manga_group_key", "group_key"),
         Index("ix_manga_rating", "rating"),
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
+        Index("ix_manga_last_synced_at", "last_synced_at"),
+        Index("ix_manga_enrichment_retry_at", "enrichment_retry_at"),
+        # Partial index keeps the "rows still waiting for search indexing"
+        # query cheap even with a 100k-row catalogue.
+        Index(
+            "ix_manga_search_pending",
+            "search_indexed",
+            sqlite_where=text("search_indexed = 0"),
+            postgresql_where=text("search_indexed = false"),
+        ),
     )
 
     source: Mapped[str] = mapped_column(
@@ -67,11 +81,35 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     adult: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     genres: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     genres_key: Mapped[str | None] = mapped_column(Text, nullable=True, default="")
+    # Denormalised, Python-normalised search document.  See ``search.py``:
+    # it contains original text, Russian/Latin transliterations, consonant
+    # skeletons and genre/media synonyms.  Keeping it in plain TEXT makes the
+    # same ranking work on PostgreSQL and SQLite.
+    search_title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_alt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_names: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_meta: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    search_blob: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # False while a legacy row still relies on the SQL/FTS legacy fallback.
+    # The background backfill flips this to true after writing the normalized
+    # document; startup must never wait for all rows to reach true.
+    search_indexed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     group_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    enrichment_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    enrichment_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    enrichment_last_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    enrichment_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONType, nullable=False, default=dict
     )
@@ -90,6 +128,22 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         genres = list(value or [])
         self.genres_key = genres_key(genres)
         return genres
+
+    def refresh_search_fields(self) -> None:
+        """Recompute the denormalised search document from current fields."""
+
+        fields = build_search_fields(
+            title=self.title,
+            title_en=self.title_en,
+            title_alt=self.title_alt,
+            genres=self.genres or [],
+            content_type=self.content_type,
+            description=self.description,
+            metadata=self.metadata_json or {},
+        )
+        for name, value in fields.items():
+            setattr(self, name, value)
+        self.search_indexed = True
 
 
 class Chapter(Base, UUIDPrimaryKey, TimestampMixin):
@@ -150,6 +204,27 @@ class MangaCover(Base, UUIDPrimaryKey, TimestampMixin):
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class SearchBackfillState(Base, TimestampMixin):
+    """Singleton progress + lease for the background search backfill."""
+
+    __tablename__ = "search_backfill_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    normalized: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    legacy_indexed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    batch_size: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
+    rate_per_second: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     """Persistent, resumable cursor for a source crawl mode."""
 
@@ -169,4 +244,41 @@ class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     items_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     items_imported: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class MangaRelation(Base, UUIDPrimaryKey, TimestampMixin):
+    """Explicit, explainable link between two catalogue titles.
+
+    Relations are undirected for navigation: a row ``A -> B`` is shown on both
+    pages.  ``series`` marks a cycle/story order, ``related`` is a softer "if you
+    liked this" link.  No relation is guessed from titles; it must be seeded or
+    set through the internal hook so a wrong link is always a data decision, not
+    an algorithm accident.
+    """
+
+    __tablename__ = "manga_relations"
+    __table_args__ = (
+        UniqueConstraint(
+            "from_manga_id", "to_manga_id", "relation", name="uq_manga_relations_pair"
+        ),
+        CheckConstraint("from_manga_id <> to_manga_id", name="ck_manga_relations_not_self"),
+        Index("ix_manga_relations_from", "from_manga_id"),
+        Index("ix_manga_relations_to", "to_manga_id"),
+        Index("ix_manga_relations_series_key", "series_key"),
+    )
+
+    from_manga_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga.id", ondelete="CASCADE"), nullable=False
+    )
+    to_manga_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga.id", ondelete="CASCADE"), nullable=False
+    )
+    relation: Mapped[str] = mapped_column(String(16), nullable=False, default="related")
+    series_key: Mapped[str | None] = mapped_column(String(180), nullable=True)
 
