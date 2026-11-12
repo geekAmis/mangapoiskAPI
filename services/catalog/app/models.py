@@ -7,6 +7,7 @@ from typing import Any
 from manga_common.db import Base, TimestampMixin, UUIDPrimaryKey
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -184,4 +185,35 @@ class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     )
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class MangaRelation(Base, UUIDPrimaryKey, TimestampMixin):
+    """Explicit, explainable link between two catalogue titles.
+
+    Relations are undirected for navigation: a row ``A -> B`` is shown on both
+    pages.  ``series`` marks a cycle/story order, ``related`` is a softer "if you
+    liked this" link.  No relation is guessed from titles; it must be seeded or
+    set through the internal hook so a wrong link is always a data decision, not
+    an algorithm accident.
+    """
+
+    __tablename__ = "manga_relations"
+    __table_args__ = (
+        UniqueConstraint(
+            "from_manga_id", "to_manga_id", "relation", name="uq_manga_relations_pair"
+        ),
+        CheckConstraint("from_manga_id <> to_manga_id", name="ck_manga_relations_not_self"),
+        Index("ix_manga_relations_from", "from_manga_id"),
+        Index("ix_manga_relations_to", "to_manga_id"),
+        Index("ix_manga_relations_series_key", "series_key"),
+    )
+
+    from_manga_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga.id", ondelete="CASCADE"), nullable=False
+    )
+    to_manga_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga.id", ondelete="CASCADE"), nullable=False
+    )
+    relation: Mapped[str] = mapped_column(String(16), nullable=False, default="related")
+    series_key: Mapped[str | None] = mapped_column(String(180), nullable=True)
 

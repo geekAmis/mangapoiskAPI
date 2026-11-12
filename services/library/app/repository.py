@@ -1,19 +1,65 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Bookmark, ReadingProgress, RefreshToken, User, UserSettings
+from .models import (
+    AnalyticsEvent,
+    Bookmark,
+    ReadingDay,
+    ReadingProgress,
+    RefreshToken,
+    User,
+    UserSettings,
+)
 
 
 def as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def utc_day(value: datetime) -> date:
+    moment = as_utc(value) or datetime.now(UTC)
+    return moment.astimezone(UTC).date()
+
+
+async def record_reading_day(
+    session: AsyncSession, *, user_id: uuid.UUID, read_at: datetime
+) -> ReadingDay:
+    """Upsert the user's latest read timestamp for one UTC day."""
+
+    moment = as_utc(read_at) or datetime.now(UTC)
+    day = moment.astimezone(UTC).date()
+    existing = await session.scalar(
+        select(ReadingDay).where(ReadingDay.user_id == user_id, ReadingDay.utc_day == day)
+    )
+    if existing is None:
+        existing = ReadingDay(user_id=user_id, utc_day=day, last_read_at=moment)
+        session.add(existing)
+    elif (as_utc(existing.last_read_at) or moment) < moment:
+        existing.last_read_at = moment
+    await session.flush()
+    return existing
+
+
+async def list_reading_days(
+    session: AsyncSession, user_id: uuid.UUID, limit: int = 400
+) -> list[ReadingDay]:
+    result = await session.scalars(
+        select(ReadingDay)
+        .where(ReadingDay.user_id == user_id)
+        .order_by(ReadingDay.last_read_at.desc())
+        .limit(limit)
+    )
+    return list(result.all())
 
 
 async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
@@ -197,3 +243,104 @@ async def upsert_settings(
         settings.data = data
     await session.flush()
     return settings
+
+
+async def merge_progress(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    items: list[tuple[uuid.UUID, uuid.UUID, int, int, datetime]],
+) -> tuple[int, int, int]:
+    """Merge device-local positions into the account.
+
+    Returns ``(merged, unchanged, ignored)``.  Positions older than the stored
+    account copy are ignored, so a stale offline device can never rewind the
+    user's real progress.  Input duplicates are resolved client-side, but the
+    repository is defensive and keeps the newest entry per manga.
+    """
+
+    now = datetime.now(UTC)
+    newest: dict[uuid.UUID, tuple[uuid.UUID, int, int, datetime]] = {}
+    for manga_id, chapter_id, page, total_pages, read_at in items:
+        moment = as_utc(read_at)
+        if moment is None:
+            continue
+        # A device with a wrong clock must not create a future reading day.
+        moment = min(moment, now)
+        current = newest.get(manga_id)
+        if current is None or moment > current[3]:
+            newest[manga_id] = (chapter_id, page, total_pages, moment)
+
+    merged = 0
+    unchanged = 0
+    for manga_id, (chapter_id, page, total_pages, moment) in newest.items():
+        existing = await get_progress(session, user_id, manga_id)
+        await record_reading_day(session, user_id=user_id, read_at=moment)
+        if existing is None:
+            session.add(
+                ReadingProgress(
+                    user_id=user_id,
+                    manga_id=manga_id,
+                    chapter_id=chapter_id,
+                    page=page,
+                    total_pages=total_pages,
+                    created_at=moment,
+                    updated_at=moment,
+                )
+            )
+            merged += 1
+            continue
+        current_at = as_utc(existing.updated_at) or datetime.min.replace(tzinfo=UTC)
+        if moment <= current_at:
+            unchanged += 1
+            continue
+        existing.chapter_id = chapter_id
+        existing.page = page
+        existing.total_pages = total_pages
+        existing.updated_at = moment
+        merged += 1
+    await session.flush()
+    return merged, unchanged, len(items) - len(newest)
+
+
+async def insert_analytics_events(
+    session: AsyncSession, rows: list[dict[str, Any]]
+) -> tuple[int, int]:
+    """Insert events idempotently and return ``(accepted, duplicates)``."""
+
+    if not rows:
+        return 0, 0
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        statement = postgres_insert(AnalyticsEvent).values(rows)
+        statement = statement.on_conflict_do_nothing(index_elements=["dedupe_key"])
+        result = await session.execute(statement)
+        accepted = int(result.rowcount or 0)
+    elif dialect == "sqlite":
+        statement = sqlite_insert(AnalyticsEvent).values(rows)
+        statement = statement.on_conflict_do_nothing(index_elements=["dedupe_key"])
+        result = await session.execute(statement)
+        accepted = int(result.rowcount or 0)
+    else:
+        keys = [str(row["dedupe_key"]) for row in rows]
+        existing = set(
+            (await session.scalars(select(AnalyticsEvent.dedupe_key).where(
+                AnalyticsEvent.dedupe_key.in_(keys)
+            ))).all()
+        )
+        prepared = [row for row in rows if row["dedupe_key"] not in existing]
+        session.add_all([AnalyticsEvent(**row) for row in prepared])
+        accepted = len(prepared)
+    await session.flush()
+    return accepted, max(0, len(rows) - accepted)
+
+
+async def list_analytics_events(
+    session: AsyncSession, *, since: datetime
+) -> list[AnalyticsEvent]:
+    result = await session.scalars(
+        select(AnalyticsEvent)
+        .where(AnalyticsEvent.created_at >= since)
+        .order_by(AnalyticsEvent.created_at.asc())
+    )
+    return list(result.all())

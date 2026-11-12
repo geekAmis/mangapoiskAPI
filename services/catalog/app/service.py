@@ -16,6 +16,7 @@ from manga_common.schemas import (
     MangaVariantOut,
     MangaVariantsOut,
     PageOut,
+    RelatedMangaOut,
     TranslatorOut,
 )
 from manga_common.source_models import MangaDetail, SourceInfo
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .config import CatalogSettings
 from .normalization import GENRE_LABELS, genre_slugs
 from .parser_client import ParserClient
+from .recommendations import recommendation_cache, recommendation_cache_key
 from .repository import (
     DESCRIPTION_FALLBACK,
     chapter_label,
@@ -37,8 +39,10 @@ from .repository import (
     list_crawl_states,
     list_genres,
     list_manga,
+    manga_relations,
     ordered_chapter_ids,
     pending_enrichment,
+    recommend_manga,
     record_enrichment_failure,
     rotate_enrichment,
     stale_manga,
@@ -46,6 +50,7 @@ from .repository import (
     update_chapter_pages,
     upsert_crawl_state,
     upsert_manga_detail,
+    upsert_relation,
     upsert_source,
 )
 from .schemas import (
@@ -63,7 +68,11 @@ from .schemas import (
     NewChapterEvent,
     PendingEnrichmentListOut,
     PendingEnrichmentOut,
+    RecommendationRequest,
+    RecommendationResult,
     RefreshResult,
+    RelationsIn,
+    RelationsOut,
 )
 
 logger = logging.getLogger(__name__)
@@ -215,6 +224,69 @@ class CatalogService:
                 **manga_out.model_dump(),
                 chapters=[_chapter_out(chapter) for chapter in chapters],
             )
+
+    async def recommendations(self, payload: RecommendationRequest) -> RecommendationResult:
+        key = recommendation_cache_key(
+            seed_manga_id=payload.seed_manga_id,
+            history_ids=payload.history_ids,
+            bookmark_ids=payload.bookmark_ids,
+            exclude_ids=payload.exclude_ids,
+            limit=payload.limit,
+        )
+        cached = recommendation_cache.get(key)
+        if cached is not None:
+            return cached
+        async with self.session_factory() as session:
+            rows, strategy = await recommend_manga(
+                session,
+                seed_manga_id=payload.seed_manga_id,
+                history_ids=payload.history_ids,
+                bookmark_ids=payload.bookmark_ids,
+                exclude_ids=payload.exclude_ids,
+                limit=payload.limit,
+            )
+            result = RecommendationResult(
+                items=[_manga_out(row) for row in rows],
+                strategy=strategy,  # type: ignore[arg-type]
+            )
+        recommendation_cache.set(key, result)
+        return result
+
+    async def related(self, manga_id: uuid.UUID) -> RelatedMangaOut:
+        async with self.session_factory() as session:
+            manga = await find_manga(session, manga_id)
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            series, related = await manga_relations(session, manga_id)
+            return RelatedMangaOut(
+                series=[_manga_out(row) for row in series],
+                related=[_manga_out(row) for row in related],
+            )
+
+    async def link_relations(
+        self, manga_id: uuid.UUID, payload: RelationsIn
+    ) -> RelationsOut:
+        async with self.session_factory() as session:
+            manga = await find_manga(session, manga_id)
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            linked = 0
+            for item in payload.items:
+                if item.to_manga_id == manga_id:
+                    raise NotFoundError("Нельзя связать тайтл с самим собой")
+                target = await find_manga(session, item.to_manga_id)
+                if target is None:
+                    raise NotFoundError(f"Manga {item.to_manga_id} not found")
+                await upsert_relation(
+                    session,
+                    from_manga_id=manga_id,
+                    to_manga_id=item.to_manga_id,
+                    relation=item.relation,
+                    series_key=item.series_key,
+                )
+                linked += 1
+            await session.commit()
+            return RelationsOut(linked=linked)
 
     async def manga_by_source(self, source: str, source_id: str) -> MangaDetailOut:
         from .repository import find_manga_by_source

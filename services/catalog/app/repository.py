@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
 import re
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -10,7 +12,7 @@ from sqlalchemy import Integer, String, and_, case, cast, desc, exists, func, or
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import Chapter, CrawlState, Manga, MangaCover, Source
+from .models import Chapter, CrawlState, Manga, MangaCover, MangaRelation, Source
 from .normalization import (
     GENRE_LABELS,
     canonical_genre,
@@ -1068,6 +1070,307 @@ async def stats(session: AsyncSession) -> CatalogStats:
         pending_enrichment=pending_total,
         retrying_enrichment=retrying_total,
     )
+
+
+def _freshness_score(manga: Manga, now: datetime) -> float:
+    moment = manga.last_chapter_at or manga.updated_at or manga.created_at
+    if moment is None:
+        return 0.25
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    age = (now - moment).total_seconds() / 86400
+    if age <= 30:
+        return 1.0
+    if age <= 180:
+        return 0.7
+    if age <= 365:
+        return 0.45
+    return 0.2
+
+
+def _recommendation_score(
+    manga: Manga,
+    *,
+    weights: Counter[str],
+    max_affinity: int,
+    related: bool,
+    now: datetime,
+    personalized: bool,
+    seed_only: bool,
+) -> float:
+    affinity = 0.0
+    if max_affinity > 0:
+        raw = sum(weights.get(slug, 0) for slug in genre_slugs(manga.genres or []))
+        affinity = min(1.0, raw / max_affinity)
+    rating = max(0.0, min(1.0, (manga.rating or 0.0) / 10.0))
+    popularity = min(1.0, math.log1p(max(0, manga.rating_count or 0)) / 11.5)
+    freshness = _freshness_score(manga, now)
+    boost = 0.18 if related else 0.0
+    if personalized:
+        return 0.55 * affinity + 0.18 * rating + 0.12 * freshness + 0.10 * popularity + boost
+    if seed_only:
+        return 0.48 * affinity + 0.20 * rating + 0.20 * freshness + 0.12 * popularity + boost
+    return 0.45 * rating + 0.30 * freshness + 0.25 * popularity
+
+
+async def recommend_manga(
+    session: AsyncSession,
+    *,
+    seed_manga_id: uuid.UUID | None = None,
+    history_ids: list[uuid.UUID] | None = None,
+    bookmark_ids: list[uuid.UUID] | None = None,
+    exclude_ids: list[uuid.UUID] | None = None,
+    limit: int = 12,
+) -> tuple[list[Manga], str]:
+    """Simple explainable recommendations from the local catalogue.
+
+    Ranking uses genre affinity (history/bookmarks/seed), rating, freshness and
+    popularity.  Read titles are excluded by id and by normalised title group so
+    another source variant of an already-read title never appears.  Titles with
+    no chapters are never recommended.
+    """
+
+    history = list(dict.fromkeys(history_ids or []))
+    bookmarks = list(dict.fromkeys(bookmark_ids or []))
+    explicit_excludes = list(dict.fromkeys(exclude_ids or []))
+    focus_ids = list(dict.fromkeys(([seed_manga_id] if seed_manga_id else []) + history + bookmarks))
+    excluded_ids = set(focus_ids + explicit_excludes)
+    focus = list(
+        (await session.scalars(select(Manga).where(Manga.id.in_(focus_ids)))).all()
+    ) if focus_ids else []
+    focus_by_id = {manga.id: manga for manga in focus}
+
+    weights: Counter[str] = Counter()
+    if seed_manga_id and seed_manga_id in focus_by_id:
+        for slug in genre_slugs(focus_by_id[seed_manga_id].genres or []):
+            weights[slug] += 3
+    for manga_id in history:
+        manga = focus_by_id.get(manga_id)
+        if manga:
+            for slug in genre_slugs(manga.genres or []):
+                weights[slug] += 2
+    for manga_id in bookmarks:
+        manga = focus_by_id.get(manga_id)
+        if manga:
+            for slug in genre_slugs(manga.genres or []):
+                weights[slug] += 1
+
+    excluded_groups = {
+        (manga.group_key or str(manga.id)) for manga in focus if manga.id in excluded_ids
+    }
+    for raw in explicit_excludes:
+        row = await find_manga(session, raw)
+        if row is not None:
+            excluded_groups.add(row.group_key or str(row.id))
+
+    related_ids: set[uuid.UUID] = set()
+    if focus_ids:
+        relation_rows = list(
+            (
+                await session.scalars(
+                    select(MangaRelation).where(
+                        or_(
+                            MangaRelation.from_manga_id.in_(focus_ids),
+                            MangaRelation.to_manga_id.in_(focus_ids),
+                        )
+                    )
+                )
+            ).all()
+        )
+        focus_set = set(focus_ids)
+        for relation in relation_rows:
+            if relation.from_manga_id in focus_set:
+                related_ids.add(relation.to_manga_id)
+            if relation.to_manga_id in focus_set:
+                related_ids.add(relation.from_manga_id)
+    related_ids -= excluded_ids
+
+    conditions: list[Any] = [
+        Manga.chapters_count > 0,
+        exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+    ]
+    if excluded_ids:
+        conditions.append(Manga.id.notin_(list(excluded_ids)))
+    candidates = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*conditions)
+                .order_by(
+                    desc(Manga.rating_count),
+                    desc(Manga.rating),
+                    desc(Manga.last_chapter_at),
+                    desc(Manga.updated_at),
+                )
+                .limit(500)
+            )
+        ).all()
+    )
+
+    now = datetime.now(UTC)
+    max_affinity = max(weights.values(), default=0)
+    personalized = bool(history or bookmarks)
+    seed_only = bool(seed_manga_id and not personalized)
+    scored: list[tuple[float, Manga]] = []
+    seen_groups: set[str] = set()
+    for manga in candidates:
+        group = manga.group_key or str(manga.id)
+        if manga.id in excluded_ids or group in excluded_groups or group in seen_groups:
+            continue
+        seen_groups.add(group)
+        score = _recommendation_score(
+            manga,
+            weights=weights,
+            max_affinity=max_affinity,
+            related=manga.id in related_ids,
+            now=now,
+            personalized=personalized,
+            seed_only=seed_only,
+        )
+        scored.append((score, manga))
+    scored.sort(key=lambda item: (item[0], item[1].rating or 0), reverse=True)
+
+    chosen: list[Manga] = []
+    genre_counts: Counter[str] = Counter()
+    # First pass keeps the shelf varied; a second pass fills the remainder from
+    # any genre if the catalogue is too small.
+    for _score, manga in scored:
+        if len(chosen) >= limit:
+            break
+        slugs = genre_slugs(manga.genres or [])
+        primary = slugs[0] if slugs else ""
+        if primary and genre_counts[primary] >= 3:
+            continue
+        chosen.append(manga)
+        if primary:
+            genre_counts[primary] += 1
+    if len(chosen) < limit:
+        chosen_ids = {manga.id for manga in chosen}
+        for _, manga in scored:
+            if len(chosen) >= limit:
+                break
+            if manga.id not in chosen_ids:
+                chosen.append(manga)
+                chosen_ids.add(manga.id)
+
+    if personalized:
+        strategy = "personalized"
+    elif seed_only:
+        strategy = "related"
+    else:
+        strategy = "popular"
+    return chosen, strategy
+
+
+async def upsert_relation(
+    session: AsyncSession,
+    *,
+    from_manga_id: uuid.UUID,
+    to_manga_id: uuid.UUID,
+    relation: str,
+    series_key: str | None = None,
+) -> MangaRelation:
+    existing = await session.scalar(
+        select(MangaRelation).where(
+            MangaRelation.relation == relation,
+            or_(
+                and_(
+                    MangaRelation.from_manga_id == from_manga_id,
+                    MangaRelation.to_manga_id == to_manga_id,
+                ),
+                and_(
+                    MangaRelation.from_manga_id == to_manga_id,
+                    MangaRelation.to_manga_id == from_manga_id,
+                ),
+            ),
+        )
+    )
+    normalized_key = (series_key or "").strip()[:180] or None
+    if relation != "series":
+        normalized_key = None
+    if existing is None:
+        existing = MangaRelation(
+            from_manga_id=from_manga_id,
+            to_manga_id=to_manga_id,
+            relation=relation,
+            series_key=normalized_key,
+        )
+        session.add(existing)
+    elif normalized_key:
+        existing.series_key = normalized_key
+    await session.flush()
+    return existing
+
+
+async def manga_relations(
+    session: AsyncSession, manga_id: uuid.UUID
+) -> tuple[list[Manga], list[Manga]]:
+    """Return explicit series and related titles for one manga page."""
+
+    rows = list(
+        (
+            await session.scalars(
+                select(MangaRelation).where(
+                    or_(
+                        MangaRelation.from_manga_id == manga_id,
+                        MangaRelation.to_manga_id == manga_id,
+                    )
+                )
+            )
+        ).all()
+    )
+    series_keys = {
+        row.series_key for row in rows if row.relation == "series" and row.series_key
+    }
+    if series_keys:
+        extra = list(
+            (
+                await session.scalars(
+                    select(MangaRelation).where(
+                        MangaRelation.relation == "series",
+                        MangaRelation.series_key.in_(series_keys),
+                    )
+                )
+            ).all()
+        )
+        known = {(row.from_manga_id, row.to_manga_id, row.relation) for row in rows}
+        rows.extend(
+            row
+            for row in extra
+            if (row.from_manga_id, row.to_manga_id, row.relation) not in known
+        )
+
+    series_ids: set[uuid.UUID] = set()
+    related_ids: set[uuid.UUID] = set()
+    for row in rows:
+        if row.relation == "series":
+            series_ids.update({row.from_manga_id, row.to_manga_id})
+        else:
+            related_ids.update({row.from_manga_id, row.to_manga_id})
+    series_ids.discard(manga_id)
+    related_ids.discard(manga_id)
+    related_ids -= series_ids
+    ids = series_ids | related_ids
+    if not ids:
+        return [], []
+
+    found = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(
+                    Manga.id.in_(ids),
+                    Manga.chapters_count > 0,
+                    exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+                )
+                .order_by(desc(Manga.rating), desc(Manga.rating_count), Manga.title.asc())
+            )
+        ).all()
+    )
+    by_id = {manga.id: manga for manga in found}
+    series = [by_id[item] for item in series_ids if item in by_id]
+    related = [by_id[item] for item in related_ids if item in by_id]
+    return series, related
 
 
 def manga_title(manga: Manga) -> str:

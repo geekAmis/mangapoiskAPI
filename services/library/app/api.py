@@ -4,16 +4,22 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from manga_common.schemas import (
+    AnalyticsEventsIn,
+    AnalyticsIngestOut,
+    AnalyticsRetentionOut,
     BookmarkCreate,
     BookmarkOut,
     LoginRequest,
     LogoutRequest,
     OkResponse,
+    ProgressMergeOut,
+    ProgressMergeRequest,
     ProgressOut,
     ProgressUpsert,
     ReaderSettings,
     RefreshRequest,
     RegisterRequest,
+    StreakOut,
     TokenPair,
     UserOut,
 )
@@ -157,6 +163,42 @@ async def progress_upsert(
         page=payload.page,
         total_pages=payload.total_pages,
     )
+
+
+@router.post("/me/progress/merge", response_model=ProgressMergeOut)
+async def progress_merge(
+    payload: ProgressMergeRequest,
+    user: UserClaims = Depends(require_user),
+    service: LibraryService = Depends(get_service),
+) -> ProgressMergeOut:
+    return await service.merge_local_progress(
+        uuid.UUID(user.id), payload.items, payload.read_days
+    )
+
+
+@router.get("/me/streak", response_model=StreakOut)
+async def streak(
+    timezone: str | None = Query(default=None, max_length=64),
+    user: UserClaims = Depends(require_user),
+    service: LibraryService = Depends(get_service),
+) -> StreakOut:
+    return await service.streak(uuid.UUID(user.id), timezone)
+
+
+@router.post("/analytics/events", response_model=AnalyticsIngestOut)
+async def analytics_events(
+    payload: AnalyticsEventsIn,
+    service: LibraryService = Depends(get_service),
+) -> AnalyticsIngestOut:
+    return await service.ingest_analytics(payload.events)
+
+
+@router.get("/analytics/retention", response_model=AnalyticsRetentionOut)
+async def analytics_retention(
+    days: int = Query(default=30, ge=1, le=90),
+    service: LibraryService = Depends(get_service),
+) -> AnalyticsRetentionOut:
+    return await service.analytics_retention(days)
 
 
 @router.delete("/me/progress/{manga_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,5 +1,7 @@
 import { useAuthStore } from '../stores/auth';
 import type {
+  AnalyticsEventIn,
+  AnalyticsIngestOut,
   ApiErrorBody,
   BookmarkOut,
   ChapterDetailOut,
@@ -19,12 +21,17 @@ import type {
   OkResponse,
   PageOut,
   Paginated,
+  ProgressMergeItem,
+  ProgressMergeOut,
   ProgressOut,
   ProgressUpsert,
   ReaderSettings,
+  RecommendationListOut,
   RegisterRequest,
+  RelatedMangaOut,
   SearchResponse,
   SourceOut,
+  StreakOut,
   TokenPair,
   UserOut,
 } from './types';
@@ -412,5 +419,54 @@ export const api = {
       method: 'PUT',
       body: settings,
       auth: true,
+    }),
+
+  mergeProgress: (items: ProgressMergeItem[], readDays: string[] = []) =>
+    request<ProgressMergeOut>('/library/progress/merge', {
+      method: 'POST',
+      body: { items, read_days: readDays },
+      auth: true,
+    }),
+
+  getStreak: (timezone: string, signal?: AbortSignal) =>
+    request<StreakOut>('/library/streak', {
+      query: { timezone },
+      auth: true,
+      signal,
+    }),
+
+  getRecommendations: (
+    params: {
+      limit?: number;
+      seedMangaId?: string;
+      seedIds?: string[];
+      excludeIds?: string[];
+    },
+    authenticated: boolean,
+    signal?: AbortSignal,
+  ) =>
+    request<RecommendationListOut>('/recommendations', {
+      query: {
+        limit: params.limit ?? 12,
+        seed_manga_id: params.seedMangaId,
+        seed_ids: params.seedIds?.slice(0, 50).join(','),
+        exclude: params.excludeIds?.slice(0, 50).join(','),
+      },
+      auth: authenticated,
+      signal,
+    }),
+
+  getMangaRelated: (id: string, signal?: AbortSignal) =>
+    request<RelatedMangaOut>(`/manga/${encodeURIComponent(id)}/related`, {
+      auth: false,
+      signal,
+    }),
+
+  trackEvents: (events: AnalyticsEventIn[]) =>
+    request<AnalyticsIngestOut>('/analytics/events', {
+      method: 'POST',
+      body: { events },
+      auth: false,
+      skipRefresh: true,
     }),
 };

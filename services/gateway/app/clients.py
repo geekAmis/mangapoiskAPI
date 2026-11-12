@@ -15,6 +15,8 @@ from manga_common.errors import (
 )
 from manga_common.http import build_client
 from manga_common.schemas import (
+    AnalyticsIngestOut,
+    AnalyticsRetentionOut,
     BookmarkOut,
     ChapterDetailOut,
     ChapterOut,
@@ -24,9 +26,13 @@ from manga_common.schemas import (
     MangaListResponse,
     MangaOut,
     MangaVariantsOut,
+    ProgressMergeOut,
     ProgressOut,
     ReaderSettings,
+    RecommendationListOut,
+    RelatedMangaOut,
     SourceOut,
+    StreakOut,
     TokenPair,
     UserOut,
 )
@@ -206,6 +212,17 @@ class CatalogClient(InternalClient):
         data = await self.request("GET", f"/internal/manga/{manga_id}/variants")
         return MangaVariantsOut.model_validate(data)
 
+    async def recommendations(self, payload: dict[str, Any]) -> RecommendationListOut:
+        data = await self.request("POST", "/internal/recommendations", json=payload)
+        return RecommendationListOut.model_validate(data)
+
+    async def related(self, manga_id: str) -> RelatedMangaOut:
+        data = await self.request("GET", f"/internal/manga/{manga_id}/related")
+        return RelatedMangaOut.model_validate(data)
+
+    async def link_relations(self, manga_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.request("PUT", f"/internal/manga/{manga_id}/relations", json=payload)
+
     async def chapters(
         self, manga_id: str, *, page: int = 1, limit: int = 200, query: str | None = None
     ) -> list[ChapterOut]:
@@ -361,6 +378,31 @@ class LibraryClient(InternalClient):
             "PUT", "/internal/me/settings", authorization, json=payload.model_dump()
         )
         return ReaderSettings.model_validate(data)
+
+    async def merge_progress(
+        self, authorization: str, payload: dict[str, Any]
+    ) -> ProgressMergeOut:
+        data = await self._auth(
+            "POST", "/internal/me/progress/merge", authorization, json=payload
+        )
+        return ProgressMergeOut.model_validate(data)
+
+    async def streak(self, authorization: str, timezone: str | None) -> StreakOut:
+        params = {"timezone": timezone} if timezone else None
+        data = await self._auth(
+            "GET", "/internal/me/streak", authorization, params=params
+        )
+        return StreakOut.model_validate(data)
+
+    async def ingest_analytics(self, payload: dict[str, Any]) -> AnalyticsIngestOut:
+        data = await self.request("POST", "/internal/analytics/events", json=payload)
+        return AnalyticsIngestOut.model_validate(data)
+
+    async def analytics_retention(self, days: int) -> AnalyticsRetentionOut:
+        data = await self.request(
+            "GET", "/internal/analytics/retention", params={"days": days}
+        )
+        return AnalyticsRetentionOut.model_validate(data)
 
 
 class ControlClient(InternalClient):

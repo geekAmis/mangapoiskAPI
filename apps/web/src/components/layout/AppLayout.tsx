@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom';
+import { useProgressSync } from '../../lib/useReading';
 import { OfflineBanner } from '../OfflineBanner';
 import { QueryCacheBridge } from '../QueryCacheBridge';
 import { AndroidApkBanner } from './AndroidApkBanner';
@@ -7,6 +8,7 @@ import { Header } from './Header';
 import { MobileNav } from './MobileNav';
 
 export function AppLayout() {
+  useProgressSync();
   return (
     <div className="app-shell">
       <QueryCacheBridge />

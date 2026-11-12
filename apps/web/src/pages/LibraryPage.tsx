@@ -10,6 +10,7 @@ import { MangaCard } from '../components/MangaCard';
 import { MangaGridSkeleton, Skeleton } from '../components/Skeleton';
 import { Modal } from '../components/Modal';
 import { Poster } from '../components/Poster';
+import { StreakBadge } from '../components/StreakBadge';
 import {
   cancelDownload,
   preparePercent,
@@ -231,6 +232,8 @@ export default function LibraryPage() {
         aria-labelledby={`library-tab-${tab}`}
         className="library-panel"
       >
+        {tab === 'reading' ? <StreakBadge variant="card" /> : null}
+
         {tab === 'reading' ? (
           progressQuery.isLoading ? (
             <div className="reading-grid" aria-hidden="true">

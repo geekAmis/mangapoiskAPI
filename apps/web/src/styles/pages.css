@@ -2570,3 +2570,123 @@
     display: none;
   }
 }
+
+/* --- Retention: streak, shelves, completion --- */
+.streak-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.streak-pill strong {
+  color: var(--accent);
+}
+.streak-pill.is-today {
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+.streak-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 8% 0%, var(--accent-soft), transparent 42%),
+    var(--surface-2);
+}
+.streak-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.streak-card__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.streak-card__head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.streak-card__head strong {
+  font-size: 0.92rem;
+}
+.streak-card__head span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+.streak-card__record {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+.streak-card__days {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 5px;
+}
+.streak-card__day {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.streak-card__day.is-active {
+  border-color: transparent;
+  background: var(--accent);
+}
+.recommendation-shelf__hint {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+.manga-completion {
+  margin-top: 16px;
+}
+.manga-completion .ml-panel {
+  padding: 14px;
+}
+.related-shelves {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+.related-shelves .ml-panel {
+  margin: 0;
+}
+.reader-completion {
+  padding: 20px clamp(12px, 3vw, 28px) calc(var(--reader-footer-h) + 28px);
+  background: var(--reader-bg);
+}
+.reader-completion .ml-panel {
+  width: min(100%, 1120px);
+  margin-inline: auto;
+}
+@media (max-width: 640px) {
+  .streak-card__head {
+    flex-wrap: wrap;
+  }
+  .streak-card__record {
+    width: 100%;
+    padding-left: 44px;
+  }
+  .streak-card__days {
+    gap: 4px;
+  }
+}
