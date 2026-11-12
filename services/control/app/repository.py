@@ -168,6 +168,15 @@ async def list_running_jobs(session: AsyncSession) -> list[DeploymentJob]:
     return list(result.all())
 
 
+async def list_jobs(session: AsyncSession, limit: int = 30) -> list[DeploymentJob]:
+    result = await session.scalars(
+        select(DeploymentJob)
+        .order_by(DeploymentJob.created_at.desc())
+        .limit(max(1, min(limit, 100)))
+    )
+    return list(result.all())
+
+
 async def update_job(
     session: AsyncSession,
     job: DeploymentJob,
@@ -207,5 +216,20 @@ async def audit(
 async def list_audit(session: AsyncSession, limit: int = 100) -> list[AuditLog]:
     result = await session.scalars(
         select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    )
+    return list(result.all())
+
+
+async def list_console_audit(
+    session: AsyncSession, server_id: uuid.UUID, limit: int = 50
+) -> list[AuditLog]:
+    result = await session.scalars(
+        select(AuditLog)
+        .where(
+            AuditLog.server_id == server_id,
+            AuditLog.action.in_(("console.command", "console.action")),
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
     )
     return list(result.all())

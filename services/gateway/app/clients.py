@@ -445,6 +445,29 @@ class ControlClient(InternalClient):
     async def server_health(self, server_id: str) -> dict[str, Any]:
         return await self.request("GET", f"/internal/servers/{server_id}/health")
 
+    async def console(
+        self, server_id: str, payload: dict[str, Any], *, admin: str
+    ) -> dict[str, Any]:
+        return await self.request(
+            "POST",
+            f"/internal/servers/{server_id}/console",
+            json=payload,
+            headers={"X-Admin-User": admin[:64]},
+            timeout=60.0,
+        )
+
+    async def console_history(
+        self, server_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        return await self.request(
+            "GET",
+            f"/internal/servers/{server_id}/console/history",
+            params={"limit": limit},
+        )
+
+    async def jobs(self, limit: int = 30) -> list[dict[str, Any]]:
+        return await self.request("GET", "/internal/jobs", params={"limit": limit})
+
     async def promote_replica(self, server_id: str) -> dict[str, Any]:
         return await self.request(
             "POST", f"/internal/servers/{server_id}/replica/promote", timeout=300.0

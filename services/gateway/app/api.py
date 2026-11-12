@@ -1566,6 +1566,29 @@ async def admin_server_health(
     return await control(request).server_health(str(server_id))
 
 
+@router.post("/admin/servers/{server_id}/console")
+async def admin_server_console(
+    request: Request,
+    server_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    """Restricted console: allowlisted read-only commands or actions only."""
+
+    admin = str(user.raw.get("username") or "admin")[:64]
+    return await control(request).console(str(server_id), payload, admin=admin)
+
+
+@router.get("/admin/servers/{server_id}/console/history")
+async def admin_server_console_history(
+    request: Request,
+    server_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    user: UserClaims = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    return await control(request).console_history(str(server_id), limit)
+
+
 @router.post("/admin/servers/{server_id}/replica/promote")
 async def admin_promote_replica(
     request: Request,
@@ -1588,6 +1611,15 @@ async def admin_bootstrap_replica(
     except (TypeError, ValueError) as exc:
         raise ValidationError("Некорректный исходный сервер") from exc
     return await control(request).bootstrap_replica(str(server_id), str(source_id))
+
+
+@router.get("/admin/jobs")
+async def admin_jobs(
+    request: Request,
+    limit: int = Query(default=30, ge=1, le=100),
+    user: UserClaims = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    return await control(request).jobs(limit)
 
 
 @router.get("/admin/jobs/{job_id}")

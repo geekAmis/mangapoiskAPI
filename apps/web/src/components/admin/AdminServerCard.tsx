@@ -15,6 +15,7 @@ interface AdminServerCardProps {
   onToggleEnabled: (server: AdminServer) => void;
   onToggleFallback: (server: AdminServer) => void;
   onHealth: (server: AdminServer) => void;
+  onConsole: (server: AdminServer) => void;
 }
 
 function serviceLabel(code: string): string {
@@ -32,6 +33,7 @@ export function AdminServerCard({
   onToggleEnabled,
   onToggleFallback,
   onHealth,
+  onConsole,
 }: AdminServerCardProps) {
   // Scheduler не имеет HTTP health-check: он не входит ни в числитель, ни
   // в знаменатель. Replica — обычный HTTP-сервис и считается как все.
@@ -139,6 +141,15 @@ export function AdminServerCard({
         >
           <Icon name="edit" size={15} />
           Изменить
+        </button>
+        <button
+          type="button"
+          className="btn btn--soft btn--sm"
+          onClick={() => onConsole(server)}
+          title="Открыть ограниченную серверную консоль"
+        >
+          <Icon name="terminal" size={15} />
+          Консоль
         </button>
         <button
           type="button"

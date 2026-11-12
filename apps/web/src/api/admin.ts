@@ -243,6 +243,27 @@ export interface AdminAuditEntry {
   created_at: string | null;
 }
 
+export interface AdminConsoleRequest {
+  command?: string;
+  action?: string;
+  params?: Record<string, unknown>;
+}
+
+export interface AdminConsoleResult {
+  ok: boolean;
+  kind: 'command' | 'action';
+  action: string;
+  command: string | null;
+  output: string;
+  exit_code: number | null;
+  duration_ms: number;
+  truncated: boolean;
+  timed_out: boolean;
+  output_hash: string | null;
+  job_id: string | null;
+  message: string | null;
+}
+
 export interface AdminCrawlState {
   source: string;
   mode: 'full' | 'incremental';
@@ -552,8 +573,23 @@ export const adminApi = {
       body: payload,
     }),
 
+  listJobs: (limit = 30, signal?: AbortSignal) =>
+    adminRequest<AdminJob[]>(`/jobs?limit=${encodeURIComponent(String(limit))}`, { signal }),
+
   getJob: (id: string, signal?: AbortSignal) =>
     adminRequest<AdminJob>(`/jobs/${encodeURIComponent(id)}`, { signal }),
+
+  console: (serverId: string, payload: AdminConsoleRequest) =>
+    adminRequest<AdminConsoleResult>(`/servers/${encodeURIComponent(serverId)}/console`, {
+      method: 'POST',
+      body: payload,
+    }),
+
+  consoleHistory: (serverId: string, limit = 50, signal?: AbortSignal) =>
+    adminRequest<AdminAuditEntry[]>(
+      `/servers/${encodeURIComponent(serverId)}/console/history?limit=${encodeURIComponent(String(limit))}`,
+      { signal },
+    ),
 
   getServerHealth: (id: string, signal?: AbortSignal) =>
     adminRequest<AdminServerHealth>(`/servers/${encodeURIComponent(id)}/health`, { signal }),

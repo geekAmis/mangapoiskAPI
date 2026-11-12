@@ -145,11 +145,12 @@ function SourceCard({
   );
 }
 
-export function CrawlerStatusPanel() {
+export function CrawlerStatusPanel({ active = true }: { active?: boolean }) {
   const statusQuery = useQuery({
     queryKey: ['admin', 'crawl-status'],
     queryFn: ({ signal }) => adminApi.getCrawlerStatus(signal),
-    refetchInterval: 15_000,
+    enabled: active,
+    refetchInterval: active ? 15_000 : false,
     staleTime: 5_000,
     retry: 1,
   });

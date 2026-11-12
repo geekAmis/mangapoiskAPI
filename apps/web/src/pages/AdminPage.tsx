@@ -1,435 +1,124 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ADMIN_SERVICES,
   ADMIN_UNAUTHORIZED_EVENT,
   adminApi,
   adminErrorMessage,
   getAdminToken,
-  healthErrorText,
   isAdminUnauthorized,
   setAdminToken,
-  type AdminAuditEntry,
-  type AdminCommentReport,
   type AdminRegistry,
-  type AdminRegistryEndpoint,
   type AdminServer,
-  type AdminSourceCookie,
 } from '../api/admin';
-import { api } from '../api/client';
-import type { SourceOut } from '../api/types';
-import { EmptyState } from '../components/EmptyState';
-import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { DancingSpinner } from '../components/DancingLoader';
 import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
 import { AdminLogin } from '../components/admin/AdminLogin';
-import { AdminServerCard } from '../components/admin/AdminServerCard';
-import { AdsPanel } from '../components/admin/AdsPanel';
-import { CrawlerStatusPanel } from '../components/admin/CrawlerStatusPanel';
 import { DeployModal } from '../components/admin/DeployModal';
-import { MediaStoragePanel } from '../components/admin/MediaStoragePanel';
 import { ServerFormModal } from '../components/admin/ServerFormModal';
-import { formatDateTime, formatInt } from '../lib/format';
-import { extractHarCookie } from '../lib/har';
 import { useDocumentTitle } from '../lib/hooks';
 import { toast } from '../stores/toast';
+import { AdminTabs, type AdminTabBadge } from './admin/AdminTabs';
+import { adminTabDefinition, parseAdminTab, type AdminTabId } from './admin/tabs';
 import '../styles/admin.css';
 
-const SERVICE_LABELS: Record<string, string> = Object.fromEntries(
-  ADMIN_SERVICES.map((service) => [service.code, service.label]),
+const OverviewPanel = lazy(() =>
+  import('./admin/OverviewPanel').then((module) => ({ default: module.OverviewPanel })),
+);
+const ServersPanel = lazy(() =>
+  import('./admin/ServersPanel').then((module) => ({ default: module.ServersPanel })),
+);
+const DeployPanel = lazy(() =>
+  import('./admin/DeployPanel').then((module) => ({ default: module.DeployPanel })),
+);
+const CrawlerPanel = lazy(() =>
+  import('./admin/CrawlerPanel').then((module) => ({ default: module.CrawlerPanel })),
+);
+const MediaStoragePanel = lazy(() =>
+  import('../components/admin/MediaStoragePanel').then((module) => ({
+    default: module.MediaStoragePanel,
+  })),
+);
+const AdsPanel = lazy(() =>
+  import('../components/admin/AdsPanel').then((module) => ({ default: module.AdsPanel })),
+);
+const CommentsPanel = lazy(() =>
+  import('./admin/CommentsPanel').then((module) => ({ default: module.CommentsPanel })),
+);
+const IntegrationsPanel = lazy(() =>
+  import('./admin/IntegrationsPanel').then((module) => ({ default: module.IntegrationsPanel })),
+);
+const AuditPanel = lazy(() =>
+  import('./admin/AuditPanel').then((module) => ({ default: module.AuditPanel })),
+);
+const TerminalPanel = lazy(() =>
+  import('./admin/TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
 );
 
-const AUDIT_LABELS: Record<string, string> = {
-  create_server: 'Создан сервер',
-  update_server: 'Обновлён сервер',
-  delete_server: 'Удалён сервер',
-  deploy: 'Развёртывание',
-  deploy_started: 'Запущено развёртывание',
-  health_check: 'Health-check',
-  registry_sync: 'Синхронизация маршрутов',
-  failover: 'Failover',
-  server_created: 'Создан сервер',
-  server_updated: 'Обновлён сервер',
-  server_deleted: 'Удалён сервер',
-  'server.created': 'Создан сервер',
-  'server.updated': 'Обновлён сервер',
-  'server.deleted': 'Удалён сервер',
-  'deployment.started': 'Запущено развёртывание',
-  'deployment.finished': 'Развёртывание завершено',
-  'deployment.failed': 'Ошибка развёртывания',
-  'registry.synced': 'Маршруты синхронизированы',
-  'registry.sync': 'Маршруты синхронизированы',
-  'failover.applied': 'Failover выполнен',
-  'health.checked': 'Health-check',
-  'ads.provider_created': 'Добавлена рекламная интеграция',
-  'ads.provider_updated': 'Обновлена рекламная интеграция',
-  'ads.provider_deleted': 'Удалена рекламная интеграция',
-  'ads.secret_set': 'Рекламный ключ сохранён',
-  'ads.secret_deleted': 'Рекламный ключ удалён',
-};
-
-function detailsSummary(entry: AdminAuditEntry): string {
-  const details = entry.details ?? {};
-  const preferred = ['service', 'services', 'job_id', 'host', 'port', 'url', 'name'];
-  const parts: string[] = [];
-  const sensitive = /pass|secret|token/i;
-  const renderValue = (key: string, value: unknown) => {
-    if (value === undefined || value === null || value === '') return null;
-    if (sensitive.test(key)) return `${key}: [скрыто]`;
-    return `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`;
-  };
-  for (const key of preferred) {
-    const rendered = renderValue(key, details[key]);
-    if (rendered) parts.push(rendered);
-  }
-  if (parts.length === 0) {
-    for (const [key, value] of Object.entries(details)) {
-      const rendered = renderValue(key, value);
-      if (!rendered) continue;
-      parts.push(rendered);
-      if (parts.length >= 4) break;
-    }
-  }
-  const text = parts.join(' · ') || '—';
-  return text.length > 140 ? `${text.slice(0, 139)}…` : text;
-}
-
-function SourceCookieRow({ source }: { source: SourceOut }) {
-  const queryClient = useQueryClient();
-  const [value, setValue] = useState('');
-  const harInputRef = useRef<HTMLInputElement>(null);
-  const stateQuery = useQuery({
-    queryKey: ['admin', 'source-cookie', source.code],
-    queryFn: ({ signal }) => adminApi.getSourceCookie(source.code, signal),
-  });
-  const state: AdminSourceCookie | undefined = stateQuery.data;
-  const saveMutation = useMutation({
-    mutationFn: (cookie: string) => adminApi.setSourceCookie(source.code, cookie),
-    onSuccess: (next) => {
-      setValue('');
-      queryClient.setQueryData(['admin', 'source-cookie', source.code], next);
-      toast.success(next.configured ? 'Cookie сохранён' : 'Cookie очищен');
-    },
-    onError: (error) => toast.error(adminErrorMessage(error, 'Не удалось сохранить cookie')),
-  });
-  const harMutation = useMutation({
-    mutationFn: async (file: File) => {
-      let text: string;
-      try {
-        text = await file.text();
-      } catch {
-        throw new Error('Не удалось прочитать HAR-файл. Проверьте доступ к файлу и его размер.');
-      }
-      const result = extractHarCookie(text, source.code);
-      if (result.status === 'invalid-har') {
-        throw new Error(
-          'Файл не является корректным HAR. Сохраните его заново: DevTools → Network → Save all as HAR.',
-        );
-      }
-      if (result.status === 'no-cookie') {
-        throw new Error(
-          'В HAR не нашлись cookie для этого источника. Откройте сайт, авторизуйтесь и сохраните HAR заново.',
-        );
-      }
-      return adminApi.setSourceCookie(source.code, result.cookie);
-    },
-    onSuccess: (next) => {
-      setValue('');
-      queryClient.setQueryData(['admin', 'source-cookie', source.code], next);
-      toast.success('Cookie из HAR сохранён');
-    },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error && error.message
-          ? error.message
-          : 'Не удалось прочитать HAR-файл',
-      );
-    },
-  });
-
+function PanelFallback() {
   return (
-    <div className="admin-cookie-row">
-      <div className="admin-cookie-row__head">
-        <div className="admin-cookie-row__title">
-          <strong>{source.name}</strong>
-          <span>{source.code}</span>
-        </div>
-        <span className={`badge${state?.configured ? ' badge--success' : ''}`}>
-          {stateQuery.isLoading ? 'Проверка…' : state?.configured ? 'Настроен' : 'Не задан'}
-        </span>
-      </div>
-      {state?.supported === false ? (
-        <p className="admin-cookie-row__note">Источник не поддерживает cookie-авторизацию.</p>
-      ) : (
-        <>
-          <div className="admin-cookie-row__form">
-            <input
-              className="input"
-              type="password"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              placeholder="Cookie или токен источника"
-              autoComplete="off"
-              spellCheck={false}
-              aria-label={`Cookie для ${source.name}`}
-            />
-            <button
-              type="button"
-              className="btn btn--primary btn--sm"
-              disabled={!value.trim() || saveMutation.isPending}
-              onClick={() => saveMutation.mutate(value.trim())}
-            >
-              {saveMutation.isPending ? <DancingSpinner size={14} /> : <Icon name="check" size={14} />}
-              Сохранить
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              disabled={!state?.configured || saveMutation.isPending}
-              onClick={() => {
-                if (!window.confirm(`Очистить cookie для ${source.name}?`)) return;
-                saveMutation.mutate('');
-              }}
-            >
-              Очистить
-            </button>
-            <input
-              ref={harInputRef}
-              type="file"
-              accept=".har,application/json"
-              hidden
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
-                if (file) harMutation.mutate(file);
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn--outline btn--sm"
-              disabled={harMutation.isPending}
-              onClick={() => harInputRef.current?.click()}
-              title="Извлечь cookie из сохранённого HAR-файла"
-            >
-              {harMutation.isPending ? <DancingSpinner size={14} /> : <Icon name="download" size={14} />}
-              Из HAR
-            </button>
-          </div>
-          <p className="admin-cookie-row__note">
-            {state?.updated_at
-              ? `Обновлён ${formatDateTime(state.updated_at)}. Значение хранится на сервере и никогда не возвращается в браузер.`
-              : 'Можно вставить заголовок Cookie вручную или загрузить HAR — браузер извлечёт cookie локально, на сервер уйдёт только заголовок Cookie.'}
-          </p>
-        </>
-      )}
+    <div className="admin-panel" aria-hidden="true">
+      <Skeleton height="220px" style={{ borderRadius: 14 }} />
     </div>
   );
 }
 
-function SourceCookiesPanel() {
-  const sourcesQuery = useQuery({
-    queryKey: ['sources'],
-    queryFn: ({ signal }) => api.sources(signal),
-  });
-  const sources = sourcesQuery.data ?? [];
-
+function TabPanel({
+  id,
+  active,
+  children,
+}: {
+  id: AdminTabId;
+  active: boolean;
+  children: ReactNode;
+}) {
   return (
-    <section className="admin-panel" aria-labelledby="admin-cookies-title">
-      <div className="admin-panel__head">
-        <div>
-          <h2 id="admin-cookies-title">Источники и cookie</h2>
-          <p>
-            Авторизация для Remanga и других источников. Пустое значение означает анонимный доступ.
-            Cookie применяется сразу, без перезапуска парсера.
-          </p>
-        </div>
-      </div>
-      {sourcesQuery.isLoading ? (
-        <Skeleton height="180px" style={{ borderRadius: 12 }} />
-      ) : sourcesQuery.isError ? (
-        <ErrorState
-          title="Источники недоступны"
-          message={adminErrorMessage(sourcesQuery.error)}
-          onRetry={() => void sourcesQuery.refetch()}
-        />
-      ) : sources.length === 0 ? (
-        <EmptyState compact icon="server" title="Нет источников" description="Парсер не вернул ни одного источника." />
-      ) : (
-        <div className="admin-cookie-list">
-          {sources.map((source) => (
-            <SourceCookieRow key={source.code} source={source} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function CommentModerationPanel() {
-  const queryClient = useQueryClient();
-  const reportsQuery = useQuery({
-    queryKey: ['admin', 'comment-reports', 'open'],
-    queryFn: ({ signal }) => adminApi.getCommentReports('open', signal),
-  });
-  const commentsQuery = useQuery({
-    queryKey: ['admin', 'reported-comments'],
-    queryFn: ({ signal }) => adminApi.getReportedComments(signal),
-  });
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['admin', 'comment-reports'] });
-    void queryClient.invalidateQueries({ queryKey: ['admin', 'reported-comments'] });
-  };
-  const resolveMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: 'resolved' | 'dismissed' }) =>
-      adminApi.resolveCommentReport(id, status),
-    onSuccess: invalidate,
-    onError: (error) => toast.error(adminErrorMessage(error, 'Не удалось обработать жалобу')),
-  });
-  const moderateMutation = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'hide' | 'restore' }) =>
-      adminApi.moderateComment(id, action),
-    onSuccess: invalidate,
-    onError: (error) => toast.error(adminErrorMessage(error, 'Не удалось изменить комментарий')),
-  });
-
-  const reports: AdminCommentReport[] = reportsQuery.data?.items ?? [];
-  const comments = commentsQuery.data?.items ?? [];
-
-  return (
-    <section className="admin-panel" aria-labelledby="admin-moderation-title">
-      <div className="admin-panel__head">
-        <div>
-          <h2 id="admin-moderation-title">Модерация комментариев</h2>
-          <p>Жалобы читателей и комментарии, на которые пожаловались. Скрытие убирает текст из публичных обсуждений.</p>
-        </div>
-      </div>
-
-      <div className="admin-moderation-grid">
-        <div className="admin-moderation-column">
-          <h3>Открытые жалобы</h3>
-          {reportsQuery.isLoading ? (
-            <Skeleton height="120px" />
-          ) : reportsQuery.isError ? (
-            <InlineError
-              message={adminErrorMessage(reportsQuery.error, 'Не удалось загрузить жалобы.')}
-              onRetry={() => void reportsQuery.refetch()}
-            />
-          ) : reports.length === 0 ? (
-            <p className="admin-moderation-empty">Открытых жалоб нет.</p>
-          ) : (
-            <div className="admin-moderation-list">
-              {reports.map((report) => (
-                <article className="admin-moderation-item" key={report.id}>
-                  <div className="admin-moderation-item__head">
-                    <strong>{report.comment?.user_name ?? 'Комментарий удалён'}</strong>
-                    <span>{formatDateTime(report.created_at)}</span>
-                  </div>
-                  {report.comment ? (
-                    <Link className="admin-moderation-item__manga" to={`/manga/${report.comment.manga_id}#comments`}>
-                      {report.comment.body}
-                    </Link>
-                  ) : null}
-                  <p className="admin-moderation-item__reason">Причина: {report.reason}</p>
-                  <div className="admin-moderation-item__actions">
-                    {report.comment ? (
-                      <button
-                        type="button"
-                        className="btn btn--outline btn--sm"
-                        disabled={moderateMutation.isPending}
-                        onClick={() =>
-                          moderateMutation.mutate({
-                            id: report.comment!.id,
-                            action: report.comment!.status === 'hidden' ? 'restore' : 'hide',
-                          })
-                        }
-                      >
-                        {report.comment.status === 'hidden' ? 'Восстановить' : 'Скрыть'}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={resolveMutation.isPending}
-                      onClick={() => resolveMutation.mutate({ id: report.id, status: 'resolved' })}
-                    >
-                      Решено
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={resolveMutation.isPending}
-                      onClick={() => resolveMutation.mutate({ id: report.id, status: 'dismissed' })}
-                    >
-                      Отклонить
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="admin-moderation-column">
-          <h3>Комментарии с жалобами</h3>
-          {commentsQuery.isLoading ? (
-            <Skeleton height="120px" />
-          ) : commentsQuery.isError ? (
-            <InlineError
-              message={adminErrorMessage(commentsQuery.error, 'Не удалось загрузить комментарии.')}
-              onRetry={() => void commentsQuery.refetch()}
-            />
-          ) : comments.length === 0 ? (
-            <p className="admin-moderation-empty">Нет комментариев с жалобами.</p>
-          ) : (
-            <div className="admin-moderation-list">
-              {comments.map((comment) => (
-                <article className="admin-moderation-item" key={comment.id}>
-                  <div className="admin-moderation-item__head">
-                    <strong>{comment.user_name}</strong>
-                    <span>{comment.report_count} жалоб · {comment.status}</span>
-                  </div>
-                  <p className="admin-moderation-item__body">{comment.body}</p>
-                  <div className="admin-moderation-item__actions">
-                    <Link className="btn btn--ghost btn--sm" to={`/manga/${comment.manga_id}#comments`}>
-                      Открыть тайтл
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn btn--outline btn--sm"
-                      disabled={moderateMutation.isPending}
-                      onClick={() =>
-                        moderateMutation.mutate({
-                          id: comment.id,
-                          action: comment.status === 'hidden' ? 'restore' : 'hide',
-                        })
-                      }
-                    >
-                      {comment.status === 'hidden' ? 'Восстановить' : 'Скрыть'}
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
+    <div
+      id={`admin-panel-${id}`}
+      role="tabpanel"
+      aria-labelledby={`admin-tab-${id}`}
+      hidden={!active}
+    >
+      <Suspense fallback={<PanelFallback />}>{children}</Suspense>
+    </div>
   );
 }
 
 export default function AdminPage() {
-  useDocumentTitle('Control — MangaPoisk Reborn');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = parseAdminTab(searchParams.get('tab'));
+  const selectedServerId = searchParams.get('server');
+  const currentTab = adminTabDefinition(activeTab);
+  useDocumentTitle(`Control — ${currentTab.label} — MangaPoisk Reborn`);
+
   const queryClient = useQueryClient();
   const [token, setTokenState] = useState<string | null>(() => getAdminToken());
+  const [visited, setVisited] = useState<Set<AdminTabId>>(() => new Set([activeTab]));
   const [formOpen, setFormOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<AdminServer | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminServer | null>(null);
   const [promoteTarget, setPromoteTarget] = useState<AdminServer | null>(null);
   const [deployTarget, setDeployTarget] = useState<AdminServer | null>(null);
   const [failoverOpen, setFailoverOpen] = useState(false);
+
+  useEffect(() => {
+    setVisited((previous) => {
+      if (previous.has(activeTab)) return previous;
+      const next = new Set(previous);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -472,29 +161,38 @@ export default function AdminPage() {
     retry: 1,
   });
 
+  const jobsQuery = useQuery({
+    queryKey: ['admin', 'jobs'],
+    queryFn: ({ signal }) => adminApi.listJobs(30, signal),
+    enabled: Boolean(token),
+    retry: 1,
+    refetchInterval: 15_000,
+  });
+
   const registryQuery = useQuery({
     queryKey: ['admin', 'registry'],
     queryFn: ({ signal }) => adminApi.getRegistry(signal),
-    enabled: Boolean(token),
+    enabled: Boolean(token) && activeTab === 'servers',
     retry: 1,
   });
 
   const auditQuery = useQuery({
     queryKey: ['admin', 'audit'],
     queryFn: ({ signal }) => adminApi.getAudit(100, signal),
-    enabled: Boolean(token),
+    enabled: Boolean(token) && (activeTab === 'audit' || activeTab === 'overview'),
     retry: 1,
   });
 
   const catalogueQuery = useQuery({
     queryKey: ['admin', 'catalogue'],
     queryFn: ({ signal }) => adminApi.getCatalogueHealth(signal),
-    enabled: Boolean(token),
+    enabled: Boolean(token) && (activeTab === 'crawler' || activeTab === 'overview'),
     retry: 1,
     refetchInterval: 60_000,
   });
 
   const servers = serversQuery.data ?? [];
+  const jobs = jobsQuery.data ?? [];
   const registry = registryQuery.data;
   const audit = auditQuery.data ?? [];
 
@@ -514,7 +212,8 @@ export default function AdminPage() {
         count > 0 ? `Маршруты обновлены: ${count}` : 'Здоровых узлов для обновления не найдено',
       );
     },
-    onError: (error: unknown) => toast.error(adminErrorMessage(error, 'Не удалось синхронизировать маршруты.')),
+    onError: (error: unknown) =>
+      toast.error(adminErrorMessage(error, 'Не удалось синхронизировать маршруты.')),
   });
 
   const failoverMutation = useMutation({
@@ -534,8 +233,10 @@ export default function AdminPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (variables: { server: AdminServer; patch: { enabled?: boolean; is_fallback?: boolean } }) =>
-      adminApi.updateServer(variables.server.id, variables.patch),
+    mutationFn: (variables: {
+      server: AdminServer;
+      patch: { enabled?: boolean; is_fallback?: boolean };
+    }) => adminApi.updateServer(variables.server.id, variables.patch),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'servers'] });
       void queryClient.invalidateQueries({ queryKey: ['admin', 'registry'] });
@@ -560,7 +261,9 @@ export default function AdminPage() {
   const healthMutation = useMutation({
     mutationFn: (server: AdminServer) => adminApi.getServerHealth(server.id),
     onSuccess: (health) => {
-      const unhealthy = health.services.filter((service) => service.code !== 'scheduler' && !service.healthy).length;
+      const unhealthy = health.services.filter(
+        (service) => service.code !== 'scheduler' && !service.healthy,
+      ).length;
       if (health.healthy) toast.success(`${health.name}: все сервисы здоровы`);
       else toast.error(`${health.name}: проблемных сервисов — ${unhealthy}`);
       void queryClient.invalidateQueries({ queryKey: ['admin', 'servers'] });
@@ -584,10 +287,50 @@ export default function AdminPage() {
     },
   });
 
+  const changeTab = (tab: AdminTabId) => {
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('tab', tab);
+        // Keep `server` so returning to the terminal restores the selected
+        // server and its in-memory command draft instead of losing it.
+        return next;
+      },
+      { replace: false },
+    );
+  };
+
+  const openConsole = (serverId: string) => {
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('tab', 'terminal');
+        next.set('server', serverId);
+        return next;
+      },
+      { replace: false },
+    );
+  };
+
+  const selectConsoleServer = (serverId: string | null) => {
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('tab', 'terminal');
+        if (serverId) next.set('server', serverId);
+        else next.delete('server');
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
   const refreshAll = () => {
     void serversQuery.refetch();
-    void registryQuery.refetch();
-    void auditQuery.refetch();
+    void jobsQuery.refetch();
+    if (activeTab === 'servers') void registryQuery.refetch();
+    if (activeTab === 'audit' || activeTab === 'overview') void auditQuery.refetch();
+    if (activeTab === 'crawler' || activeTab === 'overview') void catalogueQuery.refetch();
     void meQuery.refetch();
   };
 
@@ -598,48 +341,28 @@ export default function AdminPage() {
     toast.info('Вы вышли из Control');
   };
 
-  const stats = useMemo(() => {
+  const badges = useMemo<Partial<Record<AdminTabId, AdminTabBadge>>>(() => {
     const httpServices = servers.flatMap((server) =>
       server.services.filter((service) => service.code !== 'scheduler'),
     );
-    return {
-      servers: servers.length,
-      healthyServices: httpServices.filter((service) => service.healthy).length,
-      totalServices: httpServices.length,
-      fallback: servers.filter((server) => server.is_fallback).length,
-      audit: audit.length,
-    };
-  }, [servers, audit.length]);
+    const unhealthy = httpServices.filter((service) => !service.healthy).length;
+    const activeJobs = jobs.filter(
+      (job) => job.status === 'queued' || job.status === 'running',
+    ).length;
+    const next: Partial<Record<AdminTabId, AdminTabBadge>> = {};
+    if (unhealthy > 0) next.servers = { count: unhealthy, tone: 'danger' };
+    if (activeJobs > 0) next.deploy = { count: activeJobs, tone: 'accent' };
+    if (catalogueQuery.data) {
+      const warnings =
+        catalogueQuery.data.enrichment.failed +
+        catalogueQuery.data.crawl_states.filter((state) => state.status === 'blocked').length;
+      if (warnings > 0) next.crawler = { count: warnings, tone: 'warning' };
+    }
+    return next;
+  }, [servers, jobs, catalogueQuery.data]);
 
-  const serverNames = useMemo(
-    () => new Map(servers.map((server) => [server.id, server.name])),
-    [servers],
-  );
-
-  const registryGroups = useMemo(() => {
-    if (!registry) return [];
-    const codes = Object.keys(registry.services);
-    const ordered = [
-      ...ADMIN_SERVICES.map((service) => service.code).filter((code) => codes.includes(code)),
-      ...codes.filter((code) => !ADMIN_SERVICES.some((service) => service.code === code)),
-    ];
-    return ordered
-      .map((code) => ({
-        code,
-        label: SERVICE_LABELS[code] ?? code,
-        endpoints: [...(registry.services[code] ?? [])].sort(
-          (a, b) =>
-            Number(a.is_fallback) - Number(b.is_fallback) ||
-            Number(b.healthy) - Number(a.healthy) ||
-            (a.priority ?? 100) - (b.priority ?? 100),
-        ),
-      }))
-      .filter((group) => group.endpoints.length > 0);
-  }, [registry]);
-
-  const refreshing = serversQuery.isFetching || registryQuery.isFetching || auditQuery.isFetching;
-  const updatePendingId = updateMutation.isPending ? updateMutation.variables?.server.id : null;
-  const healthPendingId = healthMutation.isPending ? healthMutation.variables?.id : null;
+  const refreshing =
+    serversQuery.isFetching || jobsQuery.isFetching || registryQuery.isFetching || auditQuery.isFetching;
 
   if (!token) {
     return (
@@ -684,32 +407,10 @@ export default function AdminPage() {
         <div className="admin-page-head">
           <div>
             <span className="admin-kicker">Operations</span>
-            <h1>Серверы</h1>
-            <p>Inventory, SSH-развёртывание, health-check и маршрутизация gateway.</p>
+            <h1>{currentTab.label}</h1>
+            <p>{currentTab.description}</p>
           </div>
           <div className="admin-actions">
-            <button
-              type="button"
-              className="btn btn--outline"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-            >
-              {syncMutation.isPending ? (
-                <DancingSpinner size={16} />
-              ) : (
-                <Icon name="refresh" size={16} />
-              )}
-              Синхронизировать маршруты
-            </button>
-            <button
-              type="button"
-              className="btn btn--danger-ghost"
-              onClick={() => setFailoverOpen(true)}
-              disabled={failoverMutation.isPending}
-            >
-              <Icon name="alert" size={16} />
-              Failover
-            </button>
             <button
               type="button"
               className="btn btn--ghost btn--icon"
@@ -720,352 +421,156 @@ export default function AdminPage() {
             >
               {refreshing ? <DancingSpinner size={18} /> : <Icon name="refresh" size={18} />}
             </button>
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => {
-                setEditingServer(null);
-                setFormOpen(true);
-              }}
-            >
-              <Icon name="plus" size={16} />
-              Добавить сервер
-            </button>
           </div>
         </div>
 
+        <AdminTabs active={activeTab} onChange={changeTab} badges={badges} />
+
         {meQuery.isError && !isAdminUnauthorized(meQuery.error) ? (
-          <div style={{ marginBottom: 16 }}>
-            <InlineError
-              message={adminErrorMessage(meQuery.error, 'Не удалось проверить сессию администратора.')}
-              onRetry={() => void meQuery.refetch()}
-            />
+          <div className="admin-inline-error">
+            <Icon name="alert" size={15} />
+            Не удалось проверить сессию администратора.
           </div>
         ) : null}
 
-        <div className="admin-stats">
-          <div className="admin-stat">
-            <span>Серверы</span>
-            <strong>{formatInt(stats.servers)}</strong>
-            <small>{formatInt(stats.fallback)} в резерве</small>
-          </div>
-          <div className="admin-stat">
-            <span>Здоровые сервисы</span>
-            <strong>
-              {formatInt(stats.healthyServices)}
-              <small className="admin-stat__fraction"> / {formatInt(stats.totalServices)}</small>
-            </strong>
-            <small>HTTP-сервисы по inventory</small>
-          </div>
-          <div className="admin-stat">
-            <span>Реестр gateway</span>
-            <strong>{formatInt(registryGroups.length)}</strong>
-            <small>{formatInt(registryGroups.reduce((sum, group) => sum + group.endpoints.length, 0))} endpoint</small>
-          </div>
-          <div className="admin-stat">
-            <span>События аудита</span>
-            <strong>{formatInt(stats.audit)}</strong>
-            <small>последние 100 записей</small>
-          </div>
-        </div>
+        {visited.has('overview') ? (
+          <TabPanel id="overview" active={activeTab === 'overview'}>
+            <OverviewPanel
+              servers={servers}
+              serversLoading={serversQuery.isLoading}
+              serversError={serversQuery.isError}
+              jobs={jobs}
+              jobsLoading={jobsQuery.isLoading}
+              audit={audit}
+              auditLoading={auditQuery.isLoading}
+              catalogue={catalogueQuery.data}
+              onOpenTab={changeTab}
+              onOpenConsole={openConsole}
+            />
+          </TabPanel>
+        ) : null}
 
-        <CrawlerStatusPanel />
+        {visited.has('servers') ? (
+          <TabPanel id="servers" active={activeTab === 'servers'}>
+            <ServersPanel
+              servers={servers}
+              serversLoading={serversQuery.isLoading}
+              serversError={serversQuery.isError}
+              serversFetching={serversQuery.isFetching}
+              registry={registry}
+              registryLoading={registryQuery.isLoading}
+              registryError={registryQuery.isError}
+              updatePendingId={updateMutation.isPending ? updateMutation.variables?.server.id ?? null : null}
+              healthPendingId={healthMutation.isPending ? healthMutation.variables?.id ?? null : null}
+              syncPending={syncMutation.isPending}
+              failoverPending={failoverMutation.isPending}
+              onRefresh={() => {
+                void serversQuery.refetch();
+                void registryQuery.refetch();
+              }}
+              onSync={() => syncMutation.mutate()}
+              onFailover={() => setFailoverOpen(true)}
+              onAdd={() => {
+                setEditingServer(null);
+                setFormOpen(true);
+              }}
+              onEdit={(target) => {
+                setEditingServer(target);
+                setFormOpen(true);
+              }}
+              onDeploy={setDeployTarget}
+              onPromote={setPromoteTarget}
+              onDelete={setDeleteTarget}
+              onToggleEnabled={(target) =>
+                updateMutation.mutate({ server: target, patch: { enabled: !target.enabled } })
+              }
+              onToggleFallback={(target) =>
+                updateMutation.mutate({ server: target, patch: { is_fallback: !target.is_fallback } })
+              }
+              onHealth={(target) => healthMutation.mutate(target)}
+              onConsole={(target) => openConsole(target.id)}
+              onRetryServers={() => void serversQuery.refetch()}
+              onRetryRegistry={() => void registryQuery.refetch()}
+            />
+          </TabPanel>
+        ) : null}
 
-        <section className="admin-panel" aria-labelledby="admin-catalogue-title">
-          <div className="admin-panel__head">
-            <div>
-              <h2 id="admin-catalogue-title">Каталог и обогащение</h2>
-              <p>
-                Backlog деталей, состояние источников и последний успешный обход.
-                Обновляется каждую минуту.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon"
-              onClick={() => void catalogueQuery.refetch()}
-              disabled={catalogueQuery.isFetching}
-              aria-label="Обновить состояние каталога"
-              title="Обновить состояние каталога"
-            >
-              {catalogueQuery.isFetching ? (
-                <DancingSpinner size={18} />
-              ) : (
-                <Icon name="refresh" size={18} />
-              )}
-            </button>
-          </div>
+        {visited.has('deploy') ? (
+          <TabPanel id="deploy" active={activeTab === 'deploy'}>
+            <DeployPanel
+              jobs={jobs}
+              loading={jobsQuery.isLoading}
+              error={jobsQuery.isError}
+              servers={servers}
+              active={activeTab === 'deploy'}
+              onRetry={() => void jobsQuery.refetch()}
+            />
+          </TabPanel>
+        ) : null}
 
-          {catalogueQuery.isLoading ? (
-            <Skeleton height="120px" style={{ borderRadius: 14 }} />
-          ) : catalogueQuery.isError ? (
-            <InlineError
-              message={adminErrorMessage(
-                catalogueQuery.error,
-                'Не удалось получить состояние каталога.',
-              )}
+        {visited.has('crawler') ? (
+          <TabPanel id="crawler" active={activeTab === 'crawler'}>
+            <CrawlerPanel
+              catalogue={catalogueQuery.data}
+              catalogueLoading={catalogueQuery.isLoading}
+              catalogueError={catalogueQuery.isError}
+              catalogueFetching={catalogueQuery.isFetching}
+              active={activeTab === 'crawler'}
               onRetry={() => void catalogueQuery.refetch()}
             />
-          ) : catalogueQuery.data ? (
-            <>
-              <div className="admin-stats">
-                <div className="admin-stat">
-                  <span>Тайтлы</span>
-                  <strong>{formatInt(catalogueQuery.data.stats.manga)}</strong>
-                  <small>{formatInt(catalogueQuery.data.stats.chapters)} глав</small>
-                </div>
-                <div className="admin-stat">
-                  <span>Ждут деталей</span>
-                  <strong>{formatInt(catalogueQuery.data.enrichment.pending)}</strong>
-                  <small>{formatInt(catalogueQuery.data.enrichment.retrying)} на retry</small>
-                </div>
-                <div className="admin-stat">
-                  <span>Ошибки</span>
-                  <strong>{formatInt(catalogueQuery.data.enrichment.failed)}</strong>
-                  <small>после 5 попыток</small>
-                </div>
-                <div className="admin-stat">
-                  <span>Оценка очереди</span>
-                  <strong>
-                    {catalogueQuery.data.enrichment.estimated_seconds > 0
-                      ? `${Math.ceil(catalogueQuery.data.enrichment.estimated_seconds / 3600)} ч`
-                      : '—'}
-                  </strong>
-                  <small>при 36 запросах/мин</small>
-                </div>
-              </div>
+          </TabPanel>
+        ) : null}
 
-              <div className="admin-catalogue-health">
-                {catalogueQuery.data.enrichment.sources.map((source) => {
-                  const states = catalogueQuery.data?.crawl_states.filter(
-                    (state) => state.source === source.source,
-                  ) ?? [];
-                  const full = states.find((state) => state.mode === 'full');
-                  const incremental = states.find((state) => state.mode === 'incremental');
-                  const health = states.find((state) => state.mode === 'health');
-                  const lastSuccess = health?.last_success_at ?? source.last_success_at;
-                  return (
-                    <div className="admin-catalogue-health__row" key={source.source}>
-                      <strong>{source.source}</strong>
-                      <span>
-                        pending {formatInt(source.pending)} · retry {formatInt(source.retrying)}
-                      </span>
-                      <span>
-                        full: {full?.status ?? '—'}
-                        {full?.failure_count ? ` (${full.failure_count})` : ''} · inc:{' '}
-                        {incremental?.status ?? '—'}
-                      </span>
-                      <span>last success: {lastSuccess ? formatDateTime(lastSuccess) : '—'}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              {catalogueQuery.data.crawl_states.some(
-                (state) => state.status === 'blocked',
-              ) ? (
-                <p className="admin-catalogue-health__warning">
-                  Источник остановлен circuit breaker. Следующая попытка — после
-                  указанного next_run_at; проверьте cookie/robots/доступность.
-                </p>
-              ) : null}
-            </>
-          ) : null}
-        </section>
+        {visited.has('media') ? (
+          <TabPanel id="media" active={activeTab === 'media'}>
+            <MediaStoragePanel active={activeTab === 'media'} />
+          </TabPanel>
+        ) : null}
 
-        <MediaStoragePanel />
+        {visited.has('ads') ? (
+          <TabPanel id="ads" active={activeTab === 'ads'}>
+            <AdsPanel />
+          </TabPanel>
+        ) : null}
 
-        <section className="admin-panel" aria-labelledby="admin-servers-title">
-          <div className="admin-panel__head">
-            <div>
-              <h2 id="admin-servers-title">Инвентарь</h2>
-              <p>Нажмите «Развернуть», чтобы запустить задачу с логом в реальном времени.</p>
-            </div>
-          </div>
+        {visited.has('comments') ? (
+          <TabPanel id="comments" active={activeTab === 'comments'}>
+            <CommentsPanel />
+          </TabPanel>
+        ) : null}
 
-          {serversQuery.isLoading ? (
-            <div className="admin-server-grid" aria-hidden="true">
-              {Array.from({ length: 2 }, (_, index) => (
-                <Skeleton key={index} height="340px" style={{ borderRadius: 14 }} />
-              ))}
-            </div>
-          ) : serversQuery.isError ? (
-            <ErrorState
-              title="Не удалось загрузить серверы"
-              message={adminErrorMessage(serversQuery.error)}
-              onRetry={() => void serversQuery.refetch()}
-            />
-          ) : servers.length === 0 ? (
-            <EmptyState
-              icon="server"
-              title="Серверов пока нет"
-              description="Добавьте первый узел, назначьте сервисы и запустите развёртывание."
-              action={
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => {
-                    setEditingServer(null);
-                    setFormOpen(true);
-                  }}
-                >
-                  <Icon name="plus" size={16} />
-                  Добавить сервер
-                </button>
-              }
-            />
-          ) : (
-            <div className="admin-server-grid">
-              {servers.map((server) => (
-                <AdminServerCard
-                  key={server.id}
-                  server={server}
-                  updatePending={updatePendingId === server.id}
-                  healthPending={healthPendingId === server.id}
-                  onEdit={(target) => {
-                    setEditingServer(target);
-                    setFormOpen(true);
-                  }}
-                  onDeploy={setDeployTarget}
-                  onPromote={setPromoteTarget}
-                  onDelete={setDeleteTarget}
-                  onToggleEnabled={(target) =>
-                    updateMutation.mutate({ server: target, patch: { enabled: !target.enabled } })
-                  }
-                  onToggleFallback={(target) =>
-                    updateMutation.mutate({ server: target, patch: { is_fallback: !target.is_fallback } })
-                  }
-                  onHealth={(target) => healthMutation.mutate(target)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        {visited.has('integrations') ? (
+          <TabPanel id="integrations" active={activeTab === 'integrations'}>
+            <IntegrationsPanel />
+          </TabPanel>
+        ) : null}
 
-        <SourceCookiesPanel />
-
-        <section className="admin-panel" aria-labelledby="admin-registry-title">
-          <div className="admin-panel__head">
-            <div>
-              <h2 id="admin-registry-title">Реестр gateway</h2>
-              <p>Активный маршрут для каждого сервиса и состояние резервных endpoint.</p>
-            </div>
-            <button
-              type="button"
-              className="btn btn--outline btn--sm"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-            >
-              {syncMutation.isPending ? (
-                <DancingSpinner size={15} />
-              ) : (
-                <Icon name="refresh" size={15} />
-              )}
-              Синхронизировать
-            </button>
-          </div>
-
-          {registryQuery.isLoading ? (
-            <div className="admin-registry-grid" aria-hidden="true">
-              {Array.from({ length: 4 }, (_, index) => (
-                <Skeleton key={index} height="150px" style={{ borderRadius: 12 }} />
-              ))}
-            </div>
-          ) : registryQuery.isError ? (
-            <ErrorState
-              title="Реестр недоступен"
-              message={adminErrorMessage(registryQuery.error)}
-              onRetry={() => void registryQuery.refetch()}
-            />
-          ) : registryGroups.length === 0 ? (
-            <EmptyState
-              compact
-              icon="link"
-              title="Маршруты ещё не настроены"
-              description="Добавьте серверы с сервисами и синхронизируйте реестр — gateway подхватит здоровые узлы."
-            />
-          ) : (
-            <div className="admin-registry-grid">
-              {registryGroups.map((group) => {
-                const activeEndpoint = group.endpoints.find((endpoint) => endpoint.healthy);
-                return (
-                  <div className="admin-registry-group" key={group.code}>
-                    <header>
-                      <div>
-                        <h3>{group.label}</h3>
-                        <span>{group.endpoints.length} endpoint</span>
-                      </div>
-                      <span className={`badge ${activeEndpoint ? 'badge--success' : 'badge--danger'}`}>
-                        {activeEndpoint ? 'Есть активный' : 'Нет здоровых'}
-                      </span>
-                    </header>
-                    <div className="admin-registry-list">
-                      {group.endpoints.map((endpoint) => (
-                        <RegistryRow
-                          key={`${group.code}-${endpoint.server_id}`}
-                          endpoint={endpoint}
-                          active={activeEndpoint?.server_id === endpoint.server_id}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <CommentModerationPanel />
-
-        <AdsPanel />
-
-        <section className="admin-panel" aria-labelledby="admin-audit-title">
-          <div className="admin-panel__head">
-            <div>
-              <h2 id="admin-audit-title">Аудит</h2>
-              <p>Последние 100 действий control-сервиса.</p>
-            </div>
-          </div>
-          {auditQuery.isLoading ? (
-            <Skeleton height="180px" />
-          ) : auditQuery.isError ? (
-            <ErrorState
-              title="Аудит недоступен"
-              message={adminErrorMessage(auditQuery.error)}
+        {visited.has('audit') ? (
+          <TabPanel id="audit" active={activeTab === 'audit'}>
+            <AuditPanel
+              audit={audit}
+              loading={auditQuery.isLoading}
+              error={auditQuery.isError}
+              servers={servers}
               onRetry={() => void auditQuery.refetch()}
             />
-          ) : audit.length === 0 ? (
-            <EmptyState compact icon="list" title="Событий пока нет" description="Здесь появятся действия с серверами и маршрутами." />
-          ) : (
-            <div className="admin-table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Действие</th>
-                    <th>Сервер</th>
-                    <th>Время</th>
-                    <th>Детали</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {audit.map((entry) => (
-                    <tr key={entry.id}>
-                      <td>
-                        <span className="admin-audit-action">{AUDIT_LABELS[entry.action] ?? entry.action}</span>
-                      </td>
-                      <td>
-                        {entry.server_id ? serverNames.get(entry.server_id) ?? entry.server_id.slice(0, 8) : '—'}
-                      </td>
-                      <td className="admin-table__time">{formatDateTime(entry.created_at)}</td>
-                      <td>
-                        <code className="admin-audit-details">{detailsSummary(entry)}</code>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+          </TabPanel>
+        ) : null}
+
+        {visited.has('terminal') ? (
+          <TabPanel id="terminal" active={activeTab === 'terminal'}>
+            <TerminalPanel
+              servers={servers}
+              serversLoading={serversQuery.isLoading}
+              serversError={serversQuery.isError}
+              selectedServerId={selectedServerId}
+              active={activeTab === 'terminal'}
+              onSelectServer={selectConsoleServer}
+              onOpenDeploy={() => changeTab('deploy')}
+              onRetryServers={() => void serversQuery.refetch()}
+            />
+          </TabPanel>
+        ) : null}
 
         <footer className="admin-footer">
           MangaPoisk Reborn · Control · сессия администратора только в этой вкладке
@@ -1199,27 +704,6 @@ export default function AdminPage() {
           library и media. Используйте, если основной контур недоступен.
         </p>
       </Modal>
-    </div>
-  );
-}
-
-function RegistryRow({ endpoint, active }: { endpoint: AdminRegistryEndpoint; active: boolean }) {
-  return (
-    <div className={`admin-registry-row${active ? ' is-active' : ''}`}>
-      <span className={`admin-health-dot ${endpoint.healthy ? 'is-ok' : 'is-bad'}`} />
-      <div className="admin-registry-row__body">
-        <div className="admin-registry-row__title">
-          <strong>{endpoint.server_name}</strong>
-          {active ? <span className="admin-active-badge">активный</span> : null}
-          {endpoint.is_fallback ? <span className="badge">fallback</span> : null}
-          {!endpoint.healthy ? <span className="badge badge--danger">недоступен</span> : null}
-        </div>
-        <code>{endpoint.url}</code>
-        {endpoint.last_error ? <span className="admin-registry-row__error">{healthErrorText(endpoint.last_error)}</span> : null}
-      </div>
-      <span className="admin-registry-row__checked">
-        {endpoint.checked_at ? formatDateTime(endpoint.checked_at) : 'не проверялся'}
-      </span>
     </div>
   );
 }
