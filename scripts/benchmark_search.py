@@ -27,6 +27,7 @@ from services.catalog.app.config import CatalogSettings
 from services.catalog.app.migrations import ensure_runtime_schema
 from services.catalog.app.models import Chapter, Manga
 from services.catalog.app.repository import compute_group_key, ensure_source
+from services.catalog.app.search_fts import rebuild_search_fts
 from services.catalog.app.service import CatalogService
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -76,6 +77,11 @@ async def seed_sqlite(path: Path, count: int) -> None:
         await ensure_source(session, "mangapoisk", "MangaPoisk")
         await _seed_rows(session, count)
     await ensure_runtime_schema(engine)
+    async with session_factory() as session:
+        # Direct ORM seeding bypasses the service upsert path, so populate the
+        # FTS mirror explicitly before measuring search latency.
+        await rebuild_search_fts(session)
+        await session.commit()
     async with engine.begin() as connection:
         await connection.execute(text("ANALYZE"))
         await connection.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))

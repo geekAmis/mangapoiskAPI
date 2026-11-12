@@ -16,6 +16,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
@@ -50,6 +52,14 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
         Index("ix_manga_last_synced_at", "last_synced_at"),
         Index("ix_manga_enrichment_retry_at", "enrichment_retry_at"),
+        # Partial index keeps the "rows still waiting for search indexing"
+        # query cheap even with a 100k-row catalogue.
+        Index(
+            "ix_manga_search_pending",
+            "search_indexed",
+            sqlite_where=text("search_indexed = 0"),
+            postgresql_where=text("search_indexed = false"),
+        ),
     )
 
     source: Mapped[str] = mapped_column(
@@ -81,6 +91,12 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     search_meta: Mapped[str] = mapped_column(Text, nullable=False, default="")
     search_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     search_blob: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # False while a legacy row still relies on the SQL/FTS legacy fallback.
+    # The background backfill flips this to true after writing the normalized
+    # document; startup must never wait for all rows to reach true.
+    search_indexed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     group_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -127,6 +143,7 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         )
         for name, value in fields.items():
             setattr(self, name, value)
+        self.search_indexed = True
 
 
 class Chapter(Base, UUIDPrimaryKey, TimestampMixin):
@@ -185,6 +202,27 @@ class MangaCover(Base, UUIDPrimaryKey, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class SearchBackfillState(Base, TimestampMixin):
+    """Singleton progress + lease for the background search backfill."""
+
+    __tablename__ = "search_backfill_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    normalized: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    legacy_indexed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    batch_size: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
+    rate_per_second: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):

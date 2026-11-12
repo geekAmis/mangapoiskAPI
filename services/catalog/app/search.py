@@ -19,12 +19,14 @@ own and the repository can reuse it for the SQL pre-filter.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import Any
 
 from .normalization import GENRE_LABELS, genre_key
@@ -657,19 +659,84 @@ _FIELD_WEIGHTS = {
 }
 
 
+@lru_cache(maxsize=8_000)
+def _legacy_fields(
+    title: str | None,
+    title_en: str | None,
+    title_alt: str | None,
+    genres: tuple[str, ...],
+    content_type: str | None,
+    description: str | None,
+    metadata_json: str,
+) -> dict[str, str]:
+    try:
+        metadata = json.loads(metadata_json) if metadata_json else {}
+    except (TypeError, ValueError):
+        metadata = {}
+    return build_search_fields(
+        title=title,
+        title_en=title_en,
+        title_alt=title_alt,
+        genres=list(genres),
+        content_type=content_type,
+        description=description,
+        metadata=metadata if isinstance(metadata, Mapping) else {},
+    )
+
+
+def ranking_view(manga: Any) -> Any:
+    """Return a row with a search document, building it on demand for legacy rows.
+
+    During the background backfill some rows still have ``search_indexed``
+    false.  They must remain searchable through their legacy title/description
+    columns, but the ranker needs the same normalized fields as indexed rows.
+    The per-row computation is cached because the row does not change until the
+    worker flips it to indexed.
+    """
+
+    if getattr(manga, "search_indexed", True):
+        return manga
+    genres = tuple(str(item) for item in (getattr(manga, "genres", None) or ()))
+    metadata = getattr(manga, "metadata_json", None) or {}
+    metadata_json = (
+        json.dumps(metadata, sort_keys=True, ensure_ascii=False, default=str)
+        if isinstance(metadata, Mapping)
+        else "{}"
+    )
+    fields = _legacy_fields(
+        getattr(manga, "title", None),
+        getattr(manga, "title_en", None),
+        getattr(manga, "title_alt", None),
+        genres,
+        getattr(manga, "content_type", None),
+        getattr(manga, "description", None),
+        metadata_json,
+    )
+    return SimpleNamespace(
+        **fields,
+        rating=getattr(manga, "rating", None),
+        rating_count=getattr(manga, "rating_count", None),
+        chapters_count=getattr(manga, "chapters_count", 0),
+        group_key=getattr(manga, "group_key", None),
+        id=getattr(manga, "id", None),
+        search_indexed=False,
+    )
+
+
 def rank_manga(query: SearchQuery, manga: Any) -> tuple[float, str]:
     """Score one catalogue row.  Higher is better; second value is the reason."""
 
     if query.is_empty:
         return 0.0, "empty"
 
+    document = ranking_view(manga)
     score = 0.0
     reason = "title"
     reason_weight = 0.0
     fields = (
-        ("title", getattr(manga, "search_title", "") or "", True),
-        ("alt", getattr(manga, "search_alt", "") or "", True),
-        ("meta", getattr(manga, "search_meta", "") or "", False),
+        ("title", getattr(document, "search_title", "") or "", True),
+        ("alt", getattr(document, "search_alt", "") or "", True),
+        ("meta", getattr(document, "search_meta", "") or "", False),
     )
     normalized_query = query.normalized
     for field_name, field_text, fuzzy in fields:
@@ -726,7 +793,7 @@ def rank_manga(query: SearchQuery, manga: Any) -> tuple[float, str]:
             reason_weight = field_score
             reason = field_name
 
-    description_text = getattr(manga, "search_description", "") or ""
+    description_text = getattr(document, "search_description", "") or ""
     if (
         description_text
         and len(normalized_query) >= 4
@@ -736,9 +803,9 @@ def rank_manga(query: SearchQuery, manga: Any) -> tuple[float, str]:
         if reason_weight == 0:
             reason = "description"
 
-    rating = float(getattr(manga, "rating", None) or 0.0)
-    rating_count = int(getattr(manga, "rating_count", None) or 0)
-    chapters = int(getattr(manga, "chapters_count", None) or 0)
+    rating = float(getattr(document, "rating", None) or 0.0)
+    rating_count = int(getattr(document, "rating_count", None) or 0)
+    chapters = int(getattr(document, "chapters_count", None) or 0)
     # Capped popularity is a tie-breaker only; a strong text match always wins.
     score += min(24.0, math.log1p(max(0, rating_count)) * 2.2 + max(0.0, rating) * 1.1)
     score += min(4.0, math.log1p(max(0, chapters)) * 0.4)
@@ -777,10 +844,11 @@ def dedupe_ranked_groups(
 def token_coverage(query: SearchQuery, manga: Any) -> int:
     """How many query tokens have at least one match in title/alt/meta."""
 
+    document = ranking_view(manga)
     fields = (
-        (_index_field(getattr(manga, "search_title", "") or ""), True),
-        (_index_field(getattr(manga, "search_alt", "") or ""), True),
-        (_index_field(getattr(manga, "search_meta", "") or ""), False),
+        (_index_field(getattr(document, "search_title", "") or ""), True),
+        (_index_field(getattr(document, "search_alt", "") or ""), True),
+        (_index_field(getattr(document, "search_meta", "") or ""), False),
     )
     matched = 0
     for token in query.tokens:

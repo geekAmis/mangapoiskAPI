@@ -1235,6 +1235,7 @@ class CrawlerStatusOut(BaseModel):
     archive: CrawlerArchiveView = Field(default_factory=CrawlerArchiveView)
     image_cache_bytes: int = 0
     image_cache_files: int = 0
+    search_backfill: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -1358,6 +1359,21 @@ def _build_crawler_status(
     image_cache_files = int(
         media_stats.get("image_cache_files") or image_cache.get("files") or 0
     )
+    search_backfill = catalog_stats.get("search_backfill")
+    if isinstance(search_backfill, dict):
+        if search_backfill.get("status") == "failed":
+            detail = str(search_backfill.get("last_error") or "")[:140]
+            issues.append(f"Поисковый backfill каталога остановился{': ' + detail if detail else ''}")
+        elif search_backfill.get("status") in {"pending", "running"}:
+            normalized = int(search_backfill.get("normalized") or 0)
+            total = int(search_backfill.get("total") or 0)
+            if total:
+                issues.append(
+                    f"Поисковый backfill каталога: {normalized}/{total} "
+                    f"({search_backfill.get('progress_percent', 0)}%)"
+                )
+    else:
+        search_backfill = None
 
     return CrawlerStatusOut(
         generated_at=now,
@@ -1368,6 +1384,7 @@ def _build_crawler_status(
         archive=archive,
         image_cache_bytes=image_cache_bytes,
         image_cache_files=image_cache_files,
+        search_backfill=search_backfill,
         warnings=issues,
     )
 

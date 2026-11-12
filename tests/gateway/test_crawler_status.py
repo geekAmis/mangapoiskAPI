@@ -123,6 +123,30 @@ def test_build_crawler_status_flags_stalled_crawl_and_archive_pressure() -> None
     assert result.sources[0].eta_seconds is None
 
 
+def test_build_crawler_status_exposes_search_backfill_progress() -> None:
+    stats = _catalog_stats()
+    stats["search_backfill"] = {
+        "status": "running",
+        "total": 78_275,
+        "normalized": 39_000,
+        "progress_percent": 49.8,
+    }
+    result = _build_crawler_status(stats, [], {})
+    assert result.search_backfill == stats["search_backfill"]
+    assert any("Поисковый backfill" in warning for warning in result.warnings)
+
+    stats["search_backfill"] = {
+        "status": "failed",
+        "total": 78_275,
+        "normalized": 10,
+        "progress_percent": 0.0,
+        "last_error": "database is locked",
+    }
+    failed = _build_crawler_status(stats, [], {})
+    assert failed.search_backfill["status"] == "failed"
+    assert any("остановился" in warning for warning in failed.warnings)
+
+
 def test_build_crawler_status_survives_empty_upstreams() -> None:
     result = _build_crawler_status({}, [], {})
 

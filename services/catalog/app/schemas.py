@@ -54,6 +54,22 @@ class SourceStats(BaseModel):
     pending: int = 0
 
 
+class SearchBackfillStats(BaseModel):
+    status: str = "pending"
+    total: int = 0
+    normalized: int = 0
+    remaining: int = 0
+    legacy_indexed: int = 0
+    failed: int = 0
+    batch_size: int = 0
+    rate_per_second: float | None = None
+    eta_seconds: int | None = None
+    progress_percent: float = 0.0
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    last_error: str | None = None
+
+
 class CatalogStats(BaseModel):
     manga: int
     chapters: int
@@ -61,6 +77,7 @@ class CatalogStats(BaseModel):
     sources: list[SourceStats]
     pending_enrichment: int = 0
     retrying_enrichment: int = 0
+    search_backfill: SearchBackfillStats | None = None
 
 
 class SourceSyncRequest(BaseModel):

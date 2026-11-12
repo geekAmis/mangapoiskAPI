@@ -14,8 +14,9 @@ falls back to LIKE if the table is absent (e.g. a very old SQLite file).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _CREATE_SQL = """
@@ -70,18 +71,85 @@ async def sync_search_fts(session: AsyncSession, manga_id: uuid.UUID, body: str)
     )
 
 
-async def rebuild_search_fts(session: AsyncSession) -> int:
-    """Full rebuild after a migration/backfill.  Returns indexed row count."""
+async def sync_search_fts_many(
+    session: AsyncSession, rows: Sequence[tuple[uuid.UUID, str]]
+) -> None:
+    """Replace a batch of FTS rows with two statements (delete + executemany)."""
+
+    if not rows or not is_sqlite(session):
+        return
+    if not await fts_available(session):
+        return
+    identifiers = [manga_id.hex for manga_id, _body in rows]
+    await session.execute(
+        text("DELETE FROM manga_search_fts WHERE manga_id IN :ids").bindparams(
+            bindparam("ids", expanding=True)
+        ),
+        {"ids": identifiers},
+    )
+    await session.execute(
+        text("INSERT INTO manga_search_fts (manga_id, body) VALUES (:manga_id, :body)"),
+        [
+            {"manga_id": manga_id.hex, "body": body}
+            for manga_id, body in rows
+        ],
+    )
+
+
+_LEGACY_BODY_SQL = (
+    "coalesce(title, '') || ' ' || coalesce(title_en, '') || ' ' || "
+    "coalesce(title_alt, '') || ' ' || coalesce(description, '') || ' ' || "
+    "coalesce(genres, '[]') || ' ' || coalesce(content_type, '')"
+)
+
+
+async def rebuild_legacy_fts(session: AsyncSession, *, pending_only: bool = True) -> int:
+    """Make unindexed rows searchable immediately using their legacy columns.
+
+    SQLite's FTS5 tokenizer folds Unicode case, unlike ``lower()``, so copying
+    the original title/description into FTS is enough for the fallback to match
+    Russian queries while the Python normalizer is still running in the
+    background.  ``pending_only`` avoids touching already indexed rows.
+    """
 
     if not is_sqlite(session):
         return 0
     if not await ensure_fts_table(session):
         return 0
+    if pending_only:
+        await session.execute(
+            text(
+                "DELETE FROM manga_search_fts WHERE manga_id IN "
+                "(SELECT CAST(id AS TEXT) FROM manga WHERE search_indexed = 0)"
+            )
+        )
+        result = await session.execute(
+            text(
+                "INSERT INTO manga_search_fts (manga_id, body) "
+                f"SELECT CAST(id AS TEXT), {_LEGACY_BODY_SQL} "
+                "FROM manga WHERE search_indexed = 0"
+            )
+        )
+        return int(result.rowcount or 0)
+
     await session.execute(text("DELETE FROM manga_search_fts"))
     result = await session.execute(
         text(
             "INSERT INTO manga_search_fts (manga_id, body) "
-            "SELECT CAST(id AS TEXT), search_blob FROM manga"
+            "SELECT CAST(id AS TEXT), CASE WHEN search_indexed = 1 "
+            f"THEN search_blob ELSE {_LEGACY_BODY_SQL} END FROM manga"
         )
     )
     return int(result.rowcount or 0)
+
+
+async def rebuild_search_fts(session: AsyncSession) -> int:
+    """Full rebuild after a migration/backfill.  Returns indexed row count."""
+
+    return await rebuild_legacy_fts(session, pending_only=False)
+
+
+async def fts_row_count(session: AsyncSession) -> int:
+    if not is_sqlite(session) or not await fts_available(session):
+        return 0
+    return int((await session.scalar(text("SELECT count(*) FROM manga_search_fts"))) or 0)

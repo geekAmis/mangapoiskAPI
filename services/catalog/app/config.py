@@ -20,6 +20,13 @@ class CatalogSettings(Settings):
     chapter_archive_max_gb: int = 25
     enrichment_retry_base_seconds: int = 300
     enrichment_retry_max_seconds: int = 21600
+    # Search/filter normalization is a background migration.  Keep batches
+    # small enough to release the SQLite write lock regularly.
+    search_backfill_enabled: bool = True
+    search_backfill_batch_size: int = 500
+    search_backfill_lease_seconds: int = 120
+    search_backfill_yield_seconds: float = 0.01
+    search_backfill_max_retries: int = 5
 
     @property
     def catalog_dsn(self) -> str:

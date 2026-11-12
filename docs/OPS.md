@@ -1064,8 +1064,89 @@ allowed it:
 ufw delete allow from <peer-ip> to any port 8108 proto tcp
 ```
 
-## 9. Change log
+## 9. v1.2 search backfill rollout (#63)
 
+`catalog` теперь делает только быстрые schema-изменения на старте.  Строки
+каталога нормализуются фоновым воркером; health не ждёт 78k строк.
+
+### 10.1 Backup
+
+SQLite (каталог остановлен или используется online backup):
+
+```bash
+sqlite3 /opt/mangapoisk/data/catalog.db ".backup '/root/backups/catalog-$(date +%F-%H%M).db'"
+```
+
+PostgreSQL:
+
+```bash
+pg_dump "$CATALOG_DATABASE_URL" -Fc -f /root/backups/catalog-$(date +%F-%H%M).dump
+```
+
+Не копируйте `catalog.db` вместе с `-wal`/`-shm` во время работы сервиса.
+
+### 10.2 Optional pre-deploy reindex
+
+Можно прогнать заранее, пока каталог остановлен; это сокращает окно фоновой
+работы после деплоя:
+
+```bash
+cd /opt/mangapoisk
+.venv/bin/python scripts/reindex_catalog.py \
+  --database-url "$CATALOG_DATABASE_URL" --batch-size 500
+```
+
+Ожидаемо: 78 275 строк ≈ 2.5 минуты (≈500 строк/с) после schema+bootstrap
+≈1.5 с.  Команда идемпотентна; повторный запуск обработает 0 строк.  `--force`
+— только после изменения алгоритма нормализации, `--rebuild-fts` — при
+подозрении на повреждённый SQLite FTS.
+
+### 10.3 Deploy and progress
+
+1. Deploy catalog.  `/health` должен стать `ok` за **<10 с**; в логе:
+   `catalog startup ready in ...` и `search backfill started in background`.
+2. Progress:
+   ```bash
+   curl -fsS -H "X-Internal-Token: $INTERNAL_TOKEN" \
+     http://127.0.0.1:8102/internal/search/backfill | jq
+   ```
+   Поля: `status`, `total`, `normalized`, `remaining`, `progress_percent`,
+   `rate_per_second`, `eta_seconds`, `failed`, `last_error`.
+3. `/internal/stats` содержит тот же блок `search_backfill`; gateway
+   `/api/v1/admin/crawl` отдаёт его в `search_backfill` и предупреждает при
+   `failed`.
+4. Search/suggest во время миграции работают по legacy-FTS; тайтлы с
+   `search_indexed=false` всё ещё находятся по старым колонкам.
+5. `sqlite3 ... "PRAGMA wal_checkpoint(TRUNCATE);"` после завершения, если
+   нужно уменьшить `-wal` перед бэкапом.
+
+### 10.4 Rollback
+
+1. Rollback control job to the previous release.
+2. Если каталог не стартует или БД повреждена — восстановить backup из 10.1
+   (для SQLite удалить `catalog.db-wal`/`catalog.db-shm` перед restore).
+3. Если откат на `main b0080b2`: лишние search-колонки/таблицы игнорируются
+   старым кодом, но старый код не должен запускаться на БД с активным
+   фоновым writer'ом — новый процесс уже остановлен вместе с сервисом.
+4. Не откатывать только код без БД, если в ней остались `search_indexed=false`
+   после аварии: новый деплой просто продолжит backfill.  Перед повторным
+   деплоем проверить `scripts/reindex_catalog.py` на staging-копии.
+
+### 10.5 Ожидаемые числа
+
+| Операция | 78 275 строк |
+|---|---|
+| schema + indexes + mark | ~0.15 с |
+| legacy FTS bootstrap | ~1.2 с |
+| lifespan startup | **~1.37 с** |
+| процесс → `/health` 200 | **~6.9 с** |
+| полный фоновый backfill | ~179 с (≈436 строк/с) |
+| повторный запуск | 0 строк |
+
+## 10. Change log
+
+* 2026-11-12: search backfill moved out of catalog startup into a batched,
+  resumable worker with WAL/busy_timeout and progress endpoint (#63).
 * 2026-11-12: UFW enabled on `primary-85`, `jump-83`, `aeza-2`; `8108`
   restricted to peer IPs; HTTP/HTTPS/SSH and existing services preserved.
 * 2026-11-12: encrypted restic backups to `jump-83`, 6-hourly timer,

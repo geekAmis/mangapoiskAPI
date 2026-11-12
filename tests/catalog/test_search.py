@@ -9,6 +9,11 @@ from services.catalog.app.config import CatalogSettings
 from services.catalog.app.migrations import ensure_runtime_schema
 from services.catalog.app.models import Manga
 from services.catalog.app.search import analyze_query, build_search_fields, expansion_terms
+from services.catalog.app.search_backfill import (
+    BackfillConfig,
+    SearchBackfillWorker,
+    bootstrap_search_index,
+)
 from services.catalog.app.search_fts import fts_available
 from services.catalog.app.service import CatalogService
 from sqlalchemy import or_, select, text
@@ -238,6 +243,7 @@ async def test_runtime_migration_adds_search_columns(tmp_path: Path) -> None:
     async with engine.begin() as connection:
         await connection.execute(text("DROP TABLE manga_search_fts"))
         await connection.execute(text("DROP INDEX IF EXISTS ix_manga_search_title"))
+        await connection.execute(text("DROP INDEX IF EXISTS ix_manga_search_pending"))
         for column in (
             "search_title",
             "search_alt",
@@ -245,10 +251,18 @@ async def test_runtime_migration_adds_search_columns(tmp_path: Path) -> None:
             "search_meta",
             "search_description",
             "search_blob",
+            "search_indexed",
         ):
             await connection.execute(text(f"ALTER TABLE manga DROP COLUMN {column}"))
 
     await ensure_runtime_schema(engine)
+    await bootstrap_search_index(service.session_factory)
+    worker = SearchBackfillWorker(
+        service.session_factory,
+        BackfillConfig(batch_size=10, yield_seconds=0.0),
+        owner="column-test",
+    )
+    await worker.run()
     result = await service.list(query="человек бензопила")
     assert result.items and result.items[0].source_id == "chainsaw-man"
     await engine.dispose()
