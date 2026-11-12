@@ -55,5 +55,5 @@ export const useReaderStore = create<ReaderState>()(
 
 export function clampSpeed(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_READER_PREFERENCES.autoScrollSpeed;
-  return Math.min(200, Math.max(5, Math.round(value)));
+  return Math.min(600, Math.max(5, Math.round(value)));
 }

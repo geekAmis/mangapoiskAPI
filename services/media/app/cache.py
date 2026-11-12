@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import ipaddress
 import json
+import logging
 import mimetypes
 import os
 import socket
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -14,6 +17,9 @@ from urllib.parse import urljoin, urlparse
 from manga_common.config import Settings
 from manga_common.errors import UpstreamError
 from manga_common.http import AsyncRateLimiter, build_client, request_with_retry
+from PIL import Image, ImageOps
+
+logger = logging.getLogger(__name__)
 
 _EXTENSIONS = {
     "image/jpeg": ".jpg",
@@ -26,6 +32,21 @@ _ALLOWED_TYPES = frozenset(_EXTENSIONS)
 _MAX_REDIRECTS = 5
 
 _MAX_BYTES = 40 * 1024 * 1024
+
+# Reader image variants.  Originals are always cached untouched and remain the
+# only source for archives and exports; variants are an additional cache entry.
+ALLOWED_WIDTHS: tuple[int, ...] = (480, 720, 1080, 1280, 1600)
+_VARIANT_SOURCE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+_VARIANT_CONTENT_TYPE = "image/webp"
+_WEBP_QUALITY = 82
+_WEBP_METHOD = 4
+
+
+def resolve_width(width: int | None) -> int | None:
+    """Return the supported variant width nearest to ``width``."""
+    if width is None or width <= 0:
+        return None
+    return min(ALLOWED_WIDTHS, key=lambda allowed: (abs(allowed - width), -allowed))
 
 
 @dataclass(slots=True)
@@ -92,6 +113,12 @@ class MediaCache:
         shard.mkdir(parents=True, exist_ok=True)
         return shard / digest, shard / f"{digest}.json", digest
 
+    def _variant_paths(self, key_digest: str, width: int) -> tuple[Path, Path, str]:
+        shard = self.root / key_digest[:2]
+        shard.mkdir(parents=True, exist_ok=True)
+        key = f"{key_digest}-w{width}"
+        return shard / f"{key}.webp", shard / f"{key}.json", key
+
     def _from_disk(self, base: Path, meta_path: Path, digest: str) -> MediaFile | None:
         if not meta_path.exists():
             return None
@@ -109,15 +136,175 @@ class MediaCache:
         except (OSError, ValueError, KeyError):
             return None
 
+    def _variant_from_disk(self, path: Path, meta_path: Path, key: str) -> MediaFile | None:
+        if not path.exists() or not meta_path.exists():
+            return None
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if meta.get("content_type") != _VARIANT_CONTENT_TYPE:
+                return None
+            return MediaFile(
+                path=path,
+                content_type=_VARIANT_CONTENT_TYPE,
+                size=path.stat().st_size,
+                etag=key,
+            )
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _render_variant(image: Image.Image, destination: Path, width: int) -> int | None:
+        """Write a WebP variant to ``destination``; return its width if written."""
+        if getattr(image, "is_animated", False):
+            return None
+        has_alpha = image.mode in {"RGBA", "LA", "PA"} or (
+            image.mode == "P" and "transparency" in image.info
+        )
+        image = ImageOps.exif_transpose(image) or image
+        # Never upscale: cap the target at the source width.  Re-encoding at the
+        # source size still helps because WebP q82 is smaller than JPEG/PNG.
+        target_width = min(width, image.width)
+        height = max(1, round(image.height * target_width / image.width))
+        converted = image.convert("RGBA" if has_alpha else "RGB")
+        resized = converted.resize((target_width, height), Image.Resampling.LANCZOS)
+        # A unique temp name keeps simultaneous workers from truncating each
+        # other's file before the atomic os.replace.
+        temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            # Pillow does not copy EXIF/ICC metadata unless explicitly asked, so
+            # the variant is stripped by construction.
+            resized.save(temp_path, format="WEBP", quality=_WEBP_QUALITY, method=_WEBP_METHOD)
+            os.replace(temp_path, destination)
+        finally:
+            temp_path.unlink(missing_ok=True)
+        return target_width
+
+    def _render_variant_path(self, source: Path, destination: Path, width: int) -> int | None:
+        with Image.open(source) as image:
+            return self._render_variant(image, destination, width)
+
+    def _render_variant_bytes(self, data: bytes, destination: Path, width: int) -> int | None:
+        with Image.open(io.BytesIO(data)) as image:
+            return self._render_variant(image, destination, width)
+
+    def _write_variant_meta(
+        self, meta_path: Path, *, url: str, filename: str, width: int, size: int
+    ) -> None:
+        meta = {
+            "content_type": _VARIANT_CONTENT_TYPE,
+            "url": url,
+            "filename": filename,
+            "width": width,
+            "size": size,
+        }
+        temp_meta = meta_path.with_name(f"{meta_path.name}.{uuid.uuid4().hex}.tmp")
+        temp_meta.write_text(json.dumps(meta), encoding="utf-8")
+        os.replace(temp_meta, meta_path)
+
+    async def _variant(self, original: MediaFile, url: str, width: int) -> MediaFile:
+        if original.content_type not in _VARIANT_SOURCE_TYPES:
+            return original
+        _, _, digest = self._base(url)
+        path, meta_path, key = self._variant_paths(digest, width)
+        cached = self._variant_from_disk(path, meta_path, key)
+        if cached is not None:
+            return cached
+        lock = await self._lock_for(key)
+        async with lock:
+            cached = self._variant_from_disk(path, meta_path, key)
+            if cached is not None:
+                return cached
+            try:
+                created = await asyncio.to_thread(
+                    self._render_variant_path, original.path, path, width
+                )
+            except Exception:
+                logger.warning(
+                    "could not build image variant; serving original",
+                    exc_info=True,
+                    extra={"url": url, "width": width},
+                )
+                return original
+            if created is None:
+                return original
+            size = path.stat().st_size
+            self._write_variant_meta(
+                meta_path, url=url, filename=path.name, width=created, size=size
+            )
+            return MediaFile(
+                path=path, content_type=_VARIANT_CONTENT_TYPE, size=size, etag=key
+            )
+
+    async def variant_from_bytes(
+        self, data: bytes, content_type: str, width: int | None
+    ) -> MediaFile | None:
+        """Create a cached variant for bytes that are not addressed by URL.
+
+        Used by the archive page endpoint.  Returns ``None`` when the original
+        bytes should be served instead (unsupported type or a decode failure).
+        """
+        normalized = resolve_width(width)
+        if (
+            normalized is None
+            or content_type.split(";")[0].strip().lower() not in _VARIANT_SOURCE_TYPES
+            or len(data) > _MAX_BYTES
+        ):
+            return None
+        key_digest = hashlib.sha256(data).hexdigest()
+        path, meta_path, key = self._variant_paths(key_digest, normalized)
+        cached = self._variant_from_disk(path, meta_path, key)
+        if cached is not None:
+            return cached
+        lock = await self._lock_for(key)
+        async with lock:
+            cached = self._variant_from_disk(path, meta_path, key)
+            if cached is not None:
+                return cached
+            try:
+                created = await asyncio.to_thread(
+                    self._render_variant_bytes, data, path, normalized
+                )
+            except Exception:
+                logger.warning(
+                    "could not build archived image variant; serving original",
+                    exc_info=True,
+                    extra={"width": normalized},
+                )
+                return None
+            if created is None:
+                return None
+            size = path.stat().st_size
+            self._write_variant_meta(
+                meta_path,
+                url="",
+                filename=path.name,
+                width=created,
+                size=size,
+            )
+            return MediaFile(
+                path=path, content_type=_VARIANT_CONTENT_TYPE, size=size, etag=key
+            )
+
     async def _lock_for(self, key: str) -> asyncio.Lock:
         async with self._locks_guard:
             return self._locks.setdefault(key, asyncio.Lock())
 
-    async def get(self, url: str, *, referer: str | None = None) -> MediaFile:
+    async def get(
+        self, url: str, referer: str | None = None, width: int | None = None
+    ) -> MediaFile:
+        original = await self._get_original(url, referer)
+        normalized = resolve_width(width)
+        if normalized is None:
+            return original
+        return await self._variant(original, url, normalized)
+
+    async def _get_original(self, url: str, referer: str | None) -> MediaFile:
         if referer is None:
             host = (urlparse(url).hostname or "").lower()
             if host.endswith("cdnlibs.org") or host.endswith("imglib.info"):
                 referer = "https://mangalib.me/"
+            elif host.endswith("remanga.org") or host.endswith("reimg2.org"):
+                referer = "https://remanga.org/"
         base, meta_path, digest = self._base(url)
         cached = self._from_disk(base, meta_path, digest)
         if cached and cached.content_type in _ALLOWED_TYPES:

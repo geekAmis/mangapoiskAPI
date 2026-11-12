@@ -1249,7 +1249,7 @@ export default function ReaderPage() {
                   className="range"
                   type="range"
                   min={5}
-                  max={200}
+                  max={600}
                   step={5}
                   value={autoScrollSpeed}
                   onChange={(event) => updatePrefs({ autoScrollSpeed: clampSpeed(Number(event.target.value)) })}

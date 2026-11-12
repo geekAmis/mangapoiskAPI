@@ -1130,12 +1130,12 @@ function OfflineReader({
                   className="range"
                   type="range"
                   min={5}
-                  max={200}
+                  max={600}
                   step={5}
                   value={autoScrollSpeed}
                   onChange={(event) =>
                     updatePrefs({
-                      autoScrollSpeed: Math.min(200, Math.max(5, Math.round(Number(event.target.value)))),
+                      autoScrollSpeed: Math.min(600, Math.max(5, Math.round(Number(event.target.value)))),
                     })
                   }
                   aria-label="Скорость автопрокрутки"
