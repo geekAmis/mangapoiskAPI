@@ -40,9 +40,12 @@ grant rights to third-party manga, translations, images or trademarks.
 
 - [ ] Set a real `JWT_SECRET`, `INTERNAL_TOKEN`, `ADMIN_PASSWORD` and
       `CONTROL_SECRET_KEY`.
-- [ ] Put the stack behind HTTPS.
+- [x] Put the stack behind HTTPS (the public demo uses
+      `https://85.192.37.58.nip.io:8443`; HTTP `:8088` is a compatibility
+      fallback and should be disabled for a new deployment).
 - [ ] Keep `MEDIA_ALLOWED_HOSTS` restricted to the CDNs you actually use.
 - [ ] Configure backups and a retention policy for exports.
 - [ ] Respect a source's request to stop indexing.
-- [ ] Do not enable sources whose robots.txt forbids the API (Remanga is
-      disabled by default for this reason).
+- [ ] Do not enable sources whose robots.txt forbids the API. Remanga requires
+      explicit permission from the site and an operator decision
+      (`PARSER_ENABLED_SOURCES`); keep it opt-in and honour robots.

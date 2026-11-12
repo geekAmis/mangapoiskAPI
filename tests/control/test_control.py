@@ -7,7 +7,7 @@ from manga_common.db import create_all, create_engine, create_session_factory
 from manga_common.errors import ConflictError
 from services.control.app.config import ControlSettings
 from services.control.app.crypto import SecretBox
-from services.control.app.deployer import merge_deployed_services
+from services.control.app.deployer import Deployer, merge_deployed_services
 from services.control.app.schemas import ServerCreate, ServerUpdate, ServiceSpec
 from services.control.app.service import ControlService
 
@@ -53,6 +53,37 @@ def test_partial_deploy_merges_inventory() -> None:
     assert merge_deployed_services(
         [("parser", 8101), ("catalog", 8102)], [("parser", 8201)]
     ) == [("parser", 8201), ("catalog", 8102)]
+
+
+def test_deployer_env_uses_https_public_urls() -> None:
+    settings = ControlSettings(
+        service_name="control-test",
+        environment="production",
+        public_web_url="https://85.192.37.58.nip.io:8443",
+        public_api_url="https://85.192.37.58.nip.io:8443/api/v1",
+        control_secret_key="control-test-secret",
+    )
+    deployer = Deployer(settings, None, None, None, None)  # type: ignore[arg-type]
+    env = deployer._env_file(None, "85.192.37.58", {})
+
+    assert "PUBLIC_WEB_URL=https://85.192.37.58.nip.io:8443\n" in env
+    assert "PUBLIC_API_URL=https://85.192.37.58.nip.io:8443/api/v1\n" in env
+    assert "REGISTRY_URL=https://85.192.37.58.nip.io:8443/api/v1/registry\n" in env
+    assert "CORS_ORIGINS=https://85.192.37.58.nip.io:8443," in env
+    assert "PUBLIC_WEB_URL=http://" not in env
+
+
+def test_deployer_env_normalizes_api_base() -> None:
+    settings = ControlSettings(
+        service_name="control-test",
+        public_web_url="https://manga.example",
+        public_api_url="https://manga.example",
+    )
+    deployer = Deployer(settings, None, None, None, None)  # type: ignore[arg-type]
+    env = deployer._env_file(None, "manga.example", {})
+
+    assert "PUBLIC_API_URL=https://manga.example/api/v1\n" in env
+    assert "REGISTRY_URL=https://manga.example/api/v1/registry\n" in env
 
 
 @pytest.mark.asyncio

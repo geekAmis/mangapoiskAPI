@@ -36,3 +36,17 @@ merged pull request, not a step.
 
 Release: [v1.0.0](https://github.com/geekAmis/mangapoiskAPI/releases/tag/v1.0.0).
 The next release draft is in [RELEASE_NOTES_v1.1.0.md](RELEASE_NOTES_v1.1.0.md).
+
+## v1.1 / v1.2
+
+| # | Step | Status |
+|---|---|---|
+| [#29](https://github.com/geekAmis/mangapoiskAPI/issues/29) | EPIC v1.1: каталог, Remanga, загрузки, комментарии | in progress |
+| [#30](https://github.com/geekAmis/mangapoiskAPI/issues/30) | Каталог и рекурсивный краулер | in progress |
+| [#31](https://github.com/geekAmis/mangapoiskAPI/issues/31) | Prepare-загрузки, батчи по 5 глав | in progress |
+| [#32](https://github.com/geekAmis/mangapoiskAPI/issues/32) | Reader UX: 600 px/s, 3 попытки, dancing GIF | done |
+| [#33](https://github.com/geekAmis/mangapoiskAPI/issues/33) | Комментарии, жалобы, модерация, уведомления | in progress |
+| [#34](https://github.com/geekAmis/mangapoiskAPI/issues/34) | Cookie источников и импорт `.har` | in progress |
+| [#36](https://github.com/geekAmis/mangapoiskAPI/issues/36) | Cleanup: export API, LRU, security | in progress |
+| [#48](https://github.com/geekAmis/mangapoiskAPI/issues/48) | EPIC v1.2: поиск, удержание, уведомления, профили | open |
+| [#49](https://github.com/geekAmis/mangapoiskAPI/issues/49) | Docs: восстановить кодировку README и документации | in progress |

@@ -1,9 +1,18 @@
-﻿# Security audit вЂ” MangaPoisk Reborn
+# Security audit — MangaPoisk Reborn
 
 **Audit date:** 2026-11-11  
 **Targets:** repository working tree at `repo/` and the public deployment `https://85.192.37.58.nip.io:8443`  
 **Method:** static review first, followed by minimal non-destructive runtime probes (HTTP GET/POST against public endpoints, authorized admin login, JWT/secret validation tests, local unit-level checks). No brute force, no destructive writes, no denial-of-service tests.  
 **Scope:** gateway, parser, catalog, library, media, control, scheduler, notifier, shared `manga_common`; production nginx/TLS, exposed ports, admin panel, deployment/SSH, secrets, dependencies and CI.
+
+> **Status update 13.11.2026:** this document is the original audit of
+> 11.11.2026. TLS/admin transport, admin rate limiting, rate-limit trust, secret
+> separation and media SSRF findings were remediated after the audit; see
+> [Remediation status (post-audit)](#remediation-status-post-audit) at the end.
+> HTTP `:8088` is now a compatibility fallback behind the HTTPS deployment.
+> Keep the historical findings for context, but do not treat the original
+> "Critical" summary as the current state without reading the remediation
+> section.
 
 > The working tree was not clean during the audit: it contained uncommitted control/gateway/replica work. Findings reflect the working tree as reviewed. No source files were modified and nothing was committed. The only file created is this report.
 
@@ -15,10 +24,10 @@ The application has a solid baseline for password hashing, JWT signing, refresh-
 
 Two issues drive the overall rating:
 
-1. **The admin panel and admin API are published over plain HTTP.** A network observer on the path can capture the admin password and/or the 8-hour admin bearer token. That token is enough to add a вЂњserverвЂќ controlled by the attacker, run the deployment script there, and receive all deployment secrets, or to run arbitrary deployments against managed nodes.
+1. **The admin panel and admin API are published over plain HTTP.** A network observer on the path can capture the admin password and/or the 8-hour admin bearer token. That token is enough to add a “server” controlled by the attacker, run the deployment script there, and receive all deployment secrets, or to run arbitrary deployments against managed nodes.
 2. **Internal service traffic can cross the public internet in plaintext.** The gateway sends `X-Internal-Token` and user `Authorization` headers to whatever endpoint the registry selects. The production registry includes a second node addressed by public HTTP, and the node exposes backend ports directly. That token is effectively control-plane access: internal catalog/media/control endpoints accept arbitrary URLs, server records and deployment actions.
 
-Additional important issues: the per-IP rate limit is trivially bypassable with `X-Forwarded-For`, admin login has no account lockout, every service/container receives every secret, the media SSRF guard only blocks loopback (not RFC1918/link-local/metadata), SSH host keys are accepted blindly while deployment scripts contain all secrets, and a secondary production node exposes backend ports 8904вЂ“8909 and gateway 8875 to the internet.
+Additional important issues: the per-IP rate limit is trivially bypassable with `X-Forwarded-For`, admin login has no account lockout, every service/container receives every secret, the media SSRF guard only blocks loopback (not RFC1918/link-local/metadata), SSH host keys are accepted blindly while deployment scripts contain all secrets, and a secondary production node exposes backend ports 8904–8909 and gateway 8875 to the internet.
 
 **Overall risk: Critical** until TLS, admin isolation, rate-limit trust and secret separation are fixed. The application code is otherwise reasonably disciplined; most findings are configuration/architecture or defense-in-depth, not remote code execution in the public request path.
 
@@ -33,30 +42,30 @@ Additional important issues: the per-IP rate limit is trivially bypassable with 
 - `safeNextPath()` blocks protocol-relative, backslash and cross-origin `next=` redirects; no server-side redirect endpoint.
 - Direct SSRF through `/api/v1/manga/import` with `127.0.0.1` / `169.254.169.254` was **blocked** by the parser host allowlist (`url_host_not_allowed`).
 - No `.env`, `data.txt`, private keys or obvious token patterns are tracked in git or present in git history; `.dockerignore` excludes `.env`.
-- SSH passwords are encrypted at rest, not returned by the API, and local logs contained only paramiko вЂњAuthentication (password) successful!вЂќ lines вЂ” no password values.
+- SSH passwords are encrypted at rest, not returned by the API, and local logs contained only paramiko “Authentication (password) successful!” lines — no password values.
 
 ---
 
 ## Findings
 
-Severity order: Critical в†’ High в†’ Medium в†’ Low. вЂњConfirmedвЂќ means observed at runtime or reproduced locally; вЂњCode reviewвЂќ means the issue is clear from the code but was not exploited against production.
+Severity order: Critical → High → Medium → Low. “Confirmed” means observed at runtime or reproduced locally; “Code review” means the issue is clear from the code but was not exploited against production.
 
 ---
 
 ### Critical
 
-#### C-01 вЂ” Admin panel and admin API are served over plain HTTP
+#### C-01 — Admin panel and admin API are served over plain HTTP
 
 **Files / evidence**
 - `README.md:21-22` explicitly notes the demo runs over HTTP without TLS.
 - Runtime: `https://85.192.37.58.nip.io:8443/admin` returns `200` with no `Strict-Transport-Security`, no CSP and no TLS listener; `https://85.192.37.58:8088` and `https://85.192.37.58` do not connect.
-- `services/gateway/app/api.py:810-826` вЂ” admin login returns a bearer token in the JSON response body.
-- `apps/web/src/api/admin.ts:181-192` вЂ” the admin token is kept in `sessionStorage` for 8 hours (`ADMIN_TOKEN_MINUTES=480`, `packages/manga_common/manga_common/config.py:77`).
-- `services/control/app/deployer.py:274-279` вЂ” an admin-authenticated deployment can obtain/receive `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY`, `ADMIN_PASSWORD` on a target the admin controls.
+- `services/gateway/app/api.py:810-826` — admin login returns a bearer token in the JSON response body.
+- `apps/web/src/api/admin.ts:181-192` — the admin token is kept in `sessionStorage` for 8 hours (`ADMIN_TOKEN_MINUTES=480`, `packages/manga_common/manga_common/config.py:77`).
+- `services/control/app/deployer.py:274-279` — an admin-authenticated deployment can obtain/receive `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY`, `ADMIN_PASSWORD` on a target the admin controls.
 
 **Impact**
 Any attacker with a position on the network path (public Wi-Fi, ISP, BGP/route hijack, malicious proxy) can capture the admin password or token and then:
-- add an attacker-controlled вЂњserverвЂќ and run a deploy, receiving the deployment secrets in the targetвЂ™s `.env`;
+- add an attacker-controlled “server” and run a deploy, receiving the deployment secrets in the target’s `.env`;
 - deploy/restart services on the real nodes;
 - read the server inventory and audit log, and use failover/registry controls.
 
@@ -79,7 +88,7 @@ Observed: `200`, `token_type=bearer`, `expires_in=28800`; no TLS/HSTS anywhere. 
 **Fix (code/config level)**
 1. Terminate TLS in front of both the SPA and `/api/`; redirect all HTTP to HTTPS; add HSTS after TLS works.
 2. Restrict `/admin` and `/api/v1/admin/*` to a VPN/management IP allowlist or a separate admin hostname with mTLS; do not expose the admin panel to the whole internet.
-3. Shorten `ADMIN_TOKEN_MINUTES` (e.g. 30вЂ“60) and add a server-side token version/`jti` denylist (see M-04).
+3. Shorten `ADMIN_TOKEN_MINUTES` (e.g. 30–60) and add a server-side token version/`jti` denylist (see M-04).
 4. Rotate the current admin password, `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY` and all SSH credentials after enabling TLS. Assume the old values were exposed.
 5. Set cookies `Secure`/`HttpOnly` where applicable; do not put bearer tokens in URLs or logs.
 
@@ -87,13 +96,13 @@ Observed: `200`, `token_type=bearer`, `expires_in=28800`; no TLS/HSTS anywhere. 
 
 ---
 
-#### C-02 вЂ” Internal token and user bearer tokens can travel over public plaintext HTTP
+#### C-02 — Internal token and user bearer tokens can travel over public plaintext HTTP
 
 **Files / evidence**
 - `services/gateway/app/clients.py:49` sets `X-Internal-Token` on the shared client; `:105-116` sends requests to an endpoint URL chosen from the runtime registry.
-- `services/gateway/app/clients.py:272-276` forwards the userвЂ™s `Authorization` header to library endpoints.
-- `services/gateway/app/routing.py:117-130` вЂ” stateful requests (`library`, `control`) use the first three available endpoints; stateless GETs use rendezvous hashing over all healthy endpoints, including non-local ones.
-- `services/control/app/deployer.py:287-288` writes `REGISTRY_URL` and `REPLICA_SELF_URL` as `http://<public-host>:8088` / `http://<public-host>:8108` into every deployed serverвЂ™s `.env`.
+- `services/gateway/app/clients.py:272-276` forwards the user’s `Authorization` header to library endpoints.
+- `services/gateway/app/routing.py:117-130` — stateful requests (`library`, `control`) use the first three available endpoints; stateless GETs use rendezvous hashing over all healthy endpoints, including non-local ones.
+- `services/control/app/deployer.py:287-288` writes `REGISTRY_URL` and `REPLICA_SELF_URL` as `http://<public-host>:8088` / `http://<public-host>:8108` into every deployed server’s `.env`.
 - `services/replica/app/config.py:48` defaults `registry_url` to `https://85.192.37.58.nip.io:8443/api/v1/registry`; `services/replica/app/sync.py:151-155` sends the internal token there.
 - Runtime admin registry listed a secondary node with public HTTP endpoints such as `http://<secondary-node>:8907` (library), `:8904` (catalog), `:8909` (media), while those ports were reachable from the internet.
 
@@ -133,14 +142,14 @@ This was not a traffic-capture test; it is a code-path/architecture finding conf
 
 ### High
 
-#### H-01 вЂ” Rate limiting is bypassable via `X-Forwarded-For`; admin login has no lockout
+#### H-01 — Rate limiting is bypassable via `X-Forwarded-For`; admin login has no lockout
 
 **Files**
-- `services/gateway/app/middleware.py:45-56` вЂ” limiter key is derived from the first `X-Forwarded-For` value.
-- `services/gateway/app/api.py:66-70` вЂ” same trust for client IP metadata.
-- `services/gateway/app/main.py:97-102` вЂ” same value used for routing identity.
-- `infra/nginx/default.conf:20` вЂ” nginx uses `$proxy_add_x_forwarded_for`, which appends the real peer address but leaves the client-supplied first value in place.
-- `services/gateway/app/api.py:810-826` вЂ” admin login is a normal route under the default 240/min bucket; there is no per-account lockout/backoff.
+- `services/gateway/app/middleware.py:45-56` — limiter key is derived from the first `X-Forwarded-For` value.
+- `services/gateway/app/api.py:66-70` — same trust for client IP metadata.
+- `services/gateway/app/main.py:97-102` — same value used for routing identity.
+- `infra/nginx/default.conf:20` — nginx uses `$proxy_add_x_forwarded_for`, which appends the real peer address but leaves the client-supplied first value in place.
+- `services/gateway/app/api.py:810-826` — admin login is a normal route under the default 240/min bucket; there is no per-account lockout/backoff.
 
 **Impact**
 - Unlimited admin password guessing (subject only to network throughput) if an attacker rotates `X-Forwarded-For`.
@@ -158,10 +167,10 @@ for ip in 203.0.113.10 203.0.113.11 203.0.113.10; do
 done
 ```
 
-Observed: `237`, `238`, `236` вЂ” changing the header resets the bucket. With the real client IP, the import endpoint hit `limit: 10`; changing `X-Forwarded-For` immediately allowed new requests. The admin login route uses the same default bucket (240/min) and has no lockout.
+Observed: `237`, `238`, `236` — changing the header resets the bucket. With the real client IP, the import endpoint hit `limit: 10`; changing `X-Forwarded-For` immediately allowed new requests. The admin login route uses the same default bucket (240/min) and has no lockout.
 
 **Fix**
-1. Do not trust a client-supplied `X-Forwarded-For` first value. Use nginxвЂ™s `X-Real-IP`/`$remote_addr` on the trusted proxy, or parse `X-Forwarded-For` from the rightmost trusted hop.
+1. Do not trust a client-supplied `X-Forwarded-For` first value. Use nginx’s `X-Real-IP`/`$remote_addr` on the trusted proxy, or parse `X-Forwarded-For` from the rightmost trusted hop.
 2. Add a separate admin-login limiter, e.g. 5 attempts/min per `username + real IP`, with exponential backoff and a temporary lock after repeated failures.
 3. Use Redis for a global limiter if more than one gateway replica is possible.
 4. Add login alerting and optionally TOTP for the admin account.
@@ -170,13 +179,13 @@ Observed: `237`, `238`, `236` вЂ” changing the header resets the bucket. Wit
 
 ---
 
-#### H-02 вЂ” Every service/container/server receives every secret
+#### H-02 — Every service/container/server receives every secret
 
 **Files**
-- `docker-compose.yml:39,59,83,103,123,139,161,195` вЂ” every service uses `env_file: .env`; the same file contains JWT, internal token, control key and admin password.
-- `services/control/app/deployer.py:274-279` вЂ” the generated `.env` includes `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`.
-- `services/control/app/deployer.py:304-306` вЂ” every deployed service uses the same `EnvironmentFile`.
-- `services/control/app/deployer.py:387-390` вЂ” `.env` is `0640 root:<service-user>`; all services run as the same user.
+- `docker-compose.yml:39,59,83,103,123,139,161,195` — every service uses `env_file: .env`; the same file contains JWT, internal token, control key and admin password.
+- `services/control/app/deployer.py:274-279` — the generated `.env` includes `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`.
+- `services/control/app/deployer.py:304-306` — every deployed service uses the same `EnvironmentFile`.
+- `services/control/app/deployer.py:387-390` — `.env` is `0640 root:<service-user>`; all services run as the same user.
 
 **Impact**
 - A parser SSRF/RCE, a media image-decoder bug, or a compromised secondary node yields the JWT signing key, the internal token, the control key and the admin password.
@@ -200,14 +209,14 @@ docker compose config | grep -n "JWT_SECRET\|INTERNAL_TOKEN\|ADMIN_PASSWORD"
 
 ---
 
-#### H-03 вЂ” Media/parser SSRF guard only blocks loopback; private/link-local/metadata and redirects are allowed
+#### H-03 — Media/parser SSRF guard only blocks loopback; private/link-local/metadata and redirects are allowed
 
 **Files**
-- `services/media/app/cache.py:50-62` вЂ” rejects only `localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, `.local`; it does not check RFC1918, link-local, CGNAT, metadata IPs, decimal/IPv4-mapped forms, or resolved DNS addresses.
-- `packages/manga_common/manga_common/http.py:55` вЂ” `follow_redirects=True`; redirects are not revalidated by the media cache.
-- `services/parser/app/adapters/base.py:304-318` вЂ” initial URL is host-checked, but redirects are followed by httpx; `ensure_robots_allowed`/`assert_allowed_url` are not applied to each redirect hop.
-- `services/parser/app/adapters/mangalib.py:283-300` вЂ” `_page_url()` returns an arbitrary absolute `http(s)` URL when its host is not one of the three known CDN hosts. A user-generated/upstream chapter can therefore point a page URL at an internal address.
-- `services/media/app/api.py:30-45` вЂ” `/internal/image?url=` accepts any URL after the incomplete check; this is reachable with the internal token, which is itself exposed over HTTP (C-02).
+- `services/media/app/cache.py:50-62` — rejects only `localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, `.local`; it does not check RFC1918, link-local, CGNAT, metadata IPs, decimal/IPv4-mapped forms, or resolved DNS addresses.
+- `packages/manga_common/manga_common/http.py:55` — `follow_redirects=True`; redirects are not revalidated by the media cache.
+- `services/parser/app/adapters/base.py:304-318` — initial URL is host-checked, but redirects are followed by httpx; `ensure_robots_allowed`/`assert_allowed_url` are not applied to each redirect hop.
+- `services/parser/app/adapters/mangalib.py:283-300` — `_page_url()` returns an arbitrary absolute `http(s)` URL when its host is not one of the three known CDN hosts. A user-generated/upstream chapter can therefore point a page URL at an internal address.
+- `services/media/app/api.py:30-45` — `/internal/image?url=` accepts any URL after the incomplete check; this is reachable with the internal token, which is itself exposed over HTTP (C-02).
 
 **Impact**
 - Server-side requests to `169.254.169.254` (cloud metadata), `10/8`, `172.16/12`, `192.168/16`, `127.0.0.1` aliases and IPv4-mapped IPv6.
@@ -251,15 +260,15 @@ Observed: all five addresses above were **ALLOWED**; only the exact loopback nam
 
 ---
 
-#### H-04 вЂ” SSH host-key verification is disabled while deployment payloads contain all secrets
+#### H-04 — SSH host-key verification is disabled while deployment payloads contain all secrets
 
 **Files**
-- `services/control/app/ssh.py:35-36` вЂ” jump host uses `paramiko.AutoAddPolicy()`.
-- `services/control/app/ssh.py:58-59` вЂ” target host uses `AutoAddPolicy()`.
-- `services/control/app/deployer.py:360-388` вЂ” the deployment script is written over the SSH channel; the script includes the generated `.env` with `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY`, `ADMIN_PASSWORD` (lines 274-279) and is executed with `bash -s` (ssh.py:96).
+- `services/control/app/ssh.py:35-36` — jump host uses `paramiko.AutoAddPolicy()`.
+- `services/control/app/ssh.py:58-59` — target host uses `AutoAddPolicy()`.
+- `services/control/app/deployer.py:360-388` — the deployment script is written over the SSH channel; the script includes the generated `.env` with `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY`, `ADMIN_PASSWORD` (lines 274-279) and is executed with `bash -s` (ssh.py:96).
 
 **Impact**
-An attacker who can MITM the controlв†’target SSH connection (or DNS/host route) can present a new host key, receive the root SSH password and the full deployment script, and then execute commands as the SSH user on the target. Because the default SSH username is `root`, this is full infrastructure compromise. The documentation acknowledges вЂњaccept at first connectвЂќ (`docs/SERVER_MANAGER.md:86-88`) but not the secret-bearing payload consequence.
+An attacker who can MITM the control→target SSH connection (or DNS/host route) can present a new host key, receive the root SSH password and the full deployment script, and then execute commands as the SSH user on the target. Because the default SSH username is `root`, this is full infrastructure compromise. The documentation acknowledges “accept at first connect” (`docs/SERVER_MANAGER.md:86-88`) but not the secret-bearing payload consequence.
 
 **Reproduction (lab only)**
 Do not test against production. On a lab control instance, point a server record at a fake SSH server with a self-signed host key; `SSHRunner.connect()` will accept it and `run_script()` will send the script. The code path is deterministic.
@@ -274,7 +283,7 @@ Do not test against production. On a lab control instance, point a server record
 
 ---
 
-#### H-05 вЂ” Secondary production node exposes backend service ports publicly
+#### H-05 — Secondary production node exposes backend service ports publicly
 
 **Runtime evidence**
 - `<secondary-node>:8904` (catalog), `:8905` (notifier), `:8907` (library), `:8908` (parser), `:8909` (media) and `:8875` (gateway) returned `200` on `/health` from the audit host.
@@ -306,7 +315,7 @@ Observed: `200` for all except the non-HTTP scheduler/control ports. Default `<d
 
 ---
 
-#### H-06 вЂ” Production root SSH credentials and a GitHub PAT are stored in plaintext outside the repository
+#### H-06 — Production root SSH credentials and a GitHub PAT are stored in plaintext outside the repository
 
 **Files / evidence**
 - Workspace-level `../data.txt` (outside the git repo) contains reusable root SSH credentials for the production hosts and a GitHub personal access token. Values are **redacted** here and must not be copied into tickets, screenshots or commits.
@@ -334,7 +343,7 @@ Get-Content ..\data.txt | ForEach-Object { $_ -replace '(?i)(ssh|token|password)
 
 ### Medium
 
-#### M-01 вЂ” Missing security headers/CSP/frame protection on the production web app and admin panel
+#### M-01 — Missing security headers/CSP/frame protection on the production web app and admin panel
 
 **Files / evidence**
 - Runtime `/admin` returned only `HTTP/1.1 200 OK` with no `Content-Security-Policy`, `X-Frame-Options`, `frame-ancestors`, `Permissions-Policy` or HSTS.
@@ -368,14 +377,14 @@ Adjust CSP for the boot loader/inline theme styles, ideally by removing inline s
 
 ---
 
-#### M-02 вЂ” Anonymous export/archive jobs enable disk/memory exhaustion
+#### M-02 — Anonymous export/archive jobs enable disk/memory exhaustion
 
 **Files**
-- `services/gateway/app/api.py:512-518` вЂ” `POST /chapters/{id}/exports` has no `require_user`; any anonymous caller can create an export for a known chapter.
-- `services/media/app/exporter.py:98-116` вЂ” jobs are queued in-process; `max_pages` is 300 (`packages/manga_common/manga_common/config.py:56`), but there is no total-byte/disk quota.
-- `services/media/app/exporter.py:176-181` вЂ” WebP/AVIF/GIF pages are decoded by Pillow and re-encoded; a 40 MB compressed image can expand to a very large pixel buffer.
-- `services/media/app/archive.py:408-431` вЂ” chapter archiving fetches every page and can store large ZIPs; `ArchiveRequest.pages` has a minimum but no maximum (`services/media/app/archive.py:83`).
-- `services/gateway/app/api.py:362-392` вЂ” `/manga/{id}/warm` requires auth but has no per-user quota/dedup window; a user can repeatedly request whole-title archiving.
+- `services/gateway/app/api.py:512-518` — `POST /chapters/{id}/exports` has no `require_user`; any anonymous caller can create an export for a known chapter.
+- `services/media/app/exporter.py:98-116` — jobs are queued in-process; `max_pages` is 300 (`packages/manga_common/manga_common/config.py:56`), but there is no total-byte/disk quota.
+- `services/media/app/exporter.py:176-181` — WebP/AVIF/GIF pages are decoded by Pillow and re-encoded; a 40 MB compressed image can expand to a very large pixel buffer.
+- `services/media/app/archive.py:408-431` — chapter archiving fetches every page and can store large ZIPs; `ArchiveRequest.pages` has a minimum but no maximum (`services/media/app/archive.py:83`).
+- `services/gateway/app/api.py:362-392` — `/manga/{id}/warm` requires auth but has no per-user quota/dedup window; a user can repeatedly request whole-title archiving.
 
 **Impact**
 An anonymous attacker can fill the media volume and consume CPU/RAM, causing reader/export/archive failure. The spoofable rate limiter (H-01) makes this practical. Pillow decompression-bomb behavior adds a memory-exhaustion path.
@@ -399,13 +408,13 @@ The route is reached without authentication (a random UUID produced `404`, not `
 
 ---
 
-#### M-03 вЂ” Media proxy can serve `image/svg+xml` inline (stored XSS precondition)
+#### M-03 — Media proxy can serve `image/svg+xml` inline (stored XSS precondition)
 
 **Files**
-- `services/media/app/cache.py:119-131` вЂ” accepts any `Content-Type` starting with `image/`; `_EXTENSIONS` (`:15-22`) does not include SVG, but `mimetypes.guess_extension("image/svg+xml")` returns `.svg`, and the file is served as `image/svg+xml`.
-- `services/media/app/api.py:30-45` вЂ” `FileResponse` with the upstream content type; no `Content-Disposition: attachment`.
-- `services/gateway/app/api.py:469-495` вЂ” the public image route forwards upstream `content-type` and serves it from the same origin as the SPA.
-- `services/parser/app/adapters/mangalib.py:283-300` вЂ” arbitrary absolute image URL can be accepted from a user-generated chapter (precondition; production allowlist narrows it).
+- `services/media/app/cache.py:119-131` — accepts any `Content-Type` starting with `image/`; `_EXTENSIONS` (`:15-22`) does not include SVG, but `mimetypes.guess_extension("image/svg+xml")` returns `.svg`, and the file is served as `image/svg+xml`.
+- `services/media/app/api.py:30-45` — `FileResponse` with the upstream content type; no `Content-Disposition: attachment`.
+- `services/gateway/app/api.py:469-495` — the public image route forwards upstream `content-type` and serves it from the same origin as the SPA.
+- `services/parser/app/adapters/mangalib.py:283-300` — arbitrary absolute image URL can be accepted from a user-generated chapter (precondition; production allowlist narrows it).
 
 **Impact**
 If an attacker can get a malicious SVG into the archive/cache (via an allowed CDN, an upstream chapter with an attacker-controlled page URL, or a compromised source), the public image URL renders attacker JavaScript on the site origin. That can read localStorage (user access/refresh tokens) and, if an admin opens the image URL, sessionStorage (admin token). This is a high-impact chain but requires an upstream/allowlist precondition, hence Medium.
@@ -427,15 +436,15 @@ PYTHONPATH="packages/manga_common;services/media" .venv/Scripts/python.exe -c \
 
 ---
 
-#### M-04 вЂ” Access tokens cannot be revoked; admin logout is client-side only
+#### M-04 — Access tokens cannot be revoked; admin logout is client-side only
 
 **Files**
-- `packages/manga_common/manga_common/auth.py:38-59` вЂ” access tokens are stateless and carry no `jti`/session version.
-- `packages/manga_common/manga_common/security.py:43-49` вЂ” `require_user` only verifies signature/expiry; it does not check the userвЂ™s `is_active` on every request.
-- `services/library/app/service.py:248-251` вЂ” `revoke_all()` only revokes refresh tokens.
-- `services/library/app/service.py:142-159` вЂ” refresh rotation revokes the old refresh token, but access tokens remain valid.
-- `apps/web/src/pages/AdminPage.tsx:250-256` вЂ” admin logout only removes the token from sessionStorage.
-- `packages/manga_common/manga_common/config.py:77` вЂ” admin tokens last 480 minutes.
+- `packages/manga_common/manga_common/auth.py:38-59` — access tokens are stateless and carry no `jti`/session version.
+- `packages/manga_common/manga_common/security.py:43-49` — `require_user` only verifies signature/expiry; it does not check the user’s `is_active` on every request.
+- `services/library/app/service.py:248-251` — `revoke_all()` only revokes refresh tokens.
+- `services/library/app/service.py:142-159` — refresh rotation revokes the old refresh token, but access tokens remain valid.
+- `apps/web/src/pages/AdminPage.tsx:250-256` — admin logout only removes the token from sessionStorage.
+- `packages/manga_common/manga_common/config.py:77` — admin tokens last 480 minutes.
 
 **Impact**
 A stolen access token remains usable for up to 30 minutes after logout/password reset/account disable; a stolen admin token remains usable for up to 8 hours and logout does not invalidate it. Credential rotation does invalidate admin tokens (good), but ordinary logout does not.
@@ -446,20 +455,20 @@ Code-level. A token issued before `POST /internal/me/logout-all` continues to au
 **Fix**
 1. Add a `token_version`/`session_version` claim per user and admin, checked on every request; increment it on logout-all, password change, account disable and admin logout.
 2. Or maintain a Redis denylist of `jti` values until expiry.
-3. Shorten admin access tokens to 30вЂ“60 minutes; use a refresh/session mechanism for the panel.
+3. Shorten admin access tokens to 30–60 minutes; use a refresh/session mechanism for the panel.
 4. Check `User.is_active` on user endpoints (library already does for `/me`, but gateway-local auth does not).
 
 **Status:** Confirmed (code).
 
 ---
 
-#### M-05 вЂ” Control secret is not validated in production; SSH password encryption uses a single SHA-256
+#### M-05 — Control secret is not validated in production; SSH password encryption uses a single SHA-256
 
 **Files**
-- `packages/manga_common/manga_common/config.py:116-127` вЂ” production validation checks JWT, internal token and admin password but **not** `control_secret_key`.
-- `packages/manga_common/manga_common/config.py:78` вЂ” default `control_secret_key = "dev-control-secret-change-me"`.
-- `services/control/app/crypto.py:13-15` вЂ” `Fernet(base64(SHA256(secret)))`, no salt/KDF/work factor.
-- `services/control/app/deployer.py:276` вЂ” the same control secret is copied to every deployed server.
+- `packages/manga_common/manga_common/config.py:116-127` — production validation checks JWT, internal token and admin password but **not** `control_secret_key`.
+- `packages/manga_common/manga_common/config.py:78` — default `control_secret_key = "dev-control-secret-change-me"`.
+- `services/control/app/crypto.py:13-15` — `Fernet(base64(SHA256(secret)))`, no salt/KDF/work factor.
+- `services/control/app/deployer.py:276` — the same control secret is copied to every deployed server.
 
 **Impact**
 If `CONTROL_SECRET_KEY` is left default/weak and the control SQLite DB is obtained (backup, path traversal, node compromise), all stored SSH passwords can be decrypted offline. Because the key is also on every app node, a parser/media compromise may expose it even if the control DB is on another host.
@@ -481,13 +490,13 @@ grep -n "control_secret_key" packages/manga_common/manga_common/config.py
 
 ---
 
-#### M-06 вЂ” Admin server fields are interpolated into shell/systemd units without validation
+#### M-06 — Admin server fields are interpolated into shell/systemd units without validation
 
 **Files**
-- `services/control/app/schemas.py:22-28` вЂ” `host`, `public_host` and `bind_host` are only length-limited; `bind_host` accepts arbitrary text.
-- `services/control/app/deployer.py:293-295` вЂ” `public_host` is inserted into `PUBLIC_WEB_URL`/`PUBLIC_API_URL`/`CORS_ORIGINS`.
-- `services/control/app/deployer.py:315` вЂ” `bind_host` is inserted into `ExecStart=... --host {bind_host} ...` inside a systemd unit.
-- `services/control/app/deployer.py:309-341` вЂ” `User={user}`, `Group={user}`, `WorkingDirectory={paths}` are also template-interpolated.
+- `services/control/app/schemas.py:22-28` — `host`, `public_host` and `bind_host` are only length-limited; `bind_host` accepts arbitrary text.
+- `services/control/app/deployer.py:293-295` — `public_host` is inserted into `PUBLIC_WEB_URL`/`PUBLIC_API_URL`/`CORS_ORIGINS`.
+- `services/control/app/deployer.py:315` — `bind_host` is inserted into `ExecStart=... --host {bind_host} ...` inside a systemd unit.
+- `services/control/app/deployer.py:309-341` — `User={user}`, `Group={user}`, `WorkingDirectory={paths}` are also template-interpolated.
 
 **Impact**
 An authenticated admin can inject newlines into a systemd unit (for example an extra `ExecStartPre=` directive) or malformed values into generated URLs. The heredocs are quoted, so this is not direct shell interpolation; the risk is unit-directive injection and broken service configuration. This is post-auth, and a full admin can already deploy/SSH, so it is not a privilege boundary by itself; however, it turns a stolen/clickjacked admin session into service-user code execution on managed nodes and can cause accidental outages.
@@ -505,10 +514,10 @@ Do not test on production. On a lab control instance, create/update a server wit
 
 ---
 
-#### M-07 вЂ” Public API docs and internal service docs are exposed
+#### M-07 — Public API docs and internal service docs are exposed
 
 **Files / evidence**
-- `packages/manga_common/manga_common/service.py:39-42` вЂ” `docs_url`/`openapi_url` are enabled by default and only parser disables them in production (`services/parser/app/main.py:64`).
+- `packages/manga_common/manga_common/service.py:39-42` — `docs_url`/`openapi_url` are enabled by default and only parser disables them in production (`services/parser/app/main.py:64`).
 - Runtime: `https://85.192.37.58.nip.io:8443/docs` and `/openapi.json` returned `200`; `<secondary-node>:8904/docs`, `:8905/docs`, `:8907/docs`, `:8909/docs` returned `200`.
 - `docs/API.md` documents admin/internal endpoints publicly in the repo as well.
 
@@ -522,20 +531,20 @@ Disable docs/OpenAPI for every service in production (`docs=False` when `environ
 
 ---
 
-#### M-08 вЂ” User authentication hardening gaps
+#### M-08 — User authentication hardening gaps
 
 **Files**
-- `services/library/app/service.py:102-104` вЂ” registration returns `409 email_taken`, enabling account enumeration.
-- `packages/manga_common/manga_common/schemas.py:163-171` вЂ” password policy is only 8вЂ“128 characters; no breached-password/complexity check.
-- `services/library/app/api.py` вЂ” no password-reset/forgot-password/email-verification routes exist.
-- `services/gateway/app/api.py:810-826` вЂ” admin login has no MFA/lockout; user login has no per-account throttle (`services/library/app/service.py:122-140`).
-- `services/gateway/app/api.py` вЂ” registration is open to the internet.
+- `services/library/app/service.py:102-104` — registration returns `409 email_taken`, enabling account enumeration.
+- `packages/manga_common/manga_common/schemas.py:163-171` — password policy is only 8–128 characters; no breached-password/complexity check.
+- `services/library/app/api.py` — no password-reset/forgot-password/email-verification routes exist.
+- `services/gateway/app/api.py:810-826` — admin login has no MFA/lockout; user login has no per-account throttle (`services/library/app/service.py:122-140`).
+- `services/gateway/app/api.py` — registration is open to the internet.
 
 **Impact**
 Account enumeration, spam account creation, credential stuffing and inability to recover a compromised/lost account. Severity varies with exposure; the rate-limit bypass (H-01) makes brute force easier.
 
 **Fix**
-1. Return a generic вЂњcheck your emailвЂќ response for registration and implement email verification.
+1. Return a generic “check your email” response for registration and implement email verification.
 2. Add a password reset flow with single-use, short-lived tokens.
 3. Add per-account login throttling and optional TOTP.
 4. Check passwords against a breached-password list; require 12+ characters.
@@ -547,17 +556,17 @@ Account enumeration, spam account creation, credential stuffing and inability to
 
 ### Low
 
-#### L-01 вЂ” `mp_client` routing cookie is client-controlled and lacks `Secure`/`HttpOnly`
+#### L-01 — `mp_client` routing cookie is client-controlled and lacks `Secure`/`HttpOnly`
 
 `services/gateway/app/main.py:88-116` reads `mp_client` or `X-Client-ID`, truncates to 128 chars, and uses it as the rendezvous-hash key. The cookie is set with `httponly=False`, `samesite="lax"` and no `secure`. It is not an authentication cookie, but an attacker can pin a victim or themselves to a specific backend node (including a less-monitored secondary), and the value is not signed.  
 **Fix:** sign the value, ignore client-supplied routing IDs for security decisions, set `Secure`/`HttpOnly` if it must be a cookie, and cap/validate the format. **Status:** Code confirmed; Low.
 
-#### L-02 вЂ” Frontend URL helper allows `javascript:`/`data:` and chapter external links are not scheme-checked
+#### L-02 — Frontend URL helper allows `javascript:`/`data:` and chapter external links are not scheme-checked
 
 `apps/web/src/api/client.ts:216-228` returns any URL with a scheme unchanged. `apps/web/src/pages/ReaderPage.tsx:728` and `apps/web/src/components/ChapterRow.tsx:67` use `href={chapter.url}`. Chapter URLs are normally constructed from validated adapter URLs, but a bad upstream/DB value could become `javascript:` and execute on click. No production instance was found with such a value.  
 **Fix:** allow only `https:`/`http:` and expected hosts in `resolveApiUrl`; validate `ChapterOut.url` on the server and reject non-HTTP(S). **Status:** Code confirmed; latent.
 
-#### L-03 вЂ” Dependencies and CI are not pinned/limited
+#### L-03 — Dependencies and CI are not pinned/limited
 
 - Python requirements use ranges (`fastapi>=0.115,<1`, `Pillow>=10.4,<13`, etc.) with no lock file or hashes; Docker images use mutable tags (`python:3.12-slim`, `postgres:16-alpine`, `nginx:1.27-alpine`).
 - `.github/workflows/ci.yml` has no `permissions:` block (default token permissions), and actions are referenced by tag (`actions/checkout@v4`) rather than commit SHA.
@@ -566,37 +575,37 @@ Account enumeration, spam account creation, credential stuffing and inability to
 
 **Fix:** add `permissions: contents: read`, pin actions by SHA, lock Python deps (uv/pip-tools) and Docker digests, enable Dependabot, run `pip-audit`/`npm audit` in CI. **Status:** Code review.
 
-#### L-04 вЂ” Compose defaults use weak internal credentials and no resource limits
+#### L-04 — Compose defaults use weak internal credentials and no resource limits
 
 `docker-compose.yml:9` uses `POSTGRES_PASSWORD: manga`; Redis has no password (`:21-24`); no `read_only`, `cap_drop`, `security_opt` or resource limits. These services are on an internal network with no published ports, so this is Low for the compose deployment, but it becomes relevant if the network is shared or a port is accidentally published.  
 **Fix:** generate DB/Redis passwords from `.env`, add `cap_drop: [ALL]`, `read_only: true`, `tmpfs`, memory/CPU limits. **Status:** Code review.
 
-#### L-05 вЂ” Export download path is taken from `job.json` without containment check
+#### L-05 — Export download path is taken from `job.json` without containment check
 
 `services/media/app/exporter.py:256-263` joins `_job_dir(job_id)` with `state.filename` loaded from `job.json`; no `.resolve()`/parent check. The filename is normally generated by `slugify`, so this requires local tampering with the job directory or a future import path.  
 **Fix:** `path = (dir / filename).resolve(); if path.parent != dir.resolve(): raise`. **Status:** Code review; Low.
 
-#### L-06 вЂ” Replica downloads are unbounded and bootstrap accepts arbitrary peer URLs
+#### L-06 — Replica downloads are unbounded and bootstrap accepts arbitrary peer URLs
 
 `services/replica/app/sync.py:590-635` streams downloads to disk with no maximum size; expected size/checksum are checked only after the download. `services/replica/app/api.py:92-101` accepts an arbitrary `source` URL for bootstrap (internal token required). A malicious/compromised peer can fill the disk before verification. The service is new/uncommitted and was not deployed on the audited nodes.  
 **Fix:** enforce `Content-Length`/max bytes during streaming, verify checksum incrementally, restrict bootstrap sources to the registry/VPN. **Status:** Code review; Low/Medium if replica is enabled.
 
-#### L-07 вЂ” Demo/smoke scripts create known-password accounts
+#### L-07 — Demo/smoke scripts create known-password accounts
 
 `scripts/seed_demo.py:17-18` defaults to `demo@example.com` / `<documented-demo-password>`; `scripts/smoke_test.py:63-70` creates `smoke-*` users with a fixed password. These are intended for local testing, but running them against production leaves known credentials. The demo credentials were tested against production and **did not** work (`401`), so no such account was found.  
-**Fix:** refuse to run when `ENVIRONMENT=production`, require an explicit password, delete test users, document вЂњnever run in prod.вЂќ **Status:** Code confirmed; production check negative.
+**Fix:** refuse to run when `ENVIRONMENT=production`, require an explicit password, delete test users, document “never run in prod.” **Status:** Code confirmed; production check negative.
 
-#### L-08 вЂ” Validation errors may echo submitted passwords/tokens in 422 responses
+#### L-08 — Validation errors may echo submitted passwords/tokens in 422 responses
 
-FastAPIвЂ™s default `RequestValidationError` response includes an `input` field. For `/auth/login`, `/auth/register`, `/auth/refresh` and `/admin/login`, a validation failure (e.g. password >128 chars) can echo the submitted secret back in the response and into any body-logging proxy. The client already knows the value, but logs/APM may capture it.  
-**Fix:** add a custom validation handler that redacts keys named `password`, `refresh_token`, `access_token`, `token`, `secret`; keep the parserвЂ™s existing handler pattern. **Status:** Code review; Low.
+FastAPI’s default `RequestValidationError` response includes an `input` field. For `/auth/login`, `/auth/register`, `/auth/refresh` and `/admin/login`, a validation failure (e.g. password >128 chars) can echo the submitted secret back in the response and into any body-logging proxy. The client already knows the value, but logs/APM may capture it.  
+**Fix:** add a custom validation handler that redacts keys named `password`, `refresh_token`, `access_token`, `token`, `secret`; keep the parser’s existing handler pattern. **Status:** Code review; Low.
 
-#### L-09 вЂ” Admin username check short-circuits before password comparison
+#### L-09 — Admin username check short-circuits before password comparison
 
 `services/gateway/app/api.py:812-815` uses `constant_time_compare(username) and constant_time_compare(password)`. A wrong username skips the password comparison, so response timing can reveal whether the username is valid. Combined with H-01, this assists targeted guessing.  
 **Fix:** compute both comparisons and combine without short-circuit, or use a dummy hash/verify path. **Status:** Code review; Low.
 
-#### L-10 вЂ” Production CORS list includes localhost/Capacitor origins
+#### L-10 — Production CORS list includes localhost/Capacitor origins
 
 `services/control/app/deployer.py:295` writes `http://localhost:5173`, `http://localhost:8080`, `capacitor://localhost` and `https://localhost` in addition to the public origin. Bearer auth means a random website cannot automatically send credentials, and evil origins are not reflected, but the list is broader than necessary for production.  
 **Fix:** restrict production CORS to the real public origin(s); keep dev origins only in development. **Status:** Code review; Low.
@@ -607,22 +616,22 @@ FastAPIвЂ™s default `RequestValidationError` response includes an `input` fi
 
 | Area | Result |
 |---|---|
-| JWT default secret | Forged HS256 token signed with `<default-dev-jwt-secret>` against production `/api/v1/auth/me` в†’ **401**. Not using the development default. |
-| JWT `alg=none` | Unsigned token against production `/api/v1/library/bookmarks` в†’ **401**. |
-| Internal auth | All `/internal/*` routers declare `require_internal_token`; production catalog/parser/media rejected the default `<default-dev-internal-token>` в†’ **401**. |
-| Admin auth bypass | `/api/v1/admin/me`, `/servers`, `/registry`, `/audit` without token в†’ **401**. |
+| JWT default secret | Forged HS256 token signed with `<default-dev-jwt-secret>` against production `/api/v1/auth/me` → **401**. Not using the development default. |
+| JWT `alg=none` | Unsigned token against production `/api/v1/library/bookmarks` → **401**. |
+| Internal auth | All `/internal/*` routers declare `require_internal_token`; production catalog/parser/media rejected the default `<default-dev-internal-token>` → **401**. |
+| Admin auth bypass | `/api/v1/admin/me`, `/servers`, `/registry`, `/audit` without token → **401**. |
 | Admin token rotation | `admin_auth_version()` HMAC includes username+password; code/tests show old `av` fails after rotation. |
-| SSRF via import URL | `POST /manga/import` with `http://127.0.0.1:8005/...` and `http://169.254.169.254/...` в†’ parser `url_host_not_allowed`. Direct import SSRF is blocked; the media proxy remains the gap (H-03). |
+| SSRF via import URL | `POST /manga/import` with `http://127.0.0.1:8005/...` and `http://169.254.169.254/...` → parser `url_host_not_allowed`. Direct import SSRF is blocked; the media proxy remains the gap (H-03). |
 | SQL injection | Repository code uses SQLAlchemy expressions/bound parameters; no raw user SQL. `ilike` wildcards are not injection. |
 | CSRF | Auth is `Authorization: Bearer`, not cookies. State-changing requests with `Content-Type: application/json` trigger CORS preflight; evil origin received no `Access-Control-Allow-Origin`. No cookie-based session to forge. |
 | Open redirect | `safeNextPath()` rejects `//`, `/\`, and cross-origin URLs via `new URL()`; tested by code review. No server redirect endpoint. |
 | DOM XSS | No `dangerouslySetInnerHTML`/`innerHTML` in application source; manga titles/descriptions/genres are React text nodes. Telegram HTML and export HTML escape their strings. |
 | Path traversal | Export names pass through `slugify`; replica archive names use a strict `^[A-Za-z0-9][A-Za-z0-9._-]{0,191}\.zip$`; media cache keys are SHA-256; chapter IDs are UUIDs. No user-controlled filesystem path found in the normal flow. |
-| SSH password exposure | `ServerOut` has no password; `SSHTarget.__repr__` redacts it; audit filters keys containing `password`; local logs contained only вЂњAuthentication (password) successful!вЂќ, no password values. |
+| SSH password exposure | `ServerOut` has no password; `SSHTarget.__repr__` redacts it; audit filters keys containing `password`; local logs contained only “Authentication (password) successful!”, no password values. |
 | Git secrets | `.env` and `data.txt` are not tracked; `git log -G 'ghp_|github_pat_|AKIA|PRIVATE KEY'` found no commits; `.dockerignore` excludes `.env` and `data/`. |
 | CORS wildcard | No `*` with credentials; allowed origin is reflected only for configured origins. |
-| Primary node exposure | `85.192.37.58` exposed only 8088; 8000вЂ“8006/8100вЂ“8108 were closed/filtered. (The secondary node is the exception вЂ” H-05.) |
-| Default demo account | `demo@example.com` / the documented demo password в†’ **401**; not present in production. |
+| Primary node exposure | `85.192.37.58` exposed only 8088; 8000–8006/8100–8108 were closed/filtered. (The secondary node is the exception — H-05.) |
+| Default demo account | `demo@example.com` / the documented demo password → **401**; not present in production. |
 | Password hashing | Argon2id with `time_cost=3, memory_cost=65536, parallelism=4`; refresh tokens are 48-byte URL-safe random values stored as SHA-256. |
 | SQL/ORM migrations | Runtime migrations use fixed DDL strings, no user input. |
 
@@ -638,16 +647,16 @@ FastAPIвЂ™s default `RequestValidationError` response includes an `input` fi
 
 ## Prioritized remediation checklist
 
-### P0 вЂ” today
+### P0 — today
 
-- [ ] Put the admin panel and `/api/v1/admin/*` behind HTTPS and a VPN/IP allowlist; enable HSTS and HTTPв†’HTTPS redirect.
+- [ ] Put the admin panel and `/api/v1/admin/*` behind HTTPS and a VPN/IP allowlist; enable HSTS and HTTP→HTTPS redirect.
 - [ ] Rotate the admin password, `JWT_SECRET`, `INTERNAL_TOKEN`, `CONTROL_SECRET_KEY`, all SSH credentials and the GitHub PAT. Assume they are compromised (C-01, C-02, H-06).
 - [ ] Fix rate-limit IP trust: use nginx `X-Real-IP`/`$remote_addr` or trusted-proxy parsing; add a dedicated admin-login lockout/backoff (H-01).
 - [ ] Bind every backend service to `127.0.0.1` or firewall the 8900/8875 range; expose only nginx 443 (H-05, C-02).
 - [ ] Split secrets per service; remove `ADMIN_PASSWORD` from parser/media/catalog nodes; use Docker/systemd secrets (H-02).
 - [ ] Enable SSH host-key pinning and key-only auth; stop sending all secrets in the deploy script (H-04).
 
-### P1 вЂ” this week
+### P1 — this week
 
 - [ ] Implement private/link-local/reserved IP rejection and per-redirect revalidation in media/parser fetch paths; keep `MEDIA_ALLOWED_HOSTS` mandatory (H-03).
 - [ ] Require auth and quotas for export/warm jobs; cap total bytes/pixels and add disk checks (M-02).
@@ -657,7 +666,7 @@ FastAPIвЂ™s default `RequestValidationError` response includes an `input` fi
 - [ ] Validate `control_secret_key` in production and replace SHA-256 with a salted KDF (M-05).
 - [ ] Validate `host`/`public_host`/`bind_host` and escape systemd/shell templates (M-06).
 
-### P2 вЂ” next sprint
+### P2 — next sprint
 
 - [ ] Disable `/docs`/`/openapi.json` in production for all services (M-07).
 - [ ] Add email verification, generic registration responses, password reset, breached-password checks, per-account throttling and optional MFA (M-08).
@@ -668,7 +677,7 @@ FastAPIвЂ™s default `RequestValidationError` response includes an `input` fi
 - [ ] Remove/rotate demo scripts from production workflows; add a production guard (L-07).
 - [ ] Add a custom 422 handler that redacts password/token fields (L-08).
 
-### P3 вЂ” hardening / monitoring
+### P3 — hardening / monitoring
 
 - [ ] Sign or ignore the `mp_client` routing cookie; set `Secure`/`HttpOnly` if retained (L-01).
 - [ ] Restrict `resolveApiUrl`/chapter links to `http(s)` and expected hosts (L-02).
@@ -733,7 +742,7 @@ for ip in 203.0.113.10 203.0.113.11 203.0.113.10; do
 done
 ```
 
-Observed: `237`, `238`, `236` вЂ” different header values reset the bucket; the same value decrements. The import endpoint separately returned `limit: 10`, and changing the header allowed a new request.
+Observed: `237`, `238`, `236` — different header values reset the bucket; the same value decrements. The import endpoint separately returned `limit: 10`, and changing the header allowed a new request.
 
 ### Port exposure test
 

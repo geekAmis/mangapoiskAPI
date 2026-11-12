@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -100,6 +101,29 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
     public_web_url: str = "http://localhost:8080"
     public_api_url: str = "http://localhost:8000"
+
+    @field_validator("public_web_url", "public_api_url")
+    @classmethod
+    def _normalize_public_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("must be an absolute http(s) URL")
+        return value
+
+    @model_validator(mode="after")
+    def _require_https_public_urls(self) -> Settings:
+        if not self.is_production:
+            return self
+        insecure = [
+            field
+            for field in ("public_web_url", "public_api_url")
+            if urlparse(getattr(self, field)).scheme != "https"
+        ]
+        if insecure:
+            names = ", ".join(field.upper() for field in insecure)
+            raise ValueError(f"production requires HTTPS public URLs: {names}")
+        return self
 
     @field_validator("cors_origins")
     @classmethod
