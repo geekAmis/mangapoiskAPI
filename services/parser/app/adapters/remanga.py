@@ -1,9 +1,12 @@
 ﻿"""Remanga adapter (api.remanga.org).
 
-Verified public JSON endpoints (anonymous, 2026-11-11):
+Verified JSON endpoints (anonymous and signed-in, 2026-11-12):
 
-* ``GET /api/v2/search/?query=<q>&page=<n>`` — 20 results per page, ``meta``
-  carries ``total_items`` / ``total_pages`` / ``page``.
+* ``GET /api/v2/search/?query=<q>&page=<n>`` — full-text search, 20 results
+  per page, ``meta`` carries ``total_items`` / ``total_pages`` / ``page``.
+* ``GET /api/v2/search/catalog/?page=<n>&count=30&ordering=-rating`` —
+  paginated catalogue/popular listing.  ``ordering=-id`` is the newest list.
+  ``next`` is a relative API URL; the adapter reads its ``page`` parameter.
 * ``GET /api/v2/titles/{dir}/`` — title detail.
 * ``GET /api/v2/titles/chapters/?branch_id=<id>&page=<n>&ordering=-index`` —
   newest-first chapter list, 30 per page, integer ``next`` page.
@@ -13,17 +16,26 @@ Verified public JSON endpoints (anonymous, 2026-11-11):
 Reader URLs on the site are ``/manga/{dir}/{chapter_id}``; the legacy
 ``/manga/{dir}/chapter/{id}`` form is accepted as an input alias.
 
-``https://remanga.org/robots.txt`` disallows ``/api`` (and ``/search``).  The
-adapter is therefore disabled by default and must only be enabled by an
-operator with explicit permission from the site.  Free reader pages are public;
-paid chapters return ``is_paid: true`` with no pages and are rejected with a
-typed ``chapter_paid`` error instead of being bypassed.
+Authentication is a bearer token.  The site stores it in the ``auth:token``
+cookie; the API accepts it as ``Authorization: Bearer <token>``.  Operators can
+provide either a bare token, a full Cookie header or an Authorization header
+through the admin cookie store.  Without a credential the adapter behaves
+anonymously and can read free chapters.
+
+Paid/locked chapters are never bypassed.  The API returns ``is_paid: true``,
+``is_bought: false`` and ``pages: []``; these chapters are skipped from the
+normal chapter list (unless bought or free today) and requesting one directly
+raises a typed ``chapter_paid`` error that marks it unavailable.
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
+from dataclasses import dataclass
 from typing import Any, ClassVar
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from manga_common.errors import (
     UpstreamError,
@@ -57,6 +69,21 @@ _API_BASE = "https://api.remanga.org"
 _SITE_BASE = "https://remanga.org"
 _MANGA_PATH = "manga"
 _MAX_CHAPTER_PAGES = 50
+_CATALOG_PAGE_SIZE = 30
+_CATALOGUE_ORDERINGS = frozenset({"-rating", "-id", "-score", "-views", "-count_chapters"})
+# The scheduler speaks a source-agnostic ``sort`` vocabulary; map it onto the
+# ordering values accepted by the Remanga catalogue endpoint.
+_CATALOGUE_SORT_ALIASES = {
+    "popular": "-rating",
+    "rating": "-rating",
+    "score": "-score",
+    "views": "-views",
+    "newest": "-id",
+    "new": "-id",
+    "updated": "-id",
+    "latest": "-id",
+    "chapters": "-count_chapters",
+}
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -75,32 +102,120 @@ def _named(value: Any) -> str | None:
     return text or None
 
 
+def _cookie_pairs(raw: str) -> dict[str, str]:
+    pairs: dict[str, str] = {}
+    for part in raw.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        key = key.strip()
+        if key:
+            pairs[key] = value.strip()
+    return pairs
+
+
+def _parse_credentials(raw: str | None) -> tuple[str | None, str | None]:
+    """Return ``(bearer_token, cookie_header)`` from an operator value.
+
+    Accepted forms (case-insensitive for the prefixes):
+
+    * ``Bearer <token>`` / ``Authorization: Bearer <token>``
+    * a bare API token
+    * ``auth:token=<token>`` or a complete Cookie header containing it
+    * ``Cookie: ...``
+    * a JSON object containing a ``cookie``/``token``/``authorization`` value
+    """
+
+    text = (raw or "").strip()
+    if not text:
+        return None, None
+    lower = text.lower()
+    cookie_prefix = lower.startswith("cookie:")
+    if lower.startswith(("authorization:", "cookie:")):
+        text = text.split(":", 1)[1].strip()
+
+    lower = text.lower()
+    if lower.startswith("bearer "):
+        token = text[7:].strip().strip('"')
+        return token or None, None
+
+    if text.startswith("{"):
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            for key in ("cookie", "token", "authorization", "value"):
+                candidate = payload.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return _parse_credentials(candidate)
+
+    pairs = _cookie_pairs(text)
+    token = pairs.get("auth:token") or pairs.get("auth:server-token")
+    if token:
+        token = unquote(token).strip().strip('"')
+        return token or None, None
+
+    # A complete Cookie header without an auth token is still useful for the
+    # site's DDoS-Guard cookies; send it as a Cookie header.
+    if ";" in text or cookie_prefix or "=" in text:
+        return None, text
+
+    token = text.split()[0].strip().strip('"')
+    return token or None, None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _RemangaCredentials:
+    token: str | None = None
+    cookie_header: str | None = None
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.token or self.cookie_header)
+
+    @property
+    def mode(self) -> str:
+        if self.token:
+            return "bearer"
+        if self.cookie_header:
+            return "cookie"
+        return "anonymous"
+
+    @property
+    def fingerprint(self) -> str:
+        seed = self.token or self.cookie_header or ""
+        if not seed:
+            return "anonymous"
+        return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+
 class RemangaAdapter(BaseAdapter):
-    """Adapter for ``remanga.org`` (opt-in only, disabled by default)."""
+    """Adapter for ``remanga.org``."""
 
     info = SourceInfo(
         code="remanga",
         name="Remanga",
         base_url=_SITE_BASE,
         language="ru",
-        enabled=False,
-        requires_cookies=False,
+        enabled=True,
+        requires_cookies=True,
         capabilities=SourceCapabilities(
             search=True,
-            catalog=False,
+            catalog=True,
             manga=True,
             chapters=True,
             pages=True,
-            latest=False,
+            latest=True,
             requires_auth_for_pages=False,
         ),
         notes=(
-            "Public JSON API verified for search, title details, chapter lists "
-            "and reader pages. Page images use img3.reimg2.org (no Referer) and "
-            "img-reserve.reimg2.org (Referer: https://remanga.org/). "
-            "robots.txt disallows /api, so the source is disabled by default; "
-            "enable only with explicit permission. Paid chapters are rejected "
-            "instead of bypassed."
+            "Public JSON API verified for search, catalogue/popular pages, title "
+            "details, chapter lists and reader pages. Cover URLs use "
+            "remanga.org/media; page images use img3.reimg2.org (no Referer) and "
+            "img-reserve.reimg2.org (Referer: https://remanga.org/). An optional "
+            "operator credential is sent as Authorization: Bearer; paid/locked "
+            "chapters are skipped and never bypassed."
         ),
     )
     allowed_hosts = frozenset({"remanga.org", "www.remanga.org", "api.remanga.org"})
@@ -109,21 +224,82 @@ class RemangaAdapter(BaseAdapter):
         "Accept": "application/json, text/plain, */*",
         "Origin": _SITE_BASE,
         "Referer": f"{_SITE_BASE}/",
+        "X-Client-Name": "web",
     }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._credentials = _RemangaCredentials()
+        self.set_cookie(self._cookie)
 
     def _configured_cookie(self, settings) -> str | None:  # type: ignore[no-untyped-def]
         return (settings.remanga_cookie or "").strip() or None
+
+    # ------------------------------------------------------------------
+    # Credentials
+    # ------------------------------------------------------------------
+
+    def set_cookie(self, value: str | None) -> None:
+        """Update the upstream credential in-place (admin cookie endpoint)."""
+
+        token, cookie_header = _parse_credentials(value)
+        self._cookie = (value or "").strip() or None
+        self._credentials = _RemangaCredentials(token=token, cookie_header=cookie_header)
+
+    @property
+    def cookie_configured(self) -> bool:
+        return self._credentials.configured
+
+    @property
+    def cookie_mode(self) -> str:
+        return self._credentials.mode
+
+    def _request_headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        headers = super()._request_headers(extra)
+        # BaseAdapter adds the raw operator value as Cookie; this adapter
+        # converts it to the API's bearer auth and only sends a Cookie header
+        # when the value does not contain a usable token.
+        headers.pop("Cookie", None)
+        if self._credentials.cookie_header:
+            headers["Cookie"] = self._credentials.cookie_header
+        if self._credentials.token:
+            headers["Authorization"] = f"Bearer {self._credentials.token}"
+        return headers
 
     # ------------------------------------------------------------------
     # Mapping
     # ------------------------------------------------------------------
 
     def _cover_url(self, item: dict[str, Any]) -> str | None:
-        cover = _as_dict(item.get("cover"))
+        cover = item.get("cover")
+        if isinstance(cover, str):
+            return absolute_url(_SITE_BASE, cover)
+        cover_dict = _as_dict(cover)
         return absolute_url(
             _SITE_BASE,
-            first_text(cover.get("mid"), cover.get("high"), cover.get("low")),
+            first_text(cover_dict.get("mid"), cover_dict.get("high"), cover_dict.get("low")),
         )
+
+    @staticmethod
+    def _genres(item: dict[str, Any]) -> list[str]:
+        names: list[str] = []
+        for key in ("genres", "categories"):
+            for genre in _as_list(item.get(key)):
+                name = _named(genre)
+                if name and name not in names:
+                    names.append(name)
+        return names
+
+    @staticmethod
+    def _publisher_names(*values: Any) -> list[str]:
+        names: list[str] = []
+        for value in values:
+            for publisher in _as_list(value):
+                if isinstance(publisher, dict):
+                    name = first_text(publisher.get("name"))
+                    if name and name not in names:
+                        names.append(name)
+        return names
 
     def _summary_from_search(self, item: Any) -> MangaSummary | None:
         if not isinstance(item, dict):
@@ -147,16 +323,14 @@ class RemangaAdapter(BaseAdapter):
             rating_count=parse_int(item.get("total_votes")),
             poster_url=self._cover_url(item),
             adult=bool(item.get("is_erotic")),
+            genres=self._genres(item),
+            updated_at=parse_iso_datetime(item.get("uploaded")),
+            chapters_count=parse_int(item.get("count_chapters")),
             url=absolute_url(_SITE_BASE, f"/manga/{directory}") if directory else None,
         )
 
     def _summary_from_detail(self, title: dict[str, Any]) -> MangaSummary:
         directory = first_text(title.get("dir"))
-        genres = [
-            first_text(genre.get("name"))
-            for genre in [*_as_list(title.get("genres")), *_as_list(title.get("categories"))]
-            if isinstance(genre, dict)
-        ]
         age_label = first_text(_as_dict(title.get("age_limit")).get("name"))
         return MangaSummary(
             source=self.info.code,
@@ -173,12 +347,36 @@ class RemangaAdapter(BaseAdapter):
             rating_count=parse_int(title.get("total_votes")),
             poster_url=self._cover_url(title),
             adult=bool(title.get("is_erotic")) or "18+" in age_label,
-            genres=[genre for genre in genres if genre],
+            genres=self._genres(title),
+            updated_at=parse_iso_datetime(title.get("uploaded")),
+            chapters_count=parse_int(title.get("count_chapters")),
             url=absolute_url(_SITE_BASE, f"/manga/{directory}") if directory else None,
         )
 
+    @staticmethod
+    def _chapter_access(item: dict[str, Any]) -> str:
+        """Classify a chapter row without ever fetching paid pages."""
+
+        if item.get("is_published") is False:
+            return "unpublished"
+        if item.get("is_bought"):
+            return "purchased"
+        if not item.get("is_paid"):
+            return "free"
+        if item.get("is_free_today"):
+            return "free_today"
+        return "locked"
+
+    @classmethod
+    def _chapter_available(cls, item: dict[str, Any]) -> bool:
+        return cls._chapter_access(item) not in {"locked", "unpublished"}
+
     def _chapter_summary(
-        self, directory: str | None, item: Any
+        self,
+        directory: str | None,
+        item: Any,
+        *,
+        translator: str | None = None,
     ) -> ChapterSummary | None:
         if not isinstance(item, dict):
             return None
@@ -189,6 +387,7 @@ class RemangaAdapter(BaseAdapter):
             return None
         number = normalize_number(item.get("chapter")) or "0"
         volume = normalize_number(item.get("tome")) or None
+        publishers = self._publisher_names(item.get("publishers"))
         url = self._chapter_url(directory, chapter_id)
         return ChapterSummary(
             source=self.info.code,
@@ -197,6 +396,7 @@ class RemangaAdapter(BaseAdapter):
             volume=volume,
             number=number,
             title=first_text(item.get("name"), f"Глава {number}"),
+            translator=translator or (publishers[0] if publishers else None),
             published_at=(
                 parse_iso_datetime(item.get("upload_date"))
                 or parse_iso_datetime(item.get("pub_date"))
@@ -239,6 +439,9 @@ class RemangaAdapter(BaseAdapter):
         branch_id: int,
         directory: str | None,
         limit: int,
+        *,
+        translator: str | None = None,
+        include_locked: bool = False,
     ) -> list[ChapterSummary]:
         if limit <= 0:
             return []
@@ -252,6 +455,7 @@ class RemangaAdapter(BaseAdapter):
                     "branch_id": branch_id,
                     "page": page,
                     "ordering": "-index",
+                    "user_data": 1,
                 },
             )
             if not isinstance(payload, dict):
@@ -263,22 +467,22 @@ class RemangaAdapter(BaseAdapter):
             rows = [item for item in _as_list(payload.get("results")) if isinstance(item, dict)]
             if not rows:
                 break
-            added = False
             for item in rows:
                 chapter_id = parse_int(item.get("id"))
                 if chapter_id is not None and chapter_id in seen:
                     continue
-                chapter = self._chapter_summary(directory, item)
-                if chapter is None:
-                    continue
                 if chapter_id is not None:
                     seen.add(chapter_id)
+                if not include_locked and not self._chapter_available(item):
+                    continue
+                chapter = self._chapter_summary(directory, item, translator=translator)
+                if chapter is None:
+                    continue
                 chapters.append(chapter)
-                added = True
                 if len(chapters) >= limit:
                     return chapters[:limit]
             next_page = self._next_page(payload.get("next"))
-            if not added or next_page is None or next_page <= page:
+            if next_page is None or next_page <= page:
                 break
             page = next_page
         return chapters[:limit]
@@ -305,6 +509,35 @@ class RemangaAdapter(BaseAdapter):
                 )
             )
         return pages
+
+    async def _catalogue_items(
+        self,
+        page: int,
+        ordering: str,
+    ) -> tuple[list[MangaSummary], bool]:
+        payload = await self.request_json(
+            f"{_API_BASE}/api/v2/search/catalog/",
+            params={
+                "page": page,
+                "count": _CATALOG_PAGE_SIZE,
+                "ordering": ordering,
+                "unstrict_search_fields": "categories",
+            },
+        )
+        if not isinstance(payload, dict):
+            raise UpstreamError(
+                "Remanga: catalogue returned an unexpected payload",
+                code="invalid_upstream_payload",
+                details={"source": self.info.code},
+            )
+        items = [
+            summary
+            for summary in (
+                self._summary_from_search(item) for item in _as_list(payload.get("results"))
+            )
+            if summary is not None
+        ]
+        return items, payload.get("next") is not None
 
     # ------------------------------------------------------------------
     # Public adapter API
@@ -343,9 +576,54 @@ class RemangaAdapter(BaseAdapter):
             page=parse_int(meta.get("page")) or page,
             total=parse_int(meta.get("total_items")),
             has_next=page < total_pages,
+            total_pages=total_pages or None,
+            per_page=20,
         )
         await self.cache_write_model("search", (query, page), result)
         return result
+
+    async def catalogue(
+        self,
+        page: int = 1,
+        *,
+        sort: str = "popular",
+        ordering: str | None = None,
+    ) -> SourceSearchResult:
+        """Return one page of the catalogue/popular listing.
+
+        ``sort`` is the source-agnostic scheduler vocabulary; ``ordering`` is
+        the native Remanga value and takes precedence when both are supplied.
+        """
+
+        chosen = ordering or _CATALOGUE_SORT_ALIASES.get(sort.strip().lower(), sort)
+        if page < 1:
+            raise InputValidationError("page must be >= 1", code="invalid_page")
+        if chosen not in _CATALOGUE_ORDERINGS:
+            raise InputValidationError(
+                f"Unsupported catalogue ordering '{chosen}'",
+                code="invalid_ordering",
+                details={"allowed": sorted(_CATALOGUE_ORDERINGS)},
+            )
+        cached = await self.cache_read_model("catalogue", (page, chosen), SourceSearchResult)
+        if cached is not None:
+            return cached
+        items, has_next = await self._catalogue_items(page, chosen)
+        result = SourceSearchResult(
+            source=self.info.code,
+            items=items,
+            page=page,
+            total=None,
+            has_next=has_next,
+            per_page=_CATALOG_PAGE_SIZE,
+        )
+        await self.cache_write_model("catalogue", (page, chosen), result)
+        return result
+
+    async def popular(self, page: int = 1) -> SourceSearchResult:
+        return await self.catalogue(page, ordering="-rating")
+
+    async def newest(self, page: int = 1) -> SourceSearchResult:
+        return await self.catalogue(page, ordering="-id")
 
     async def get_manga(
         self,
@@ -356,7 +634,8 @@ class RemangaAdapter(BaseAdapter):
     ) -> MangaDetail:
         directory = self._resolve_manga(source_id, url)
         limit = self.clamp_chapters_limit(chapters_limit)
-        cached = await self.cache_read_model("manga", (directory, limit), MangaDetail)
+        cache_parts = (directory, limit, self._credentials.fingerprint)
+        cached = await self.cache_read_model("manga", cache_parts, MangaDetail)
         if cached is not None:
             return cached
 
@@ -370,6 +649,7 @@ class RemangaAdapter(BaseAdapter):
         directory = first_text(payload.get("dir")) or directory
         branches = [branch for branch in _as_list(payload.get("branches")) if isinstance(branch, dict)]
         branch_id: int | None = None
+        translator: str | None = None
         if branches:
             # The API can expose several translation branches.  The primary
             # list is the one with the most chapters; ties keep the lowest id.
@@ -381,8 +661,15 @@ class RemangaAdapter(BaseAdapter):
                 ),
             )
             branch_id = parse_int(best.get("id"))
+            publisher_names = self._publisher_names(best.get("publishers"))
+            translator = publisher_names[0] if publisher_names else None
         chapters = (
-            await self._fetch_chapters(branch_id, directory, limit)
+            await self._fetch_chapters(
+                branch_id,
+                directory,
+                limit,
+                translator=translator,
+            )
             if branch_id is not None and limit
             else []
         )
@@ -391,7 +678,7 @@ class RemangaAdapter(BaseAdapter):
         if latest_chapter is not None:
             summary = summary.model_copy(update={"latest_chapter": latest_chapter})
         result = MangaDetail(**summary.model_dump(), chapters=chapters)
-        await self.cache_write_model("manga", (directory, limit), result)
+        await self.cache_write_model("manga", cache_parts, result)
         return result
 
     async def get_chapter(
@@ -401,11 +688,8 @@ class RemangaAdapter(BaseAdapter):
         url: str | None = None,
     ) -> ChapterDetail:
         directory, chapter_id = self._resolve_chapter(source_id, url)
-        cached = await self.cache_read_model(
-            "chapter",
-            (directory or "", chapter_id),
-            ChapterDetail,
-        )
+        cache_parts = (directory or "", chapter_id, self._credentials.fingerprint)
+        cached = await self.cache_read_model("chapter", cache_parts, ChapterDetail)
         if cached is not None:
             return cached
 
@@ -416,24 +700,35 @@ class RemangaAdapter(BaseAdapter):
                 code="invalid_upstream_payload",
                 details={"source": self.info.code},
             )
-        is_paid = bool(payload.get("is_paid"))
-        is_bought = bool(payload.get("is_bought"))
-        if is_paid and not is_bought:
+
+        if payload.get("is_published") is False:
             raise UpstreamError(
-                "Remanga: chapter is paid and cannot be read anonymously",
+                "Remanga: chapter is not published",
+                code="chapter_unpublished",
+                details={
+                    "source": self.info.code,
+                    "chapter_id": chapter_id,
+                    "available": False,
+                    "reason": "unpublished",
+                },
+            )
+
+        access = self._chapter_access(payload)
+        if access in {"locked", "unpublished"}:
+            raise UpstreamError(
+                "Remanga: chapter is paid or locked and cannot be read",
                 code="chapter_paid",
                 details={
                     "source": self.info.code,
                     "chapter_id": chapter_id,
                     "title_id": parse_int(payload.get("title_id")),
                     "price": first_text(payload.get("price")) or None,
+                    "is_paid": bool(payload.get("is_paid")),
+                    "is_bought": bool(payload.get("is_bought")),
+                    "is_free_today": bool(payload.get("is_free_today")),
+                    "available": False,
+                    "reason": "paid_locked" if access == "locked" else "unpublished",
                 },
-            )
-        if payload.get("is_published") is False:
-            raise UpstreamError(
-                "Remanga: chapter is not published",
-                code="chapter_unpublished",
-                details={"source": self.info.code, "chapter_id": chapter_id},
             )
 
         pages = self._pages(payload.get("pages"))
@@ -445,13 +740,17 @@ class RemangaAdapter(BaseAdapter):
                     "source": self.info.code,
                     "chapter_id": chapter_id,
                     "title_id": parse_int(payload.get("title_id")),
-                    "is_paid": is_paid,
-                    "is_bought": is_bought,
+                    "is_paid": bool(payload.get("is_paid")),
+                    "is_bought": bool(payload.get("is_bought")),
+                    "is_free_today": bool(payload.get("is_free_today")),
+                    "available": False,
+                    "reason": "empty_pages",
                 },
             )
 
         number = normalize_number(payload.get("chapter")) or "0"
         volume = normalize_number(payload.get("tome")) or None
+        publishers = self._publisher_names(payload.get("publishers"))
         chapter_url = self._chapter_url(directory, chapter_id) or url
         chapter = ChapterSummary(
             source=self.info.code,
@@ -460,6 +759,7 @@ class RemangaAdapter(BaseAdapter):
             volume=volume,
             number=number,
             title=first_text(payload.get("name"), f"Глава {number}"),
+            translator=publishers[0] if publishers else None,
             published_at=(
                 parse_iso_datetime(payload.get("upload_date"))
                 or parse_iso_datetime(payload.get("pub_date"))
@@ -484,13 +784,41 @@ class RemangaAdapter(BaseAdapter):
             next_url=neighbour_url(payload.get("next")),
             is_horizontal=False,
         )
-        await self.cache_write_model("chapter", (directory or "", chapter_id), detail)
+        await self.cache_write_model("chapter", cache_parts, detail)
         return detail
 
     async def latest(self) -> SourceHome:
-        # No safe, verified "latest updates" feed: the catalogue endpoint is
-        # behind the same /api robots restriction and is not implemented here.
-        return SourceHome(source=self.info.code, popular=[], latest=[])
+        cached = await self.cache_read_model("home", (), SourceHome)
+        if cached is not None:
+            return cached
+
+        popular_result, newest_result = await asyncio.gather(
+            self.catalogue(1, ordering="-rating"),
+            self.catalogue(1, ordering="-id"),
+            return_exceptions=True,
+        )
+        popular: list[MangaSummary] = []
+        latest: list[MangaSummary] = []
+        errors: list[BaseException] = []
+        if isinstance(popular_result, BaseException):
+            errors.append(popular_result)
+        else:
+            popular = popular_result.items
+        if isinstance(newest_result, BaseException):
+            errors.append(newest_result)
+        else:
+            latest = newest_result.items
+        if not popular and not latest:
+            if errors:
+                raise errors[0]
+            raise UpstreamError(
+                "Remanga: catalogue returned no titles",
+                code="invalid_upstream_payload",
+                details={"source": self.info.code},
+            )
+        home = SourceHome(source=self.info.code, popular=popular, latest=latest)
+        await self.cache_write_model("home", (), home)
+        return home
 
     # ------------------------------------------------------------------
     # Identifier resolution

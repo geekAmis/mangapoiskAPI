@@ -63,6 +63,68 @@ class SourceSyncRequest(BaseModel):
     sources: list[dict[str, Any]]
 
 
+class CrawlStateIn(BaseModel):
+    source: str = Field(min_length=1, max_length=64)
+    mode: str = Field(default="full", pattern="^(full|incremental)$")
+    page: int = Field(default=1, ge=1)
+    status: str = Field(default="pending", max_length=24)
+    last_error: str | None = Field(default=None, max_length=4000)
+    next_run_at: datetime | None = None
+    total_pages: int | None = Field(default=None, ge=0)
+    items_seen: int = Field(default=0, ge=0)
+    items_imported: int = Field(default=0, ge=0)
+    last_run_at: datetime | None = None
+
+
+class CrawlStateOut(CrawlStateIn):
+    id: UUID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class GenreOut(BaseModel):
+    slug: str
+    label: str
+    count: int = 0
+    aliases: list[str] = Field(default_factory=list)
+
+
+class GenreListOut(BaseModel):
+    items: list[GenreOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class HomeUpdateOut(BaseModel):
+    manga_id: UUID
+    manga_title: str
+    poster_url: str | None = None
+    source: str
+    chapter_id: UUID
+    chapter_number: str
+    chapter_volume: str | None = None
+    chapter_title: str = ""
+    published_at: datetime | None = None
+    added_at: datetime | None = None
+
+
+class HomeUpdatesOut(BaseModel):
+    items: list[HomeUpdateOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class PendingEnrichmentOut(BaseModel):
+    manga_id: UUID
+    source: str
+    source_id: str
+    title: str
+    url: str | None = None
+
+
+class PendingEnrichmentListOut(BaseModel):
+    items: list[PendingEnrichmentOut] = Field(default_factory=list)
+    total: int = 0
+
+
 class ChapterDetailInternal(ChapterOut):
     pages: list[dict[str, Any]] = Field(default_factory=list)
     prev_chapter_id: UUID | None = None

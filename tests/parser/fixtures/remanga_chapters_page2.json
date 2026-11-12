@@ -1,11 +1,11 @@
 {
-  "next": 3,
+  "next": null,
   "previous": 1,
   "results": [
     {
-      "id": 1885850,
+      "id": 2162886,
       "is_bought": false,
-      "is_free_today": null,
+      "is_free_today": false,
       "publishers": [
         {
           "id": 15406,
@@ -13,23 +13,47 @@
           "dir": "litres-ms"
         }
       ],
-      "index": 283,
+      "index": 309,
       "purchase_type": 1,
       "tome": 1,
-      "chapter": "282",
+      "chapter": "308",
+      "name": "",
+      "price": null,
+      "score": 100,
+      "upload_date": "2026-09-07T20:13:12.657701",
+      "pub_date": null,
+      "delay_pub_date": "2026-09-07T20:13:12.657701",
+      "is_published": true,
+      "is_paid": false
+    },
+    {
+      "id": 2162885,
+      "is_bought": false,
+      "is_free_today": false,
+      "publishers": [
+        {
+          "id": 15406,
+          "name": "Litres MS",
+          "dir": "litres-ms"
+        }
+      ],
+      "index": 308,
+      "purchase_type": 1,
+      "tome": 1,
+      "chapter": "307",
       "name": "",
       "price": "10.00",
-      "score": 233,
-      "upload_date": "2025-12-11T03:38:32.546083",
+      "score": 100,
+      "upload_date": "2026-09-07T20:13:12.657701",
       "pub_date": null,
-      "delay_pub_date": "2025-12-11T03:38:32.546083",
+      "delay_pub_date": "2026-09-07T20:13:12.657701",
       "is_published": true,
       "is_paid": true
     },
     {
-      "id": 1885849,
+      "id": 2162884,
       "is_bought": false,
-      "is_free_today": null,
+      "is_free_today": false,
       "publishers": [
         {
           "id": 15406,
@@ -37,17 +61,17 @@
           "dir": "litres-ms"
         }
       ],
-      "index": 282,
+      "index": 307,
       "purchase_type": 1,
       "tome": 1,
-      "chapter": "281",
+      "chapter": "306",
       "name": "",
       "price": "10.00",
-      "score": 221,
-      "upload_date": "2025-12-11T03:38:32.546083",
+      "score": 100,
+      "upload_date": "2026-09-07T20:13:12.657701",
       "pub_date": null,
-      "delay_pub_date": "2025-12-11T03:38:32.546083",
-      "is_published": true,
+      "delay_pub_date": "2026-09-07T20:13:12.657701",
+      "is_published": false,
       "is_paid": true
     }
   ]

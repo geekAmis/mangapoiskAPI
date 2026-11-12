@@ -1328,3 +1328,38 @@ html[data-reader="true"] .reader-settings__option {
     animation: none;
   }
 }
+
+/* Dancing GIF while a reader page is loading or being retried. */
+.reader-page__loading,
+.reader-paged__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.reader-paged__loading {
+  position: fixed;
+  inset: calc(var(--reader-header-h) + 24px) 24px calc(var(--reader-footer-h) + 24px);
+  z-index: 8;
+}
+.reader-page__loading .dancing-loader,
+.reader-paged__loading .dancing-loader {
+  min-height: 0;
+  padding: 0;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.72rem;
+  background: transparent;
+  backdrop-filter: none;
+}
+.reader-page__loading .dancing-loader img,
+.reader-paged__loading .dancing-loader img {
+  width: min(190px, 42vw);
+  max-height: 190px;
+}
+.reader-page__frame .reader-page__image {
+  position: relative;
+  z-index: 3;
+}

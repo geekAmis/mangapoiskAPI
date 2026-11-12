@@ -12,6 +12,12 @@ class CatalogSettings(Settings):
     refresh_batch_size: int = 5
     refresh_min_interval_minutes: int = 30
     pages_stale_minutes: int = 60
+    # Retention contract for the media service (enforced there): metadata and
+    # covers are unlimited, decoded page archives are LRU-evicted between
+    # 20 and 25 GB by default.
+    chapter_archive_policy: str = "lru"
+    chapter_archive_min_gb: int = 20
+    chapter_archive_max_gb: int = 25
 
     @property
     def catalog_dsn(self) -> str:

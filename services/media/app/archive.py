@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS chapter_archives (
     archive_path TEXT,
     error TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    last_accessed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_chapter_archives_status
     ON chapter_archives (status);
@@ -96,6 +97,20 @@ class ArchiveState(BaseModel):
     error: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ArchiveSummaryItem(BaseModel):
+    """Compact per-chapter state for the gateway download pipeline."""
+
+    chapter_id: uuid.UUID
+    status: Literal["done", "pending", "error", "missing"]
+    page_count: int = 0
+    total_bytes: int = 0
+    error: str | None = None
+
+
+class ArchiveSummary(BaseModel):
+    items: list[ArchiveSummaryItem]
 
 
 @dataclass(slots=True)
@@ -180,15 +195,18 @@ class ArchiveManager:
         db_path: Path,
         archive_dir: Path,
         threshold_bytes: int = DEFAULT_THRESHOLD_BYTES,
+        max_bytes: int = 0,
     ) -> None:
         self.cache = cache
         self.db_path = Path(db_path).resolve()
         self.root = Path(archive_dir).resolve()
         self.threshold_bytes = max(0, int(threshold_bytes))
+        self.max_bytes = max(0, int(max_bytes))
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._guard = asyncio.Lock()
+        self._prune_guard = asyncio.Lock()
         self._ensure_schema()
 
     # ------------------------------------------------------------------
@@ -210,12 +228,31 @@ class ArchiveManager:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(_SCHEMA)
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(chapter_archives)").fetchall()
+            }
+            if "last_accessed_at" not in columns:
+                connection.execute(
+                    "ALTER TABLE chapter_archives ADD COLUMN last_accessed_at TEXT"
+                )
+                connection.execute(
+                    "UPDATE chapter_archives SET last_accessed_at = updated_at "
+                    "WHERE last_accessed_at IS NULL"
+                )
 
     def _get_row(self, chapter_id: str) -> sqlite3.Row | None:
         with self._connect() as connection:
             return connection.execute(
                 "SELECT * FROM chapter_archives WHERE chapter_id = ?", (chapter_id,)
             ).fetchone()
+
+    def _touch_sync(self, chapter_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE chapter_archives SET last_accessed_at = ? WHERE chapter_id = ?",
+                (_now().isoformat(), chapter_id),
+            )
 
     def _queue(
         self,
@@ -287,6 +324,11 @@ class ArchiveManager:
                     chapter_id,
                 ),
             )
+            if status == "done":
+                connection.execute(
+                    "UPDATE chapter_archives SET last_accessed_at = ? WHERE chapter_id = ?",
+                    (_now().isoformat(), chapter_id),
+                )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -349,6 +391,7 @@ class ArchiveManager:
             if row is not None:
                 state = _state_from_row(row)
                 if state.status == "done" and state.page_count == len(pages):
+                    await asyncio.to_thread(self._touch_sync, chapter_id)
                     return state, False
                 if state.status in {"queued", "running"}:
                     return state, False
@@ -379,15 +422,28 @@ class ArchiveManager:
         row = await asyncio.to_thread(self._get_row, str(chapter_id))
         return _state_from_row(row) if row is not None else None
 
+    async def summary(self, chapter_ids: list[uuid.UUID]) -> list[ArchiveSummaryItem]:
+        """Return archive status for many chapters without raising for missing rows."""
+
+        keys = list(dict.fromkeys(str(chapter_id) for chapter_id in chapter_ids))
+        if not keys:
+            return []
+        return await asyncio.to_thread(self._summary_sync, keys)
+
     async def page(self, chapter_id: uuid.UUID, number: int) -> ArchivedPage | None:
         row = await asyncio.to_thread(self._get_row, str(chapter_id))
         if row is None or row["status"] != "done":
             return None
+        result: ArchivedPage | None = None
         if row["mode"] == "db":
-            return await asyncio.to_thread(self._read_blob, str(chapter_id), number)
-        if row["mode"] == "zip" and row["archive_path"]:
-            return await asyncio.to_thread(self._read_zip_page, Path(row["archive_path"]), number)
-        return None
+            result = await asyncio.to_thread(self._read_blob, str(chapter_id), number)
+        elif row["mode"] == "zip" and row["archive_path"]:
+            result = await asyncio.to_thread(
+                self._read_zip_page, Path(row["archive_path"]), number
+            )
+        if result is not None:
+            await asyncio.to_thread(self._touch_sync, str(chapter_id))
+        return result
 
     async def delete(self, chapter_id: uuid.UUID) -> bool:
         key = str(chapter_id)
@@ -400,6 +456,59 @@ class ArchiveManager:
                     await task
             await asyncio.to_thread(self._delete_sync, key)
         return row is not None
+
+    async def prune(self) -> int:
+        """Evict least-recently-read chapters until the archive fits its cap."""
+
+        if self.max_bytes <= 0:
+            return 0
+        async with self._prune_guard:
+            removed = await asyncio.to_thread(self._prune_sync)
+        if removed:
+            logger.info(
+                "chapter archive LRU evicted %s chapter(s); cap=%s bytes",
+                removed,
+                self.max_bytes,
+            )
+        return removed
+
+    def _prune_sync(self) -> int:
+        with self._connect() as connection:
+            total = int(
+                connection.execute(
+                    "SELECT COALESCE(SUM(total_bytes), 0) FROM chapter_archives "
+                    "WHERE status = 'done'"
+                ).fetchone()[0]
+                or 0
+            )
+            if total <= self.max_bytes:
+                return 0
+            rows = connection.execute(
+                """
+                SELECT chapter_id, total_bytes, archive_path
+                FROM chapter_archives
+                WHERE status = 'done'
+                ORDER BY COALESCE(last_accessed_at, updated_at) ASC
+                """
+            ).fetchall()
+            removed = 0
+            for row in rows:
+                if total <= self.max_bytes:
+                    break
+                key = str(row["chapter_id"])
+                size = int(row["total_bytes"] or 0)
+                connection.execute("DELETE FROM page_blobs WHERE chapter_id = ?", (key,))
+                connection.execute("DELETE FROM chapter_archives WHERE chapter_id = ?", (key,))
+                total -= size
+                removed += 1
+                archive_path = row["archive_path"]
+                paths = [self.root / f"{key}.zip", self.root / f"{key}.zip.tmp"]
+                if archive_path:
+                    paths.append(Path(str(archive_path)))
+                for path in paths:
+                    with suppress(OSError):
+                        path.unlink(missing_ok=True)
+            return removed
 
     # ------------------------------------------------------------------
     # Worker
@@ -465,6 +574,8 @@ class ArchiveManager:
                     "bytes": total_bytes,
                 },
             )
+            with suppress(Exception):
+                await self.prune()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -483,6 +594,44 @@ class ArchiveManager:
     # ------------------------------------------------------------------
     # Storage helpers (run in a worker thread)
     # ------------------------------------------------------------------
+
+    def _summary_sync(self, chapter_ids: list[str]) -> list[ArchiveSummaryItem]:
+        placeholders = ",".join("?" for _ in chapter_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT chapter_id, status, page_count, total_bytes, error
+                FROM chapter_archives
+                WHERE chapter_id IN ({placeholders})
+                """,
+                tuple(chapter_ids),
+            ).fetchall()
+        by_id = {row["chapter_id"]: row for row in rows}
+        items: list[ArchiveSummaryItem] = []
+        for chapter_id in chapter_ids:
+            row = by_id.get(chapter_id)
+            if row is None:
+                items.append(
+                    ArchiveSummaryItem(chapter_id=uuid.UUID(chapter_id), status="missing")
+                )
+                continue
+            raw_status = str(row["status"])
+            if raw_status == "done":
+                status: Literal["done", "pending", "error", "missing"] = "done"
+            elif raw_status in {"queued", "running"}:
+                status = "pending"
+            else:
+                status = "error"
+            items.append(
+                ArchiveSummaryItem(
+                    chapter_id=uuid.UUID(chapter_id),
+                    status=status,
+                    page_count=int(row["page_count"] or 0),
+                    total_bytes=int(row["total_bytes"] or 0),
+                    error=row["error"],
+                )
+            )
+        return items
 
     def _clear_blobs(self, chapter_id: str) -> None:
         with self._connect() as connection:

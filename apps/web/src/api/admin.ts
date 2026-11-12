@@ -158,6 +158,13 @@ export interface AdminRegistrySyncResponse {
   registry: AdminRegistry;
 }
 
+export interface AdminSourceCookie {
+  source: string;
+  configured: boolean;
+  supported: boolean;
+  updated_at: string | null;
+}
+
 export interface AdminAuditEntry {
   id: string;
   action: string;
@@ -239,7 +246,7 @@ function errorFromResponse(response: Response, body: unknown): AdminApiError {
 
 async function adminRequest<T>(
   path: string,
-  options: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; auth?: boolean; signal?: AbortSignal } = {},
+  options: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown; auth?: boolean; signal?: AbortSignal } = {},
 ): Promise<T> {
   const { method = 'GET', body, auth = true, signal } = options;
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -329,6 +336,15 @@ export const adminApi = {
     }),
 
   getRegistry: (signal?: AbortSignal) => adminRequest<AdminRegistry>('/registry', { signal }),
+
+  getSourceCookie: (code: string, signal?: AbortSignal) =>
+    adminRequest<AdminSourceCookie>(`/sources/${encodeURIComponent(code)}/cookie`, { signal }),
+
+  setSourceCookie: (code: string, cookie: string) =>
+    adminRequest<AdminSourceCookie>(`/sources/${encodeURIComponent(code)}/cookie`, {
+      method: 'PUT',
+      body: { cookie },
+    }),
 
   syncRegistry: () =>
     adminRequest<AdminRegistrySyncResponse>('/registry/sync', { method: 'POST' }),

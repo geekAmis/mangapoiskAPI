@@ -92,8 +92,15 @@ export default function HomePage() {
     enabled: Boolean(user),
   });
 
+  const latestChaptersQuery = useQuery({
+    queryKey: ['home', 'updates'],
+    queryFn: ({ signal }) => api.homeUpdates(25, signal),
+    staleTime: 60_000,
+  });
+
   const updates = updatesQuery.data?.items ?? [];
   const popular = popularQuery.data?.items ?? [];
+  const latestChapters = latestChaptersQuery.data?.items ?? [];
   const sources = sourcesQuery.data?.filter((source) => source.enabled) ?? [];
   const continueItems = listItems(progressQuery.data).filter((item) => item.manga);
 
@@ -261,6 +268,60 @@ export default function HomePage() {
             <RankedList title="Обновления" items={updates} loading={updatesQuery.isLoading} />
             <RankedList title="Новинки" items={[...popular].reverse()} loading={popularQuery.isLoading} />
           </div>
+        </section>
+
+        <section className="ml-panel" aria-labelledby="ml-latest-title">
+          <header className="ml-panel__head">
+            <h2 id="ml-latest-title">Последние главы</h2>
+            <Link to="/catalogue?sort=updated">
+              Все обновления <Icon name="chevron-right" size={14} />
+            </Link>
+          </header>
+          {latestChaptersQuery.isLoading ? (
+            <div className="ml-latest" aria-hidden="true">
+              {Array.from({ length: 8 }, (_, index) => (
+                <Skeleton key={index} height="54px" />
+              ))}
+            </div>
+          ) : latestChaptersQuery.isError ? (
+            <InlineError
+              message={humanizeError(latestChaptersQuery.error, 'Не удалось загрузить последние главы.')}
+              onRetry={() => void latestChaptersQuery.refetch()}
+            />
+          ) : latestChapters.length > 0 ? (
+            <div className="ml-latest">
+              {latestChapters.map((item) => (
+                <Link
+                  key={item.chapter_id}
+                  to={`/reader/${item.chapter_id}`}
+                  className="ml-latest__row"
+                >
+                  <span className="ml-latest__poster">
+                    <Poster src={item.poster_url} alt="" />
+                  </span>
+                  <span className="ml-latest__body">
+                    <strong>{item.manga_title}</strong>
+                    <span>
+                      {item.chapter_volume ? `Том ${item.chapter_volume} · ` : ''}
+                      Глава {item.chapter_number}
+                      {item.chapter_title ? ` — ${item.chapter_title}` : ''}
+                    </span>
+                  </span>
+                  <span className="ml-latest__meta">
+                    <span>{sourceLabel(item.source)}</span>
+                    <span>{formatRelative(item.published_at ?? item.added_at)}</span>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              compact
+              icon="clock"
+              title="Глав пока нет"
+              description="Как только источники импортируют главы, они появятся здесь."
+            />
+          )}
         </section>
       </div>
     </>

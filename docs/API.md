@@ -1,6 +1,15 @@
-# Public API v1
+﻿# Public API v1
 
-Base URL: `/api/v1` (development: `http://localhost:8000/api/v1`).
+Base URL: `/api/v1`.
+
+| Environment | Public base URL | Notes |
+|---|---|---|
+| Docker Compose | `http://localhost:8080/api/v1` | through the web nginx |
+| Docker Compose, direct API | `http://localhost:8000/api/v1` | after `docker compose --profile dev up -d gateway-public` |
+| Production | `https://85.192.37.58.nip.io:8443/api/v1` | nginx on `:8088`; gateway `:8100` is private |
+
+The gateway listens on `8000` in Compose and `8100` in the systemd deployment.
+Only the nginx port is public; do not expose the internal service ports.
 
 All responses are JSON unless noted.  Errors always use:
 
@@ -21,7 +30,7 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 | GET | `/api/v1/health` | aggregated health |
 | GET | `/api/v1/sources` | available sources + capabilities |
 
-`GET /api/v1/sources` → `[{"code":"mangapoisk","name":"MangaPoisk","base_url":"https://mangapoisk.me","language":"ru","enabled":true,"requires_cookies":false,"capabilities":{"search":true,"catalog":true,"manga":true,"chapters":true,"pages":true,"latest":true}}]`
+`GET /api/v1/sources` в†’ `[{"code":"mangapoisk","name":"MangaPoisk","base_url":"https://mangapoisk.me","language":"ru","enabled":true,"requires_cookies":false,"capabilities":{"search":true,"catalog":true,"manga":true,"chapters":true,"pages":true,"latest":true}}]`
 
 ## Catalogue and search
 
@@ -38,7 +47,7 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 ### `GET /api/v1/manga`
 
 Query: `query`, `source`, `genre`, `year`, `status`, `sort` (`popular`, `rating`,
-`updated`, `title`), `page`, `limit`.
+`updated`, `title`, `new`), `page`, `limit`.
 
 `MangaOut` fields: `id, source, source_id, slug, title, title_en, title_alt,
 description, year, status, content_type, rating, rating_count, poster_url,
@@ -65,8 +74,8 @@ translator, published_at, page_count, url, is_external, created_at, updated_at`.
   "primary_id": "uuid",
   "items": [
     {
-      "id": "uuid", "title": "…", "source": "mangalib", "source_id": "…",
-      "poster_url": "…", "rating": 9.2, "chapters_count": 166,
+      "id": "uuid", "title": "вЂ¦", "source": "mangalib", "source_id": "вЂ¦",
+      "poster_url": "вЂ¦", "rating": 9.2, "chapters_count": 166,
       "translators": [{"name": "Komger", "count": 81}]
     }
   ]
@@ -76,7 +85,7 @@ translator, published_at, page_count, url, is_external, created_at, updated_at`.
 The mobile/web reader uses this to pick the source with the most chapters and
 to filter the chapter list by `<source>/<translator>/<count>`.  `translator`
 is `null` when the source does not expose a team; the UI calls it
-«Без перевода».
+В«Р‘РµР· РїРµСЂРµРІРѕРґР°В».
 
 ### `POST /api/v1/manga/import`
 
@@ -100,13 +109,14 @@ auth (public import is rate-limited).  Returns `ImportMangaResponse` with
 | POST | `/api/v1/chapters/{id}/exports` | start export job |
 | GET | `/api/v1/exports/{job_id}` | job status |
 | GET | `/api/v1/exports/{job_id}/download` | download file |
+| DELETE | `/api/v1/exports/{job_id}` | remove a finished/failed export |
 
-`GET /api/v1/chapters/{id}` → `ChapterDetailOut`:
+`GET /api/v1/chapters/{id}` в†’ `ChapterDetailOut`:
 
 ```json
 {
   "id": "uuid", "manga_id": "uuid", "source": "mangapoisk",
-  "source_id": "...", "volume": "1", "number": "312", "title": "312 Том 1",
+  "source_id": "...", "volume": "1", "number": "312", "title": "312 РўРѕРј 1",
   "page_count": 42, "pages": [{"number":1,"url":"/api/v1/chapters/.../images/1","width":690,"height":1730}],
   "prev_chapter_id": null, "next_chapter_id": null, "is_horizontal": false
 }
@@ -114,7 +124,7 @@ auth (public import is rate-limited).  Returns `ImportMangaResponse` with
 
 The `url` in pages is always a gateway URL, never a third-party URL.
 
-`POST /api/v1/chapters/{id}/exports?format=cbz|pdf|html` → `ExportJobOut` with
+`POST /api/v1/chapters/{id}/exports?format=cbz|pdf|html` в†’ `ExportJobOut` with
 `status` (`queued|running|done|failed`), `progress`, `total`, `download_url`.
 
 ### Server-side chapter archive (internal)
@@ -189,16 +199,25 @@ The web admin panel is at `/admin` (direct URL, no nav link).  Login uses
 `ADMIN_USERNAME` / `ADMIN_PASSWORD` from the environment and returns an admin
 JWT.  Keep this token in `sessionStorage`; it is not the reader account token.
 
+Admin tokens contain an `av` claim вЂ” an HMAC fingerprint of the current admin
+credentials.  Changing `ADMIN_USERNAME` or `ADMIN_PASSWORD` invalidates every
+previously issued admin token; protected calls then return
+`401 admin_session_expired` and the UI asks for a new login.  Production
+startup refuses the default `ADMIN_PASSWORD`.  Admin tokens live for 60 minutes
+by default (`ADMIN_TOKEN_MINUTES`), and five failed logins from one IP within
+five minutes return `429 admin_rate_limited`.  Reader access/refresh tokens are
+unaffected.
+
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/v1/admin/login` | `{username,password}` → admin token |
+| POST | `/api/v1/admin/login` | `{username,password}` в†’ admin token |
 | GET | `/api/v1/admin/me` | current admin |
 | GET/POST | `/api/v1/admin/servers` | list / add server |
 | PATCH/DELETE | `/api/v1/admin/servers/{id}` | update / remove |
 | POST | `/api/v1/admin/servers/{id}/deploy` | install selected services over SSH |
 | GET | `/api/v1/admin/servers/{id}/health` | check one server |
 | GET | `/api/v1/admin/jobs/{id}` | deployment job + log |
-| GET | `/api/v1/admin/registry` | service → endpoints + health |
+| GET | `/api/v1/admin/registry` | service в†’ endpoints + health |
 | POST | `/api/v1/admin/registry/sync` | refresh health and switch gateway routes |
 | POST | `/api/v1/admin/failover` | same, explicit manual failover |
 | GET | `/api/v1/admin/audit` | recent admin actions |
@@ -212,7 +231,7 @@ JWT.  Keep this token in `sessionStorage`; it is not the reader account token.
   "public_host": "85.192.37.58",
   "ssh_port": 22,
   "username": "root",
-  "password": "…",
+  "password": "вЂ¦",
   "jump_server_id": "uuid-or-null",
   "bind_host": "127.0.0.1",
   "is_fallback": false,
@@ -273,5 +292,5 @@ network in production and should not be exposed publicly.
 - Web: React Query for server state, local Zustand store for theme/reader UI.
 - Android: Retrofit/Ktor + kotlinx.serialization; store tokens in
   EncryptedSharedPreferences; use `page` URLs exactly as returned.
-- Always debounce progress writes (500–1000 ms) and send page numbers 1-based.
+- Always debounce progress writes (500вЂ“1000 ms) and send page numbers 1-based.
 - Image URLs are same-origin gateway URLs; do not rewrite them to upstream.

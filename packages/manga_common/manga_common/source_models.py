@@ -73,6 +73,8 @@ class MangaSummary(BaseModel):
     url: str | None = None
     updated_at: datetime | None = None
     latest_chapter: ChapterSummary | None = None
+    # Catalogue cards expose this without a detail request on MangaPoisk.
+    chapters_count: int | None = None
 
 
 class MangaDetail(MangaSummary):
@@ -100,6 +102,8 @@ class SourceSearchResult(BaseModel):
     page: int = 1
     total: int | None = None
     has_next: bool = False
+    total_pages: int | None = None
+    per_page: int | None = None
 
 
 class SourceHome(BaseModel):

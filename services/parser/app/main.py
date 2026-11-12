@@ -19,6 +19,7 @@ from manga_common.service import add_ready_check, create_service_app
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api import router
+from .cookie_store import SourceCookieStore, apply_cookie
 from .registry import build_registry
 from .settings import ParserSettings
 
@@ -74,9 +75,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         current: Settings = application.state.settings or ParserSettings()
         client = build_client(current)
         cache = create_cache(current.redis_url)
+        cookie_store = SourceCookieStore(
+            getattr(current, "parser_cookie_store_path", "data/source-cookies.json")
+        )
+        cookie_store.load()
+        seeded = cookie_store.seed_from_environment(current)
         registry = build_registry(client, current, cache)
+        for adapter in registry.adapters:
+            record = cookie_store.get(adapter.info.code)
+            if record is not None:
+                apply_cookie(adapter, record.value)
         application.state.http_client = client
         application.state.cache = cache
+        application.state.cookie_store = cookie_store
         application.state.registry = registry
         add_ready_check(application, "cache", cache.ping)
         log_event(
@@ -84,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "parser_started",
             sources=registry.codes(),
             enabled=[adapter.info.code for adapter in registry.adapters if adapter.info.enabled],
+            cookie_sources=seeded or cookie_store.codes(),
             cache=type(cache).__name__,
         )
         try:

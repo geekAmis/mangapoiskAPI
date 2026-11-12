@@ -9,6 +9,7 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { DancingLoader } from '../components/DancingLoader';
 import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
@@ -1315,23 +1316,54 @@ function OfflinePageImage({
   const [url, setUrl] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [failures, setFailures] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  const failuresRef = useRef(0);
+  const retryTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    },
+    [],
+  );
+
+  const handleFailure = () => {
+    setLoaded(false);
+    failuresRef.current += 1;
+    setFailures(failuresRef.current);
+    if (failuresRef.current >= 3) {
+      setFailed(true);
+      return;
+    }
+    if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    retryTimer.current = window.setTimeout(() => setAttempt((value) => value + 1), 450);
+  };
+
+  const retry = () => {
+    failuresRef.current = 0;
+    setFailures(0);
+    setFailed(false);
+    setLoaded(false);
+    setUrl(null);
+    setAttempt((value) => value + 1);
+  };
 
   useEffect(() => {
     let alive = true;
     setUrl(null);
     setLoaded(false);
-    setFailed(false);
     void getOfflinePageUrl(page)
       .then((value) => {
         if (alive) setUrl(value);
       })
       .catch(() => {
-        if (alive) setFailed(true);
+        if (alive) handleFailure();
       });
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, attempt]);
 
   return (
@@ -1345,19 +1377,16 @@ function OfflinePageImage({
         className={`reader-page__frame${loaded ? ' is-loaded' : ''}`}
         style={!loaded ? { aspectRatio: pageRatio(page) } : undefined}
       >
-        {!loaded && !failed ? <div className="reader-page__skeleton" /> : null}
+        {!loaded && !failed ? (
+          <div className="reader-page__loading" aria-hidden="true">
+            <DancingLoader compact label={failures > 0 ? 'Повторяем загрузку…' : undefined} />
+          </div>
+        ) : null}
         {failed ? (
           <div className="reader-page__error">
             <Icon name="alert" size={24} />
             <span>Страница {index} не найдена на устройстве</span>
-            <button
-              type="button"
-              className="btn btn--outline btn--sm"
-              onClick={() => {
-                setFailed(false);
-                setAttempt((value) => value + 1);
-              }}
-            >
+            <button type="button" className="btn btn--outline btn--sm" onClick={retry}>
               <Icon name="refresh" size={14} />
               Повторить
             </button>
@@ -1374,7 +1403,7 @@ function OfflinePageImage({
             decoding="async"
             draggable={false}
             onLoad={() => setLoaded(true)}
-            onError={() => setFailed(true)}
+            onError={handleFailure}
           />
         ) : null}
         {showLabel ? <div className="reader-page__label">Страница {index}</div> : null}
@@ -1399,23 +1428,54 @@ function OfflinePagedImage({
   const [url, setUrl] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [failures, setFailures] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  const failuresRef = useRef(0);
+  const retryTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    },
+    [],
+  );
+
+  const handleFailure = () => {
+    setLoaded(false);
+    failuresRef.current += 1;
+    setFailures(failuresRef.current);
+    if (failuresRef.current >= 3) {
+      setFailed(true);
+      return;
+    }
+    if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    retryTimer.current = window.setTimeout(() => setAttempt((value) => value + 1), 450);
+  };
+
+  const retry = () => {
+    failuresRef.current = 0;
+    setFailures(0);
+    setFailed(false);
+    setLoaded(false);
+    setUrl(null);
+    setAttempt((value) => value + 1);
+  };
 
   useEffect(() => {
     let alive = true;
     setUrl(null);
     setLoaded(false);
-    setFailed(false);
     void getOfflinePageUrl(page)
       .then((value) => {
         if (alive) setUrl(value);
       })
       .catch(() => {
-        if (alive) setFailed(true);
+        if (alive) handleFailure();
       });
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, attempt]);
 
   if (failed) {
@@ -1423,14 +1483,7 @@ function OfflinePagedImage({
       <div className="reader-paged__error" role="alert">
         <Icon name="alert" size={28} />
         <span>Страница не найдена на устройстве. Попробуйте скачать главу заново.</span>
-        <button
-          type="button"
-          className="btn btn--outline btn--sm"
-          onClick={() => {
-            setFailed(false);
-            setAttempt((value) => value + 1);
-          }}
-        >
+        <button type="button" className="btn btn--outline btn--sm" onClick={retry}>
           <Icon name="refresh" size={14} />
           Повторить
         </button>
@@ -1440,7 +1493,11 @@ function OfflinePagedImage({
 
   return (
     <>
-      {!loaded ? <div className="reader-paged__skeleton" aria-hidden="true" /> : null}
+      {!loaded ? (
+        <div className="reader-paged__loading" aria-hidden="true">
+          <DancingLoader compact label={failures > 0 ? 'Повторяем загрузку…' : undefined} />
+        </div>
+      ) : null}
       {url ? (
         <img
           key={attempt}
@@ -1453,7 +1510,7 @@ function OfflinePagedImage({
           decoding="async"
           draggable={false}
           onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
+          onError={handleFailure}
         />
       ) : null}
     </>

@@ -6,12 +6,22 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
-from sqlalchemy import Integer, String, case, cast, desc, func, or_, select
+from sqlalchemy import Integer, String, and_, case, cast, desc, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import Chapter, Manga, Source
+from .models import Chapter, CrawlState, Manga, MangaCover, Source
+from .normalization import (
+    GENRE_LABELS,
+    canonical_genre,
+    genre_slugs,
+    normalize_text,
+    parse_genre_filter,
+    status_key,
+)
 from .schemas import CatalogStats, SourceStats
+
+DESCRIPTION_FALLBACK = "Упс. Описание не нашлось в источниках"
 
 
 async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
@@ -102,6 +112,181 @@ def _weak_title(value: str | None) -> bool:
     return bool(re.fullmatch(r"[a-z0-9 .'’\-]+", text))
 
 
+def cover_quality(url: str | None) -> float:
+    """Rank cover resolutions without downloading the image."""
+
+    lowered = (url or "").casefold()
+    if not lowered:
+        return 0.0
+    if "_micro" in lowered or "thumbnail" in lowered or "/thumb/" in lowered:
+        return 0.3
+    if "_mini" in lowered or lowered.endswith("_thumb.jpg"):
+        return 0.6
+    return 1.0
+
+
+def _cover_order():  # type: ignore[no-untyped-def]
+    """Portable ordering: rating, quality, chapter count, then freshness."""
+
+    return (
+        case((MangaCover.rating.is_(None), 1), else_=0),
+        desc(MangaCover.rating),
+        case((MangaCover.quality.is_(None), 1), else_=0),
+        desc(MangaCover.quality),
+        desc(MangaCover.chapters_count),
+        case((MangaCover.source_updated_at.is_(None), 1), else_=0),
+        desc(MangaCover.source_updated_at),
+        desc(MangaCover.updated_at),
+    )
+
+
+async def upsert_cover(
+    session: AsyncSession,
+    manga: Manga,
+    url: str | None,
+) -> MangaCover | None:
+    """Create or refresh the cover contributed by this source variant."""
+
+    if not (url or "").strip():
+        return None
+    cover = await session.scalar(
+        select(MangaCover).where(
+            MangaCover.manga_id == manga.id,
+            MangaCover.source == manga.source,
+        )
+    )
+    if cover is None:
+        cover = MangaCover(
+            manga_id=manga.id,
+            source=manga.source,
+            source_id=manga.source_id,
+            url=url,
+        )
+        session.add(cover)
+    cover.group_key = manga.group_key
+    cover.source_id = manga.source_id
+    cover.url = url
+    cover.rating = manga.rating
+    cover.quality = cover_quality(url)
+    cover.chapters_count = int(manga.chapters_count or 0)
+    cover.source_updated_at = manga.last_chapter_at
+    await session.flush()
+    return cover
+
+
+async def refresh_group_primary_cover(session: AsyncSession, group_key: str | None) -> MangaCover | None:
+    """Mark the best cover of a title group as primary.
+
+    Priority is source rating, cover quality, chapter count and then freshness.
+    Every source variant in the group shares the primary poster so a card never
+    regresses to a lower-quality image just because a user opened another
+    variant.
+    """
+
+    if not group_key:
+        return None
+    covers = list(
+        (
+            await session.scalars(
+                select(MangaCover)
+                .where(MangaCover.group_key == group_key)
+                .order_by(*_cover_order())
+            )
+        ).all()
+    )
+    if not covers:
+        return None
+    primary = covers[0]
+    for cover in covers:
+        cover.is_primary = cover.id == primary.id
+    variants = list(
+        (await session.scalars(select(Manga).where(Manga.group_key == group_key))).all()
+    )
+    for variant in variants:
+        if primary.url:
+            variant.poster_url = primary.url
+    await session.flush()
+    return primary
+
+
+async def merge_group_metadata(session: AsyncSession, group_key: str | None) -> None:
+    """Merge description/genres across all source variants of a title.
+
+    Empty values never overwrite non-empty values.  A description found in any
+    variant becomes the group description, and genre labels are unioned so a
+    genre filter keeps working no matter which variant matched first.
+    """
+
+    if not group_key:
+        return
+    variants = list(
+        (await session.scalars(select(Manga).where(Manga.group_key == group_key))).all()
+    )
+    if not variants:
+        return
+
+    descriptions = [variant.description.strip() for variant in variants if variant.description]
+    best_description = max(descriptions, key=len) if descriptions else None
+
+    genre_order: list[str] = []
+    seen: set[str] = set()
+    for variant in variants:
+        for label in variant.genres or []:
+            key = normalize_text(label)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            genre_order.append(label)
+
+    best_year = next((variant.year for variant in variants if variant.year), None)
+    best_content_type = next(
+        (variant.content_type for variant in variants if variant.content_type), None
+    )
+    best_status = next((variant.status for variant in variants if variant.status), None)
+    best_title_en = next((variant.title_en for variant in variants if variant.title_en), None)
+    best_title_alt = next((variant.title_alt for variant in variants if variant.title_alt), None)
+
+    for variant in variants:
+        if best_description and not (variant.description or "").strip():
+            variant.description = best_description
+        if genre_order:
+            variant.genres = list(genre_order)
+        variant.year = variant.year or best_year
+        variant.content_type = variant.content_type or best_content_type
+        variant.status = variant.status or best_status
+        variant.title_en = variant.title_en or best_title_en
+        variant.title_alt = variant.title_alt or best_title_alt
+    await session.flush()
+
+
+async def covers_for_group(session: AsyncSession, group_key: str | None) -> list[MangaCover]:
+    if not group_key:
+        return []
+    return list(
+        (
+            await session.scalars(
+                select(MangaCover)
+                .where(MangaCover.group_key == group_key)
+                .order_by(desc(MangaCover.is_primary), *_cover_order())
+            )
+        ).all()
+    )
+
+
+def genre_payload(manga: Manga) -> list[dict[str, object]]:
+    """Canonical slug/label pairs for one catalogue row."""
+
+    result: list[dict[str, object]] = []
+    for slug in genre_slugs(manga.genres or []):
+        result.append(
+            {
+                "slug": slug,
+                "label": GENRE_LABELS.get(slug, slug),
+            }
+        )
+    return result
+
+
 async def upsert_manga_detail(
     session: AsyncSession, detail: MangaDetail
 ) -> tuple[Manga, bool, list[Chapter]]:
@@ -138,10 +323,13 @@ async def upsert_manga_detail(
     )
     manga.poster_url = detail.poster_url or manga.poster_url
     manga.adult = bool(detail.adult)
-    manga.genres = list(detail.genres or [])
+    if detail.genres:
+        manga.genres = list(detail.genres)
     manga.url = detail.url or manga.url
     manga.group_key = compute_group_key(manga.title)
     manga.last_synced_at = datetime.now(UTC)
+    if detail.chapters_count is not None:
+        manga.chapters_count = max(int(manga.chapters_count or 0), int(detail.chapters_count))
     await session.flush()
 
     new_chapters: list[Chapter] = []
@@ -180,9 +368,13 @@ async def upsert_manga_detail(
             )
         )
     ).one()
-    manga.chapters_count = int(count or 0)
+    manga.chapters_count = max(int(count or 0), int(detail.chapters_count or 0))
     manga.last_chapter_at = latest
     await session.flush()
+
+    await upsert_cover(session, manga, detail.poster_url or manga.poster_url)
+    await merge_group_metadata(session, manga.group_key)
+    await refresh_group_primary_cover(session, manga.group_key)
     return manga, created, new_chapters
 
 
@@ -221,11 +413,18 @@ async def upsert_manga_summary(
     )
     manga.poster_url = summary.poster_url or manga.poster_url
     manga.adult = bool(summary.adult)
-    manga.genres = list(summary.genres or [])
+    if summary.genres:
+        manga.genres = list(summary.genres)
     manga.url = summary.url or manga.url
     manga.group_key = compute_group_key(manga.title)
+    if summary.chapters_count:
+        manga.chapters_count = max(int(manga.chapters_count or 0), int(summary.chapters_count))
     manga.last_synced_at = None if created else manga.last_synced_at
     await session.flush()
+
+    await upsert_cover(session, manga, summary.poster_url or manga.poster_url)
+    await merge_group_metadata(session, manga.group_key)
+    await refresh_group_primary_cover(session, manga.group_key)
     return manga, created
 
 
@@ -302,8 +501,10 @@ def _manga_conditions(
     query: str | None = None,
     source: str | None = None,
     genre: str | None = None,
+    genres: list[str] | None = None,
     year: int | None = None,
     status: str | None = None,
+    include_empty: bool = False,
 ) -> list[Any]:
     conditions: list[Any] = []
     if query:
@@ -318,12 +519,29 @@ def _manga_conditions(
         )
     if source:
         conditions.append(Manga.source == source)
+    requested = (
+        parse_genre_filter(genres) if isinstance(genres, str) else list(genres or [])
+    )
     if genre:
-        conditions.append(func.lower(cast(Manga.genres, String)).like(f"%{genre.lower()}%"))
+        requested.append(genre)
+    for raw in requested:
+        key = canonical_genre(raw)
+        if key:
+            # AND semantics: every requested genre must be present.
+            conditions.append(Manga.genres_key.contains(f"|{key}|", autoescape=True))
     if year:
         conditions.append(Manga.year == year)
     if status:
-        conditions.append(Manga.status == status)
+        key = status_key(status)
+        if key:
+            conditions.append(Manga.status_key == key)
+    if not include_empty:
+        # Production QA: never lead users to a card that has no chapters yet.
+        # Both checks matter: a summary may know chapters_count before the
+        # chapter rows are imported, and rows can exist while the counter is
+        # stale after a partial migration.
+        conditions.append(Manga.chapters_count > 0)
+        conditions.append(exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)))
     return conditions
 
 
@@ -333,14 +551,22 @@ async def list_manga(
     query: str | None = None,
     source: str | None = None,
     genre: str | None = None,
+    genres: list[str] | None = None,
     year: int | None = None,
     status: str | None = None,
+    include_empty: bool = False,
     sort: str = "popular",
     page: int = 1,
     limit: int = 24,
 ) -> tuple[list[Manga], int]:
     conditions = _manga_conditions(
-        query=query, source=source, genre=genre, year=year, status=status
+        query=query,
+        source=source,
+        genre=genre,
+        genres=genres,
+        year=year,
+        status=status,
+        include_empty=include_empty,
     )
     order_map = {
         "popular": (desc(Manga.rating_count), desc(Manga.rating), desc(Manga.updated_at)),
@@ -350,14 +576,43 @@ async def list_manga(
         "new": (desc(Manga.created_at),),
     }
     order_by = order_map.get(sort, order_map["popular"])
+
+    # One card per normalised title group.  The representative is the variant
+    # with the most chapters, then the best rating, then the freshest row.
+    group_expr = func.coalesce(func.nullif(Manga.group_key, ""), cast(Manga.id, String))
     total = int(
-        (await session.scalar(select(func.count(Manga.id)).where(*conditions))) or 0
+        (
+            await session.scalar(
+                select(func.count())
+                .select_from(select(group_expr).where(*conditions).group_by(group_expr).subquery())
+            )
+        )
+        or 0
+    )
+    ranked = (
+        select(
+            Manga.id.label("manga_id"),
+            func.row_number()
+            .over(
+                partition_by=group_expr,
+                order_by=(
+                    desc(Manga.chapters_count),
+                    case((Manga.rating.is_(None), 1), else_=0),
+                    desc(Manga.rating),
+                    desc(Manga.updated_at),
+                ),
+            )
+            .label("row_number"),
+        )
+        .where(*conditions)
+        .subquery()
     )
     items = list(
         (
             await session.scalars(
                 select(Manga)
-                .where(*conditions)
+                .join(ranked, Manga.id == ranked.c.manga_id)
+                .where(ranked.c.row_number == 1)
                 .order_by(*order_by)
                 .offset((page - 1) * limit)
                 .limit(limit)
@@ -438,6 +693,145 @@ async def stale_manga(
     return list(result.all())
 
 
+async def pending_enrichment(
+    session: AsyncSession, *, source: str | None = None, limit: int = 50
+) -> list[Manga]:
+    """Titles discovered by the crawler but not yet hydrated with detail.
+
+    ``last_synced_at`` is the primary marker, but old deployments also contain
+    summaries that were marked synced while still having zero chapters.  Those
+    are re-queued explicitly so the production QA dead-end cards heal after the
+    first crawl pass.
+    """
+
+    conditions: list[Any] = [
+        or_(
+            Manga.last_synced_at.is_(None),
+            and_(
+                ~exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+                or_(
+                    Manga.last_synced_at.is_(None),
+                    Manga.last_synced_at < datetime.now(UTC) - timedelta(hours=24),
+                ),
+            ),
+        )
+    ]
+    if source:
+        conditions.append(Manga.source == source)
+    result = await session.scalars(
+        select(Manga).where(*conditions).order_by(Manga.created_at.asc()).limit(limit)
+    )
+    return list(result.all())
+
+
+async def reset_enrichment(session: AsyncSession, *, source: str | None = None) -> int:
+    """Mark titles for a weekly full metadata refresh."""
+
+    conditions = []
+    if source:
+        conditions.append(Manga.source == source)
+    result = await session.execute(
+        update(Manga).where(*conditions).values(last_synced_at=None)
+    )
+    await session.flush()
+    return int(result.rowcount or 0)
+
+
+async def latest_updates(
+    session: AsyncSession, *, limit: int = 25
+) -> list[tuple[Chapter, Manga]]:
+    """Latest chapters across every title, newest publication/import first."""
+
+    order_at = func.coalesce(Chapter.published_at, Chapter.created_at)
+    rows = (
+        await session.execute(
+            select(Chapter, Manga)
+            .join(Manga, Chapter.manga_id == Manga.id)
+            .where(Manga.chapters_count > 0)
+            .order_by(desc(order_at), desc(Chapter.created_at))
+            .limit(limit)
+        )
+    ).all()
+    return [(row[0], row[1]) for row in rows]
+
+
+async def list_genres(session: AsyncSession) -> list[dict[str, Any]]:
+    """Canonical genre slugs with counts computed from stored filter keys."""
+
+    rows = (
+        await session.execute(
+            select(Manga.id, Manga.group_key, Manga.genres_key).where(
+                Manga.chapters_count > 0,
+                exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+            )
+        )
+    ).all()
+    counts: dict[str, int] = {}
+    seen_groups: set[str] = set()
+    for manga_id, group_key, key in rows:
+        group = group_key or str(manga_id)
+        if group in seen_groups:
+            continue
+        seen_groups.add(group)
+        if not key:
+            continue
+        for slug in str(key).strip("|").split("|"):
+            if slug:
+                counts[slug] = counts.get(slug, 0) + 1
+    result = [
+        {
+            "slug": slug,
+            "label": GENRE_LABELS.get(slug, slug),
+            "count": count,
+            "aliases": [],
+        }
+        for slug, count in counts.items()
+    ]
+    result.sort(key=lambda item: (-int(item["count"]), str(item["label"]).casefold()))
+    return result
+
+
+async def get_crawl_state(
+    session: AsyncSession, source: str, mode: str = "full"
+) -> CrawlState | None:
+    return await session.scalar(
+        select(CrawlState).where(CrawlState.source == source, CrawlState.mode == mode)
+    )
+
+
+async def list_crawl_states(
+    session: AsyncSession, *, source: str | None = None
+) -> list[CrawlState]:
+    conditions = []
+    if source:
+        conditions.append(CrawlState.source == source)
+    result = await session.scalars(select(CrawlState).where(*conditions).order_by(CrawlState.source))
+    return list(result.all())
+
+
+async def upsert_crawl_state(session: AsyncSession, values: dict[str, Any]) -> CrawlState:
+    source = str(values["source"])
+    mode = str(values.get("mode") or "full")
+    state = await get_crawl_state(session, source, mode)
+    if state is None:
+        state = CrawlState(source=source, mode=mode)
+        session.add(state)
+    for field in (
+        "page",
+        "status",
+        "last_error",
+        "next_run_at",
+        "total_pages",
+        "items_seen",
+        "items_imported",
+        "last_run_at",
+    ):
+        if field in values:
+            setattr(state, field, values[field])
+    await session.flush()
+    return state
+
+
 async def list_sources(session: AsyncSession) -> list[Source]:
     result = await session.scalars(select(Source).order_by(Source.name.asc()))
     return list(result.all())
@@ -494,4 +888,5 @@ def summary_from_manga(manga: Manga) -> MangaSummary:
         genres=list(manga.genres or []),
         url=manga.url,
         updated_at=manga.updated_at,
+        chapters_count=manga.chapters_count,
     )

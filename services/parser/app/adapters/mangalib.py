@@ -42,7 +42,7 @@ from manga_common.source_models import (
     SourceInfo,
     SourceSearchResult,
 )
-from manga_common.text import parse_float, parse_int, parse_year
+from manga_common.text import parse_float, parse_int, parse_year, strip_html
 
 from .base import BaseAdapter
 from .parsing import (
@@ -61,6 +61,36 @@ _VOLUME_SEGMENT_RE = re.compile(r"^v(?P<value>\d+(?:\.\d+)?)$", re.IGNORECASE)
 _NUMBER_SEGMENT_RE = re.compile(r"^c(?P<value>\d+(?:\.\d+)?)$", re.IGNORECASE)
 _NUMERIC_SEGMENT_RE = re.compile(r"^\d+(?:\.\d+)?$")
 
+# Upstream accepts a whitelist of expansion fields.  Requesting the detail
+# fields explicitly is what makes description/genres available at all.
+_DETAIL_FIELDS: tuple[str, ...] = (
+    "summary",
+    "genres",
+    "tags",
+    "authors",
+    "artists",
+    "publisher",
+    "chap_count",
+    "status_id",
+    "manga_status_id",
+    "extra_release_status",
+    "format",
+    "releaseDate",
+    "country",
+    "rate_avg",
+    "views",
+    "otherNames",
+)
+
+_CATALOGUE_SORTS: dict[str, str] = {
+    "popular": "views",
+    "updated": "last_chapter_at",
+    "new": "created_at",
+    "rating": "rate_avg",
+    "title": "name",
+    "chapters": "chap_count",
+}
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -76,6 +106,28 @@ def _label(value: Any) -> str | None:
         return label or None
     text = first_text(value)
     return text or None
+
+
+def _rich_text(value: Any) -> str:
+    """Flatten MangaLib's ProseMirror document (``{"type": "doc", ...}``)."""
+
+    if isinstance(value, str):
+        return strip_html(value)
+    if not isinstance(value, dict):
+        return ""
+    parts: list[str] = []
+    node_type = str(value.get("type") or "")
+    text = value.get("text")
+    if isinstance(text, str) and text:
+        parts.append(text)
+    for child in _as_list(value.get("content")):
+        rendered = _rich_text(child)
+        if rendered:
+            parts.append(rendered)
+    joined = " ".join(parts).strip()
+    if node_type in {"paragraph", "blockquote", "list_item"} and joined:
+        return joined + "\n"
+    return joined
 
 
 class MangaLibAdapter(BaseAdapter):
@@ -149,6 +201,9 @@ class MangaLibAdapter(BaseAdapter):
             for genre in _as_list(item.get("genres"))
             if isinstance(genre, dict)
         ]
+        description = strip_html(_rich_text(item.get("summary"))) or strip_html(
+            item.get("description")
+        )
         return MangaSummary(
             source=self.info.code,
             source_id=source_id,
@@ -156,7 +211,8 @@ class MangaLibAdapter(BaseAdapter):
             title=title,
             title_en=first_text(item.get("eng_name")) or None,
             title_alt=first_text(item.get("name")) if first_text(item.get("name")) != title else None,
-            year=parse_year(item.get("releaseDateString")),
+            description=description or None,
+            year=parse_year(item.get("releaseDateString") or item.get("releaseDate")),
             status=_label(item.get("status")),
             content_type=_label(item.get("type")),
             rating=parse_float(rating.get("average")),
@@ -168,6 +224,8 @@ class MangaLibAdapter(BaseAdapter):
             adult=age_label == "18+" or "18+" in age_label,
             genres=[genre for genre in genres if genre],
             url=f"{_SITE_BASE}/ru/manga/{source_id}",
+            updated_at=parse_iso_datetime(item.get("last_chapter_at")),
+            chapters_count=parse_int(item.get("chap_count") or item.get("items_count")),
         )
 
     def _chapter_summary(self, manga_slug_url: str, item: Any) -> ChapterSummary | None:
@@ -246,7 +304,7 @@ class MangaLibAdapter(BaseAdapter):
             try:
                 payload = await self.request_json(
                     f"{_API_BASE}/api/manga/{identifier}",
-                    params={"site_id[]": "1"},
+                    params={"site_id[]": "1", "fields[]": list(_DETAIL_FIELDS)},
                 )
             except NotFoundError:
                 continue
@@ -432,11 +490,90 @@ class MangaLibAdapter(BaseAdapter):
             source=self.info.code,
             items=items,
             page=parse_int(meta.get("current_page")) or page,
-            total=parse_int(meta.get("total")),
+            total=parse_int(meta.get("items_count") or meta.get("total")),
             has_next=bool(meta.get("has_next_page")),
+            per_page=parse_int(meta.get("per_page")),
         )
         await self.cache_write_model("search", (query, page), result)
         return result
+
+    async def catalogue(
+        self,
+        page: int = 1,
+        *,
+        sort: str = "popular",
+        limit: int = 60,
+    ) -> SourceSearchResult:
+        """Paginated MangaLib catalogue.
+
+        The upstream does not expose a total count on this endpoint, so
+        ``total``/``total_pages`` stay ``None`` and callers follow
+        ``has_next`` until the final page.  The scheduler records the observed
+        last page in ``crawl_state`` for ETA reporting.
+        """
+
+        if page < 1:
+            raise InputValidationError("page must be >= 1", code="invalid_page")
+        sort_key = (sort or "popular").strip().casefold()
+        upstream_sort = _CATALOGUE_SORTS.get(sort_key)
+        if upstream_sort is None:
+            raise InputValidationError(
+                f"Unsupported catalogue sort '{sort}'",
+                code="invalid_sort",
+                details={"allowed": sorted(_CATALOGUE_SORTS)},
+            )
+        page_limit = max(10, min(int(limit or 60), 60))
+        cached = await self.cache_read_model(
+            "catalogue", (page, sort_key, page_limit), SourceSearchResult
+        )
+        if cached is not None:
+            return cached
+
+        payload = await self.request_json(
+            f"{_API_BASE}/api/manga",
+            params={
+                "site_id[]": "1",
+                "page": page,
+                "limit": page_limit,
+                "sort_by": upstream_sort,
+            },
+        )
+        if not isinstance(payload, dict):
+            raise UpstreamError(
+                "MangaLib: catalogue returned an unexpected payload",
+                code="invalid_upstream_payload",
+                details={"source": self.info.code},
+            )
+        items = [
+            summary
+            for summary in (
+                self._summary_from_item(item) for item in _as_list(payload.get("data"))
+            )
+            if summary is not None
+        ]
+        meta = _as_dict(payload.get("meta"))
+        links = _as_dict(payload.get("links"))
+        current_page = parse_int(meta.get("current_page")) or page
+        has_next = bool(meta.get("has_next_page")) or bool(links.get("next"))
+        result = SourceSearchResult(
+            source=self.info.code,
+            items=items,
+            page=current_page,
+            total=parse_int(meta.get("items_count") or meta.get("total")),
+            has_next=has_next,
+            per_page=parse_int(meta.get("per_page")) or page_limit,
+        )
+        await self.cache_write_model(
+            "catalogue", (page, sort_key, page_limit), result, ttl=300
+        )
+        return result
+
+    async def catalog(
+        self, page: int = 1, *, sort: str = "popular", limit: int = 60
+    ) -> SourceSearchResult:
+        """American-spelling alias for :meth:`catalogue`."""
+
+        return await self.catalogue(page, sort=sort, limit=limit)
 
     async def get_manga(
         self,

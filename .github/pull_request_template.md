@@ -1,10 +1,16 @@
-## What does this PR do?
-## don't upload to *git!!!!*
-<!-- A short summary. -->
+<!-- Keep this short. Do not paste tokens, cookies, .env or private server data. -->
+
+## Что изменилось
+
+<!-- Кратко: какую задачу закрывает PR. -->
 
 Closes #
 
-## Type
+## Как проверить
+
+<!-- Шаги, URL, тестовые данные без секретов. -->
+
+## Тип
 
 - [ ] feat
 - [ ] fix
@@ -13,16 +19,17 @@ Closes #
 - [ ] test
 - [ ] infra
 
-## Checklist
+## Чек-лист
 
-- [ ] Tests added/updated
-- [ ] `ruff check .` passes
-- [ ] `pytest` passes
-- [ ] `npm run build` passes (if web changed)
-- [ ] No secrets, cookies or `.env` committed
-- [ ] Public API changes documented in `docs/API.md`
-- [ ] Responsive/a11y checked (if UI changed)
+- [ ] Добавлены/обновлены тесты (для изменений в коде)
+- [ ] `ruff check .` проходит
+- [ ] `pytest` проходит
+- [ ] `npm run typecheck && npm run build` проходит (если менялся web)
+- [ ] `./gradlew assembleDebug` проходит (если менялся Android)
+- [ ] Публичный API описан в `docs/API.md` (если менялся контракт)
+- [ ] Проверены responsive/a11y и шесть тем (если менялся UI)
+- [ ] Нет секретов, cookies, `.env`, `data.txt` и сгенерированных артефактов
 
-## Screenshots / notes
+## Скриншоты / примечания
 
-<!-- Optional. -->
+<!-- Для UI — до/после. Для инфраструктуры — план отката. -->

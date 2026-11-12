@@ -1088,3 +1088,57 @@ html[data-admin="true"] .toast-region {
     display: none;
   }
 }
+
+/* Source credentials */
+.admin-cookie-list {
+  display: grid;
+  gap: 12px;
+}
+.admin-cookie-row {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.admin-cookie-row__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.admin-cookie-row__title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-cookie-row__title strong {
+  font-size: 0.92rem;
+}
+.admin-cookie-row__title span {
+  color: var(--text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+}
+.admin-cookie-row__form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.admin-cookie-row__form .input {
+  min-width: min(360px, 100%);
+  flex: 1;
+}
+.admin-cookie-row__note {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+@media (max-width: 560px) {
+  .admin-cookie-row__form .btn {
+    flex: 1;
+  }
+}

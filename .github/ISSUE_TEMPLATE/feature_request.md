@@ -1,13 +1,30 @@
 ---
 name: Feature request
-about: Suggest an improvement
-labels: backend
+about: Предложить улучшение или новую функцию
+title: "[feat] "
+labels: ["enhancement"]
+assignees: []
 ---
 
-**Problem**
+## Задача
 
-**Proposed solution**
+<!-- Какую пользовательскую проблему решаем? -->
 
-**Alternatives**
+## Предлагаемое решение
 
-**Additional context**
+## Acceptance criteria
+
+- [ ]
+- [ ]
+- [ ]
+
+## Альтернативы
+
+## Контекст
+
+<!-- web / android / api / admin, ссылки на docs и скриншоты. -->
+
+## Проверки
+
+- [ ] Поискал похожий issue
+- [ ] Сверился с docs/ROADMAP.md; это не уже отмеченная «Дальше» задача

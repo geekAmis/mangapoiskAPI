@@ -6,6 +6,7 @@ import httpx
 import pytest
 import respx
 from manga_common.errors import UpstreamError
+from manga_common.errors import ValidationError as InputValidationError
 from parser_helpers import json_response, load_json
 from services.parser.app.adapters.mangalib import MangaLibAdapter
 
@@ -14,6 +15,7 @@ SEARCH = load_json("mangalib_search.json")
 DETAIL = load_json("mangalib_detail.json")
 CHAPTERS = load_json("mangalib_chapters.json")
 CHAPTER = load_json("mangalib_chapter.json")
+CATALOGUE = load_json("mangalib_catalogue.json")
 MANGA_ID = "6844--temppal"
 CHAPTER_URL = f"https://mangalib.me/ru/manga/{MANGA_ID}/read/v1/c22?bid=490263"
 
@@ -64,12 +66,53 @@ async def test_manga_uses_detail_endpoint_and_rus_name(settings, cache, client) 
         assert detail.source_id == MANGA_ID
         assert detail.title == "Во всеоружии"
         assert detail.title_en == "Overgeared"
+        assert detail.description == "Описание тайтла из MangaLib."
+        assert "Фэнтези" in detail.genres
+        assert "Приключения" in detail.genres
+        assert detail.chapters_count == 1204
+        assert detail.updated_at is not None
         assert detail.latest_chapter is not None
         assert detail.latest_chapter.number == "22"
         assert [chapter.number for chapter in detail.chapters] == ["22", "21"]
         assert detail_route.call_count == 1
         assert chapters_route.call_count == 1
         assert detail_route.calls[0].request.headers["site-id"] == "1"
+        requested_fields = detail_route.calls[0].request.url.params.get_list("fields[]")
+        assert "summary" in requested_fields
+        assert "genres" in requested_fields
+
+
+async def test_catalogue_parses_pages_and_sort(settings, cache, client) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(f"{API}/api/manga").mock(return_value=json_response(CATALOGUE))
+        adapter = MangaLibAdapter(client, settings, cache)
+
+        result = await adapter.catalogue(page=1, sort="rating")
+
+        assert result.source == "mangalib"
+        assert result.page == 1
+        assert result.total is None
+        assert result.total_pages is None
+        assert result.per_page == 60
+        assert result.has_next is True
+        assert [item.source_id for item in result.items] == [MANGA_ID, "206--one-piece"]
+        assert result.items[0].title == "Во всеоружии"
+        request = route.calls[0].request
+        assert request.url.params["page"] == "1"
+        assert request.url.params["limit"] == "60"
+        assert request.url.params["sort_by"] == "rate_avg"
+        assert request.url.params["site_id[]"] == "1"
+
+        cached = await adapter.catalogue(page=1, sort="rating")
+        assert cached.has_next is True
+        assert route.call_count == 1
+
+
+async def test_catalogue_rejects_unknown_sort(settings, cache, client) -> None:
+    adapter = MangaLibAdapter(client, settings, cache)
+    with pytest.raises(InputValidationError) as error:
+        await adapter.catalogue(sort="trending")
+    assert error.value.code == "invalid_sort"
 
 
 async def test_manga_falls_back_to_search_and_chapters(settings, cache, client) -> None:

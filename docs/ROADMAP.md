@@ -1,38 +1,61 @@
 # Roadmap
 
-## 1.0.0 (released)
+Обновлено 12.11.2026. Отмечено только то, что есть в репозитории или в
+production; планы без галочек — не обещания.
 
-- [x] Microservices + shared contracts
+## 1.0.0 — released 2026-11-11
+
+- [x] Микросервисы и общие контракты (`manga_common`)
 - [x] MangaPoisk adapter end-to-end
-- [x] React web + Android Compose clients
-- [x] Library, progress, bookmarks
-- [x] CBZ/PDF/HTML exports
-- [x] Six themes and responsive design
-- [x] Docker Compose, CI, docs
+- [x] MangaLib: поиск, каталог, карточка, главы и страницы
+- [x] React web + Kotlin/Compose клиент
+- [x] Офлайн-загрузки в Kotlin-клиенте (Room + WorkManager)
+- [x] Аккаунты, библиотека, закладки, прогресс
+- [x] Варианты источников и фильтр переводов `source/translator/count`
+- [x] Серверный архив глав: SQLite BLOB / ZIP
+- [x] Экспорт CBZ / PDF / HTML
+- [x] Шесть тем и адаптивная вёрстка
+- [x] Админка `/admin`: серверы, SSH-деплой, health, registry, failover
+- [x] Node.js/Capacitor Android-сборка
+- [x] Импорт по ссылке из UI
+- [x] Docker Compose, systemd-деплой, CI workflow, документация
 
-## 1.1
+## 1.1.0 — main, release draft
 
-- [ ] Alembic migrations and zero-downtime upgrade path
-- [ ] Redis-backed rate limiting and response cache
-- [ ] S3-compatible storage for media/exports
-- [ ] Full-text search with PostgreSQL `tsvector` + `pg_trgm`
-- [ ] More verified sources (MangaLib pages, MangaDex)
-- [ ] Web push notifications
-- [ ] Reader bookmarks (per page), reading lists
-- [ ] Import by URL from the UI
+- [x] Офлайн-библиотека в web/Capacitor: глава или весь тайтл, очередь,
+      докачка, удаление, чтение без сети (IndexedDB / Filesystem + Preferences)
+- [x] `DancingSpinner` в кнопках/статусах, boot-loader и route fallback;
+      16 GIF вместо круговых спиннеров
+- [x] Админка: запрет дефолтного пароля в production, инвалидация админ-сессий
+      при смене логина/пароля, `401 admin_session_expired`
+- [x] Security hardening: 5 попыток входа за 5 минут, 60-минутный админ-токен,
+      rate limit по `X-Real-IP`, проверка DNS/redirect в media
+- [x] Server manager: слияние inventory при частичном деплое, сервисы на
+      jump-host, потоковый лог, health удалённых узлов, self-deploy
+- [x] Приоритетный роутинг: rendezvous hash с весом `priority`, fallback
+      последними, jump-хосты после обычных узлов в registry
+- [ ] Общая БД или репликация для настоящего failover каталога/библиотеки
+      (in progress; сейчас SQLite на одном узле)
+- [ ] Зелёный CI на `main` и публикация `v1.1.0`
+- [ ] HTTPS/домен и подписанный release APK
 
-## 1.2
+## Дальше
 
-- [ ] Offline Android downloads with WorkManager + Room
-- [ ] Sync progress between web and Android in real time
-- [ ] Comments/reactions (moderated, optional)
-- [ ] Admin panel for source health and featured titles
-- [ ] Prometheus metrics + Grafana dashboard
-- [ ] OpenAPI client generation for Kotlin/TypeScript
+- [ ] Alembic-миграции и zero-downtime обновление
+- [ ] Redis-backed rate limiting и общий response cache
+- [ ] S3-совместимое хранилище для media/exports
+- [ ] Полнотекстовый поиск PostgreSQL (`tsvector` + `pg_trgm`)
+- [ ] Проверенные MangaDex/ReadManga (сейчас выключены)
+- [ ] Web push и Telegram-команды
+- [ ] Закладки на конкретную страницу, списки чтения
+- [ ] Синхронизация прогресса web ↔ Android в реальном времени
+- [ ] Комментарии/реакции (модерируемые, опционально)
+- [ ] Source health и «избранное» в админке
+- [ ] Prometheus/Grafana и OpenAPI-генерация клиентов
 
-## Ideas
+## Идеи
 
-- Recommendation engine based on genres/history.
-- Public read-only catalogue API without rate limits for small clients.
-- EPUB export for novels.
-- Discord/Telegram bot commands.
+- Рекомендации по жанрам/истории.
+- Публичный read-only API каталога для небольших клиентов.
+- EPUB для новелл.
+- Discord/Telegram-бот.

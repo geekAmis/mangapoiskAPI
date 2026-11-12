@@ -38,7 +38,8 @@ grant rights to third-party manga, translations, images or trademarks.
 
 ## Operator checklist
 
-- [ ] Set a real `JWT_SECRET` and `INTERNAL_TOKEN`.
+- [ ] Set a real `JWT_SECRET`, `INTERNAL_TOKEN`, `ADMIN_PASSWORD` and
+      `CONTROL_SECRET_KEY`.
 - [ ] Put the stack behind HTTPS.
 - [ ] Keep `MEDIA_ALLOWED_HOSTS` restricted to the CDNs you actually use.
 - [ ] Configure backups and a retention policy for exports.

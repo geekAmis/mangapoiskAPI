@@ -41,6 +41,16 @@ from .parsing import (
 
 _MANGA_PATH = "manga"
 
+# Upstream ``sortBy`` values observed on /manga.
+_CATALOGUE_SORTS: dict[str, str] = {
+    "popular": "popular",
+    "updated": "-last_chapter_at",
+    "new": "-published_at",
+    "rating": "popular",
+    "title": "name",
+    "chapters": "-chapters_count",
+}
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -48,6 +58,14 @@ def _as_dict(value: Any) -> dict[str, Any]:
 
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _genre_labels(value: Any) -> list[str]:
+    return [
+        first_text(genre.get("title"), genre.get("name_en"), genre.get("name"))
+        for genre in _as_list(value)
+        if isinstance(genre, dict)
+    ]
 
 
 def parse_inertia_html(text: str) -> dict[str, Any]:
@@ -284,13 +302,11 @@ class MangaPoiskAdapter(BaseAdapter):
             if len(segments) >= 2 and segments[-2] == _MANGA_PATH:
                 slug = segments[-1]
         poster = _as_dict(manga.get("poster"))
-        genres = [
-            first_text(genre.get("title"), genre.get("name_en"), genre.get("name"))
-            for genre in _as_list(manga.get("genres"))
-            if isinstance(genre, dict)
-        ]
+        genres = _genre_labels(manga.get("genres"))
         latest_item = _as_dict(manga.get("lastChapter"))
         updated_at = parse_ru_date(first_text(latest_item.get("formattedDate")))
+        if latest_chapter is None and latest_item and slug:
+            latest_chapter = self._chapter_summary(slug, latest_item)
         return MangaSummary(
             source=self.info.code,
             source_id=slug or first_text(manga.get("id")),
@@ -314,6 +330,7 @@ class MangaPoiskAdapter(BaseAdapter):
             url=absolute_url(self.info.base_url, link or f"/manga/{slug}"),
             updated_at=updated_at,
             latest_chapter=latest_chapter,
+            chapters_count=parse_int(manga.get("chapters_count")),
         )
 
     def _summary_from_card(self, card: Any) -> MangaSummary | None:
@@ -332,20 +349,26 @@ class MangaPoiskAdapter(BaseAdapter):
         chapters = [item for item in _as_list(card.get("chapters")) if isinstance(item, dict)]
         latest_item = last_chapter or (chapters[0] if chapters else {})
         latest_chapter = self._chapter_summary(slug, latest_item) if latest_item else None
+        genres = _genre_labels(card.get("genres"))
         return MangaSummary(
             source=self.info.code,
             source_id=slug,
             slug=slug,
             title=first_text(card.get("title"), card.get("name"), slug),
+            description=strip_html(card.get("description")) or None,
             year=parse_year(card.get("year")),
+            rating=parse_float(card.get("rating")),
+            rating_count=parse_int(card.get("ratesCount")),
             poster_url=absolute_url(
                 self.info.base_url,
                 first_text(poster.get("link"), poster.get("link_mini")),
             ),
             adult=bool(card.get("adult")),
+            genres=[genre for genre in genres if genre],
             url=absolute_url(self.info.base_url, link or f"/manga/{slug}"),
             updated_at=parse_ru_date(first_text(latest_item.get("formattedDate"))),
             latest_chapter=latest_chapter,
+            chapters_count=parse_int(card.get("chapters_count")),
         )
 
     def _summary_from_search(self, item: Any) -> MangaSummary | None:
@@ -442,6 +465,82 @@ class MangaPoiskAdapter(BaseAdapter):
         )
         await self.cache_write_model("search", (query, page), result)
         return result
+
+    async def catalogue(
+        self,
+        page: int = 1,
+        *,
+        sort: str = "popular",
+        limit: int = 40,
+    ) -> SourceSearchResult:
+        """Paginated public catalogue (``/manga?page=N&sortBy=...``).
+
+        The upstream is an Inertia page.  Asking for JSON keeps the response
+        small; ``total``/``last_page`` are taken from Laravel's paginator.
+        """
+
+        if page < 1:
+            raise InputValidationError("page must be >= 1", code="invalid_page")
+        sort_key = (sort or "popular").strip().casefold()
+        upstream_sort = _CATALOGUE_SORTS.get(sort_key)
+        if upstream_sort is None:
+            raise InputValidationError(
+                f"Unsupported catalogue sort '{sort}'",
+                code="invalid_sort",
+                details={"allowed": sorted(_CATALOGUE_SORTS)},
+            )
+        cached = await self.cache_read_model(
+            "catalogue", (page, sort_key), SourceSearchResult
+        )
+        if cached is not None:
+            return cached
+
+        await self.ensure_robots_allowed("/manga")
+        payload = await self._inertia_get(
+            "/manga",
+            params={"page": page, "sortBy": upstream_sort},
+        )
+        props = _as_dict(payload.get("props"))
+        listing = _as_dict(props.get("mangaList"))
+        meta = _as_dict(listing.get("meta"))
+        items = [
+            summary
+            for summary in (
+                self._manga_summary(item)
+                for item in _as_list(listing.get("data"))
+                if isinstance(item, dict)
+            )
+            if summary is not None
+        ]
+        current_page = parse_int(meta.get("current_page")) or page
+        total = parse_int(meta.get("total"))
+        per_page = parse_int(meta.get("per_page")) or (limit or None) or 40
+        total_pages = parse_int(meta.get("last_page"))
+        if total_pages is None and total and per_page:
+            total_pages = (total + per_page - 1) // per_page
+        result = SourceSearchResult(
+            source=self.info.code,
+            items=items,
+            page=current_page,
+            total=total,
+            has_next=(
+                current_page < total_pages
+                if total_pages is not None
+                else bool(_as_dict(listing.get("links")).get("next"))
+            ),
+            total_pages=total_pages,
+            per_page=per_page,
+        )
+        # Catalogue pages are refreshed by the scheduler every 10-15 minutes.
+        await self.cache_write_model("catalogue", (page, sort_key), result, ttl=300)
+        return result
+
+    async def catalog(
+        self, page: int = 1, *, sort: str = "popular", limit: int = 40
+    ) -> SourceSearchResult:
+        """American-spelling alias for :meth:`catalogue`."""
+
+        return await self.catalogue(page, sort=sort, limit=limit)
 
     async def get_manga(
         self,

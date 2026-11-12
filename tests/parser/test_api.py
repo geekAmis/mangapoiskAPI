@@ -54,8 +54,9 @@ def test_sources_requires_internal_token(settings) -> None:
         sources = {item["code"]: item for item in response.json()}
         assert set(sources) == {"mangapoisk", "mangalib", "remanga", "readmanga", "mangadex"}
         assert sources["mangapoisk"]["enabled"] is True
-        assert sources["remanga"]["enabled"] is False
+        assert sources["remanga"]["enabled"] is True
         assert sources["remanga"]["capabilities"]["search"] is True
+        assert sources["remanga"]["capabilities"]["catalog"] is True
 
 
 def test_health_and_ready(settings) -> None:
@@ -85,7 +86,7 @@ def test_unknown_and_disabled_source_are_404(settings) -> None:
 
         disabled = client.get(
             "/internal/search",
-            params={"source": "remanga", "q": "x"},
+            params={"source": "readmanga", "q": "x"},
             headers=TOKEN_HEADERS,
         )
         assert disabled.status_code == 404

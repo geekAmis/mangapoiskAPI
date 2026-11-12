@@ -51,6 +51,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
         <Route path="catalog" element={<CataloguePage />} />
+        <Route path="catalog/genres" element={<CataloguePage />} />
         <Route path="catalogue" element={<CataloguePage />} />
         <Route path="manga/:id" element={<MangaPage />} />
         <Route

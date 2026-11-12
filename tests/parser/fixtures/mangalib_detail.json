@@ -34,7 +34,34 @@
       "id": 5,
       "label": "Выпуск прекращён"
     },
-    "releaseDateString": "2018 г."
+    "releaseDateString": "2018 г.",
+    "summary": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Описание тайтла из MangaLib."
+            }
+          ]
+        }
+      ]
+    },
+    "genres": [
+      {
+        "id": 34,
+        "name": "Фэнтези"
+      },
+      {
+        "id": 3,
+        "name": "Приключения"
+      }
+    ],
+    "chap_count": 1204,
+    "last_chapter_at": "2026-11-01T10:00:00.000000Z",
+    "items_count": 1204
   },
   "meta": {
     "country": "RU"

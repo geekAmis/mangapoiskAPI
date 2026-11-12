@@ -4,15 +4,20 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
-from manga_common.errors import NotFoundError
+from manga_common.errors import NotFoundError, ValidationError
 from manga_common.schemas import ExportJobOut, OkResponse
 from manga_common.security import require_internal_token
 
-from .archive import ArchiveManager, ArchiveRequest, ArchiveState
-from .cache import MediaCache
+from .archive import ArchiveManager, ArchiveRequest, ArchiveState, ArchiveSummary
+from .cache import MediaCache, resolve_width
 from .exporter import ExportManager, ExportRequest
 
 router = APIRouter(prefix="/internal", dependencies=[Depends(require_internal_token)])
+
+_IMAGE_HEADERS = {
+    "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+    "X-Content-Type-Options": "nosniff",
+}
 
 
 def get_cache(request: Request) -> MediaCache:
@@ -31,18 +36,41 @@ def get_archives(request: Request) -> ArchiveManager:
 async def image(
     url: str = Query(min_length=8, max_length=4096),
     referer: str | None = Query(default=None, max_length=4096),
+    w: int | None = Query(default=None, ge=320, le=1600),
     cache: MediaCache = Depends(get_cache),
 ) -> FileResponse:
-    media = await cache.get(url, referer=referer)
+    media = await cache.get(url, referer=referer, width=resolve_width(w))
     return FileResponse(
         media.path,
         media_type=media.content_type,
         headers={
-            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+            **_IMAGE_HEADERS,
             "ETag": f'"{media.etag}"',
-            "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/archives/chapters/summary", response_model=ArchiveSummary)
+async def archives_summary(
+    ids: str = Query(default="", max_length=16384),
+    archives: ArchiveManager = Depends(get_archives),
+) -> ArchiveSummary:
+    """Batch status feed for prepared chapters.
+
+    ``ids`` is a comma-separated list; unknown chapters come back as
+    ``missing`` instead of a 404 so a caller can poll a mixed batch.
+    """
+
+    raw = [part.strip() for part in ids.split(",") if part.strip()]
+    if len(raw) > 500:
+        raise ValidationError("За один запрос можно проверить не более 500 глав")
+    chapter_ids: list[uuid.UUID] = []
+    for value in raw:
+        try:
+            chapter_ids.append(uuid.UUID(value))
+        except ValueError as exc:
+            raise ValidationError("Некорректный идентификатор главы") from exc
+    return ArchiveSummary(items=await archives.summary(chapter_ids))
 
 
 @router.post("/archives/chapters", response_model=ArchiveState)
@@ -71,18 +99,29 @@ async def archive_status(
 async def archive_page(
     chapter_id: uuid.UUID,
     number: int,
+    w: int | None = Query(default=None, ge=320, le=1600),
+    cache: MediaCache = Depends(get_cache),
     archives: ArchiveManager = Depends(get_archives),
 ) -> Response:
     page = await archives.page(chapter_id, number)
     if page is None:
         raise NotFoundError("Страница не найдена в архиве")
+    width = resolve_width(w)
+    if width is not None:
+        variant = await cache.variant_from_bytes(page.data, page.content_type, width)
+        if variant is not None:
+            return FileResponse(
+                variant.path,
+                media_type=variant.content_type,
+                headers={
+                    **_IMAGE_HEADERS,
+                    "ETag": f'"{variant.etag}"',
+                },
+            )
     return Response(
         content=page.data,
         media_type=page.content_type,
-        headers={
-            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-            "X-Content-Type-Options": "nosniff",
-        },
+        headers=_IMAGE_HEADERS,
     )
 
 

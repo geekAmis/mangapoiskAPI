@@ -1,17 +1,20 @@
 /**
  * Менеджер офлайн-загрузок на устройство.
  *
- * Очередь одна на приложение: изображения качаются строго последовательно.
- * Для полного тайтла между изображениями выдерживается пауза
- * 2000 + Math.random() * 2890 мс (2,0–4,89 с). Для одной главы — 150–400 мс.
+ * Полный тайтл сначала подготавливается на сервере: gateway архивирует главы,
+ * а клиент опрашивает прогресс. Как только готовы очередные 5 глав, они
+ * ставятся в очередь на устройство; подготовка остальных продолжается
+ * параллельно. Искусственной паузы 2–4,89 с между изображениями больше нет:
+ * после подготовки страницы отдаются из серверного архива.
  *
- * Прогресс и очередь сохраняются после каждого изображения. При следующем
- * запуске приложения незавершённые задания снова становятся в очередь,
- * уже скачанные страницы/главы пропускаются.
+ * Одиночная глава по-прежнему скачивается быстро и без ожидания подготовки.
+ * Прогресс и очередь сохраняются после каждого изображения и переживают
+ * перезапуск приложения.
  */
 
 import { useSyncExternalStore } from 'react';
 import { api, resolveApiUrl } from '../api/client';
+import type { PrepareStatusOut } from '../api/client';
 import type { ChapterOut, MangaDetailOut, PageOut } from '../api/types';
 import {
   deleteOfflineTitle,
@@ -36,8 +39,17 @@ import {
   type OfflineTitle,
 } from './offlineTypes';
 
-export const WHOLE_TITLE_MIN_DELAY_MS = 2000;
-export const WHOLE_TITLE_MAX_EXTRA_DELAY_MS = 2890;
+/** Сколько подготовленных глав скачивается одной пачкой. */
+export const PREPARE_BATCH_SIZE = 5;
+/** Интервал опроса состояния подготовки на сервере. */
+export const PREPARE_POLL_MS = 1700;
+
+/**
+ * Задержка между двумя изображениями очереди «весь тайтл». После серверной
+ * подготовки изображения приходят из архива, поэтому троттлинг равен нулю.
+ */
+export const WHOLE_TITLE_MIN_DELAY_MS = 0;
+export const WHOLE_TITLE_MAX_EXTRA_DELAY_MS = 0;
 export const SINGLE_CHAPTER_MIN_DELAY_MS = 150;
 export const SINGLE_CHAPTER_MAX_EXTRA_DELAY_MS = 250;
 
@@ -49,6 +61,25 @@ export function wholeTitleImageDelay(): number {
 /** Задержка между изображениями одиночной главы. */
 export function singleChapterImageDelay(): number {
   return SINGLE_CHAPTER_MIN_DELAY_MS + Math.random() * SINGLE_CHAPTER_MAX_EXTRA_DELAY_MS;
+}
+
+export type PreparePhaseStatus = 'idle' | 'running' | 'done' | 'error' | 'cancelled';
+
+export interface PrepareJobState {
+  status: PreparePhaseStatus;
+  total: number;
+  prepared: number;
+  failed: number;
+  error: string | null;
+  /** id глав, которые сервер уже подготовил (переживает перезапуск). */
+  preparedIds: string[];
+  /** id -> сообщение ошибки подготовки. */
+  errors: Record<string, string>;
+}
+
+/** Задание с добавленной фазой серверной подготовки. */
+export interface ManagedDownloadJob extends DownloadJob {
+  prepare: PrepareJobState;
 }
 
 export interface StartTitleDownloadInput {
@@ -77,6 +108,10 @@ function nowIso(): string {
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return 'Не удалось скачать изображение';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function guessContentType(url: string): string {
@@ -124,10 +159,102 @@ function toJobChapter(chapter: ChapterOut): DownloadJobChapter {
   };
 }
 
-function cloneJobs(jobs: DownloadJob[]): DownloadJob[] {
+function emptyPrepare(mode: DownloadJobMode, total: number): PrepareJobState {
+  return {
+    status: mode === 'chapter' ? 'done' : 'idle',
+    total,
+    prepared: 0,
+    failed: 0,
+    error: null,
+    preparedIds: [],
+    errors: {},
+  };
+}
+
+function normalizePrepare(raw: unknown, job: DownloadJob): PrepareJobState {
+  if (!isRecord(raw)) return emptyPrepare(job.mode, job.chapters.length);
+  const chapterIds = new Set(job.chapters.map((chapter) => chapter.id));
+  const preparedIds = Array.isArray(raw.preparedIds)
+    ? raw.preparedIds.filter((value): value is string => typeof value === 'string' && chapterIds.has(value))
+    : [];
+  const errors: Record<string, string> = {};
+  if (isRecord(raw.errors)) {
+    for (const [key, value] of Object.entries(raw.errors)) {
+      if (chapterIds.has(key) && typeof value === 'string' && value.trim()) errors[key] = value;
+    }
+  }
+  const phases: PreparePhaseStatus[] = ['idle', 'running', 'done', 'error', 'cancelled'];
+  const status = phases.includes(raw.status as PreparePhaseStatus)
+    ? (raw.status as PreparePhaseStatus)
+    : job.mode === 'chapter'
+      ? 'done'
+      : 'idle';
+  return {
+    status,
+    total: job.chapters.length,
+    prepared: Math.max(
+      0,
+      Math.min(
+        job.chapters.length,
+        job.chapters.filter(
+          (chapter) => chapter.status === 'done' || preparedIds.includes(chapter.id),
+        ).length,
+      ),
+    ),
+    failed: Object.keys(errors).length,
+    error: typeof raw.error === 'string' ? raw.error : null,
+    preparedIds,
+    errors,
+  };
+}
+
+function normalizeJob(job: DownloadJob): ManagedDownloadJob {
+  const record = job as DownloadJob & { prepare?: unknown };
+  return {
+    ...job,
+    prepare: normalizePrepare(record.prepare, job),
+  };
+}
+
+/** Пересчитывает счётчики подготовки после изменения списка глав. */
+function recomputePrepare(
+  job: ManagedDownloadJob,
+  patch: Partial<PrepareJobState> = {},
+): PrepareJobState {
+  const chapterIds = new Set(job.chapters.map((chapter) => chapter.id));
+  const source = { ...job.prepare, ...patch };
+  const preparedIds = Array.from(
+    new Set(source.preparedIds.filter((id) => chapterIds.has(id))),
+  );
+  const errors: Record<string, string> = {};
+  for (const [id, message] of Object.entries(source.errors)) {
+    if (chapterIds.has(id) && message.trim()) errors[id] = message;
+  }
+  const prepared = job.chapters.filter(
+    (chapter) => chapter.status === 'done' || preparedIds.includes(chapter.id),
+  ).length;
+  const failed = job.chapters.filter(
+    (chapter) => chapter.status !== 'done' && errors[chapter.id] !== undefined,
+  ).length;
+  return {
+    ...source,
+    total: job.chapters.length,
+    prepared,
+    failed,
+    preparedIds,
+    errors,
+  };
+}
+
+function cloneJobs(jobs: ManagedDownloadJob[]): ManagedDownloadJob[] {
   return jobs.map((job) => ({
     ...job,
     meta: { ...job.meta, genres: [...job.meta.genres] },
+    prepare: {
+      ...job.prepare,
+      preparedIds: [...job.prepare.preparedIds],
+      errors: { ...job.prepare.errors },
+    },
     chapters: job.chapters.map((chapter) => ({ ...chapter })),
   }));
 }
@@ -136,14 +263,15 @@ function cloneJobs(jobs: DownloadJob[]): DownloadJob[] {
 /* Состояние и подписки                                                */
 /* ------------------------------------------------------------------ */
 
-let jobs: DownloadJob[] = [];
+let jobs: ManagedDownloadJob[] = [];
 let initPromise: Promise<void> | null = null;
 let workerRunning = false;
 let workerWakeRequested = false;
 let persistChain: Promise<void> = Promise.resolve();
-/** Следующий разрешённый старт изображения (общий для всех заданий режима). */
-let nextWholeImageAt = 0;
+/** Следующий разрешённый старт одиночного изображения. */
 let nextSingleImageAt = 0;
+/** Текущий цикл опроса подготовки; смена токена останавливает старый. */
+const prepareLoops = new Map<string, symbol>();
 const jobListeners = new Set<() => void>();
 
 function notifyJobs(): void {
@@ -155,15 +283,15 @@ function subscribeJobs(listener: () => void): () => void {
   return () => jobListeners.delete(listener);
 }
 
-export function getDownloadJobs(): DownloadJob[] {
+export function getDownloadJobs(): ManagedDownloadJob[] {
   return jobs;
 }
 
-export function useDownloadJobs(): DownloadJob[] {
+export function useDownloadJobs(): ManagedDownloadJob[] {
   return useSyncExternalStore(subscribeJobs, getDownloadJobs, getDownloadJobs);
 }
 
-export function getActiveDownloadJob(mangaId: string): DownloadJob | null {
+export function getActiveDownloadJob(mangaId: string): ManagedDownloadJob | null {
   return (
     jobs.find(
       (job) =>
@@ -173,17 +301,28 @@ export function getActiveDownloadJob(mangaId: string): DownloadJob | null {
   );
 }
 
-function replaceJob(next: DownloadJob): void {
+function replaceJob(next: ManagedDownloadJob): void {
   jobs = jobs.map((job) => (job.id === next.id ? next : job));
   notifyJobs();
 }
 
-function patchJob(jobId: string, patch: Partial<DownloadJob>): DownloadJob | null {
+function patchJob(jobId: string, patch: Partial<ManagedDownloadJob>): ManagedDownloadJob | null {
   const current = jobs.find((job) => job.id === jobId);
   if (!current) return null;
-  const next: DownloadJob = { ...current, ...patch, updatedAt: nowIso() };
+  const next: ManagedDownloadJob = { ...current, ...patch, updatedAt: nowIso() };
   replaceJob(next);
   return next;
+}
+
+function patchPrepare(
+  jobId: string,
+  patch: Partial<PrepareJobState>,
+): ManagedDownloadJob | null {
+  const current = jobs.find((job) => job.id === jobId);
+  if (!current) return null;
+  return patchJob(jobId, {
+    prepare: recomputePrepare(current, patch),
+  });
 }
 
 function persistJobs(): Promise<void> {
@@ -217,19 +356,41 @@ export function initDownloadManager(): Promise<void> {
       stored = [];
     }
 
-    // Завершённые и отменённые задания не нужны после перезапуска: манифест
-    // уже содержит скачанные главы, а прогресс завершённого задания не показан.
-    const kept = stored.filter((job) => job.status !== 'done' && job.status !== 'cancelled');
-    const pruned = stored.filter((job) => job.status === 'done' || job.status === 'cancelled');
-    jobs = kept.map((job) => ({
-      ...job,
-      status: job.status === 'running' ? 'queued' : job.status,
-      currentChapterId: null,
-      currentPage: null,
-      chapters: job.chapters.map((chapter) =>
-        chapter.status === 'downloading' ? { ...chapter, status: 'pending' } : chapter,
-      ),
-    }));
+    // Завершённые задания не нужны после перезапуска: манифест уже содержит
+    // скачанные главы. Отменённые и остановившиеся задания сохраняем, чтобы
+    // пользователь мог продолжить их без повторной подготовки готового.
+    const kept = stored.filter((job) => job.status !== 'done');
+    const pruned = stored.filter((job) => job.status === 'done');
+    jobs = kept.map((job) => {
+      const normalized = normalizeJob(job);
+      const allPrepared =
+        normalized.mode === 'chapter' ||
+        normalized.chapters.every(
+          (chapter) =>
+            chapter.status === 'done' || normalized.prepare.preparedIds.includes(chapter.id),
+        );
+      return {
+        ...normalized,
+        status: normalized.status === 'running' ? 'queued' : normalized.status,
+        currentChapterId: null,
+        currentPage: null,
+        prepare: {
+          ...normalized.prepare,
+          status:
+            normalized.mode === 'chapter'
+              ? 'done'
+              : normalized.status === 'cancelled'
+                ? 'cancelled'
+                : allPrepared
+                  ? 'done'
+                  : 'idle',
+          error: normalized.prepare.status === 'error' ? normalized.prepare.error : null,
+        },
+        chapters: normalized.chapters.map((chapter) =>
+          chapter.status === 'downloading' ? { ...chapter, status: 'pending' } : chapter,
+        ),
+      };
+    });
     await persistAndNotify();
 
     // Отмена до конца первой главы оставляла пустой манифест. Убираем такие
@@ -269,12 +430,12 @@ function isStoredJob(value: unknown): value is DownloadJob {
 /* Публичное API                                                       */
 /* ------------------------------------------------------------------ */
 
-export async function startTitleDownload(input: StartTitleDownloadInput): Promise<DownloadJob | null> {
+export async function startTitleDownload(
+  input: StartTitleDownloadInput,
+): Promise<ManagedDownloadJob | null> {
   await initDownloadManager();
   const meta = metaFromManga(input.manga, input);
-  const chapters = sortOfflineChapters(
-    input.chapters.filter((chapter) => !chapter.is_external),
-  );
+  const chapters = sortOfflineChapters(input.chapters.filter((chapter) => !chapter.is_external));
 
   const active = jobs.find(
     (job) => job.id === meta.id && job.mode === 'title' && isActiveJob(job),
@@ -284,14 +445,24 @@ export async function startTitleDownload(input: StartTitleDownloadInput): Promis
     const known = new Set(active.chapters.map((chapter) => chapter.id));
     const additions = chapters.filter((chapter) => !known.has(chapter.id)).map(toJobChapter);
     if (additions.length > 0) {
+      const nextChapters = [...active.chapters, ...additions];
+      const nextJob = { ...active, chapters: nextChapters };
+      stopPrepareLoop(active.id);
       const next = patchJob(active.id, {
-        chapters: [...active.chapters, ...additions],
+        chapters: nextChapters,
         totalPages:
           active.totalPages + additions.reduce((sum, chapter) => sum + chapter.pageCount, 0),
+        prepare: recomputePrepare(nextJob, {
+          status: 'idle',
+          error: null,
+          errors: {},
+        }),
       });
       if (next) await persistAndNotify();
+      void pumpQueue();
+    } else {
+      void pumpQueue();
     }
-    void pumpQueue();
     return active;
   }
 
@@ -305,12 +476,13 @@ export async function startTitleDownload(input: StartTitleDownloadInput): Promis
 
   await ensureTitleManifest(meta);
 
-  const job: DownloadJob = {
+  const job: ManagedDownloadJob = {
     id: meta.id,
     mangaId: meta.id,
     mode: 'title',
     meta,
     chapters: pending.map(toJobChapter),
+    prepare: emptyPrepare('title', pending.length),
     status: 'queued',
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -330,7 +502,7 @@ export async function startTitleDownload(input: StartTitleDownloadInput): Promis
 
 export async function startChapterDownload(
   input: StartChapterDownloadInput,
-): Promise<DownloadJob | null> {
+): Promise<ManagedDownloadJob | null> {
   await initDownloadManager();
   const meta = metaFromManga(input.manga, input);
   if (input.chapter.is_external) return null;
@@ -351,12 +523,13 @@ export async function startChapterDownload(
 
   await ensureTitleManifest(meta);
 
-  const job: DownloadJob = {
+  const job: ManagedDownloadJob = {
     id: jobId,
     mangaId: meta.id,
     mode: 'chapter',
     meta,
     chapters: [toJobChapter(input.chapter)],
+    prepare: emptyPrepare('chapter', 1),
     status: 'queued',
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -377,11 +550,16 @@ export async function cancelDownload(jobId: string): Promise<void> {
   await initDownloadManager();
   const job = jobs.find((item) => item.id === jobId);
   if (!job || (!isActiveJob(job) && job.status !== 'error')) return;
+  stopPrepareLoop(jobId);
   const cancelled = patchJob(jobId, {
     status: 'cancelled',
     currentChapterId: null,
     currentPage: null,
     error: null,
+    prepare: {
+      ...job.prepare,
+      status: 'cancelled',
+    },
     chapters: job.chapters.map((chapter) =>
       chapter.status === 'downloading' ? { ...chapter, status: 'pending' } : chapter,
     ),
@@ -404,24 +582,54 @@ export async function retryDownload(jobId: string): Promise<void> {
   await initDownloadManager();
   const job = jobs.find((item) => item.id === jobId);
   if (!job) return;
+  stopPrepareLoop(jobId);
+  const chapters = job.chapters.map((chapter) => ({
+    ...chapter,
+    status: chapter.status === 'done' ? ('done' as const) : ('pending' as const),
+    error: null,
+  }));
+  const nextJob = { ...job, chapters };
   patchJob(jobId, {
     status: 'queued',
     error: null,
     currentChapterId: null,
     currentPage: null,
-    chapters: job.chapters.map((chapter) => ({
-      ...chapter,
-      status: chapter.status === 'done' ? 'done' : 'pending',
+    chapters,
+    prepare: recomputePrepare(nextJob, {
+      status:
+        job.mode === 'chapter' ||
+        chapters.every(
+          (chapter) =>
+            chapter.status === 'done' || job.prepare.preparedIds.includes(chapter.id),
+        )
+          ? 'done'
+          : 'idle',
       error: null,
-    })),
+      errors: {},
+    }),
   });
   await persistAndNotify();
   void pumpQueue();
 }
 
 export async function removeDownloadJob(jobId: string): Promise<void> {
+  stopPrepareLoop(jobId);
   jobs = jobs.filter((job) => job.id !== jobId);
   await persistAndNotify();
+}
+
+/** Прогресс серверной подготовки в процентах. */
+export function preparePercent(job: ManagedDownloadJob): number {
+  if (job.prepare.total <= 0) return 0;
+  return Math.min(
+    100,
+    Math.max(0, Math.round((job.prepare.prepared / job.prepare.total) * 100)),
+  );
+}
+
+/** Готовы ли все главы задания к скачиванию на устройство. */
+export function isPrepareComplete(job: ManagedDownloadJob): boolean {
+  return job.prepare.status === 'done' || job.prepare.status === 'error';
 }
 
 /* ------------------------------------------------------------------ */
@@ -477,6 +685,182 @@ function manifestPageFromExisting(
 }
 
 /* ------------------------------------------------------------------ */
+/* Подготовка на сервере                                               */
+/* ------------------------------------------------------------------ */
+
+function terminalPrepare(status: PreparePhaseStatus): boolean {
+  return status === 'done' || status === 'error' || status === 'cancelled';
+}
+
+function stopPrepareLoop(jobId: string): void {
+  prepareLoops.delete(jobId);
+}
+
+function startPrepareLoop(jobId: string): void {
+  if (prepareLoops.has(jobId)) return;
+  const token = Symbol(`prepare:${jobId}`);
+  prepareLoops.set(jobId, token);
+  void runPrepareLoop(jobId, token).finally(() => {
+    if (prepareLoops.get(jobId) === token) prepareLoops.delete(jobId);
+  });
+}
+
+function prepareLoopActive(jobId: string, token: symbol): boolean {
+  return prepareLoops.get(jobId) === token;
+}
+
+/**
+ * Применяет снимок статуса подготовки к заданию. Возвращает true, если
+ * состояние изменилось и его нужно сохранить.
+ */
+function applyPrepareSnapshot(jobId: string, snapshot: PrepareStatusOut): boolean {
+  const job = currentJob(jobId);
+  if (!job) return false;
+  const jobIds = new Set(job.chapters.map((chapter) => chapter.id));
+  const reported = new Set<string>();
+  const preparedIds = new Set(job.prepare.preparedIds);
+  const errors: Record<string, string> = { ...job.prepare.errors };
+  let reportedFailed = 0;
+  let reportedPending = 0;
+
+  for (const item of snapshot.chapters) {
+    if (!jobIds.has(item.id)) continue;
+    reported.add(item.id);
+    if (item.status === 'done') {
+      preparedIds.add(item.id);
+      delete errors[item.id];
+    } else if (item.status === 'error') {
+      reportedFailed += 1;
+      preparedIds.delete(item.id);
+      errors[item.id] = item.error || 'Не удалось подготовить главу';
+    } else {
+      reportedPending += 1;
+      preparedIds.delete(item.id);
+      delete errors[item.id];
+    }
+  }
+
+  const missing = job.chapters.filter((chapter) => !reported.has(chapter.id)).length;
+  const allReported = missing === 0;
+  const terminal = allReported && reportedPending === 0;
+
+  const chapters = job.chapters.map((chapter) => {
+    if (chapter.status === 'done') return chapter;
+    const prepareError = errors[chapter.id];
+    if (prepareError) {
+      return {
+        ...chapter,
+        status: 'error' as const,
+        error: `Подготовка на сервере: ${prepareError}`,
+      };
+    }
+    if (preparedIds.has(chapter.id) && job.prepare.errors[chapter.id] !== undefined) {
+      return { ...chapter, status: 'pending' as const, error: null };
+    }
+    return chapter;
+  });
+
+  let status: PreparePhaseStatus;
+  let prepareError: string | null = null;
+  if (snapshot.error) {
+    status = 'error';
+    prepareError = snapshot.error;
+  } else if (terminal) {
+    status = 'done';
+    prepareError =
+      reportedFailed > 0 ? `Не удалось подготовить глав: ${reportedFailed}` : null;
+  } else {
+    status = 'running';
+  }
+
+  const nextPrepare = recomputePrepare({ ...job, chapters }, {
+    status,
+    error: prepareError,
+    preparedIds: Array.from(preparedIds),
+    errors,
+  });
+
+  const changed =
+    job.prepare.status !== nextPrepare.status ||
+    job.prepare.total !== nextPrepare.total ||
+    job.prepare.prepared !== nextPrepare.prepared ||
+    job.prepare.failed !== nextPrepare.failed ||
+    job.prepare.error !== nextPrepare.error ||
+    job.prepare.preparedIds.length !== nextPrepare.preparedIds.length ||
+    job.prepare.preparedIds.some((id, index) => id !== nextPrepare.preparedIds[index]) ||
+    JSON.stringify(job.prepare.errors) !== JSON.stringify(nextPrepare.errors) ||
+    chapters.some(
+      (chapter, index) =>
+        chapter.status !== job.chapters[index]?.status ||
+        chapter.error !== job.chapters[index]?.error,
+    );
+
+  if (!changed) return false;
+  patchJob(jobId, {
+    chapters,
+    prepare: nextPrepare,
+    completedChapters: chapters.filter((chapter) => chapter.status === 'done').length,
+  });
+  return true;
+}
+
+async function runPrepareLoop(jobId: string, token: symbol): Promise<void> {
+  const initial = currentJob(jobId);
+  if (!initial || initial.mode !== 'title') return;
+  let posted = false;
+  let failures = 0;
+
+  while (prepareLoopActive(jobId, token)) {
+    const job = currentJob(jobId);
+    if (!job || job.mode !== 'title') return;
+    if (job.status !== 'running' && job.status !== 'queued') return;
+    if (terminalPrepare(job.prepare.status)) return;
+
+    if (!posted) {
+      try {
+        await api.prepareManga(job.mangaId);
+        posted = true;
+        failures = 0;
+      } catch (error: unknown) {
+        failures += 1;
+        if (failures >= 3) {
+          patchPrepare(jobId, {
+            status: 'error',
+            error: `Не удалось запустить подготовку: ${errorMessage(error)}`,
+          });
+          await persistAndNotify();
+          return;
+        }
+        await sleep(800 * failures);
+        continue;
+      }
+    }
+
+    try {
+      const snapshot = await api.getPrepareStatus(job.mangaId);
+      if (!prepareLoopActive(jobId, token)) return;
+      if (isCancelled(jobId)) return;
+      const changed = applyPrepareSnapshot(jobId, snapshot);
+      if (changed) await persistAndNotify();
+      failures = 0;
+      const current = currentJob(jobId);
+      if (!current || terminalPrepare(current.prepare.status)) return;
+    } catch (error: unknown) {
+      failures += 1;
+      if (failures >= 3) {
+        patchPrepare(jobId, {
+          status: 'error',
+          error: `Не удалось получить прогресс подготовки: ${errorMessage(error)}`,
+        });
+        await persistAndNotify();
+        return;
+      }
+    }
+    await sleep(PREPARE_POLL_MS);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Worker                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -501,7 +885,7 @@ export function pumpQueue(): Promise<void> {
   return run();
 }
 
-function nextQueuedJob(): DownloadJob | null {
+function nextQueuedJob(): ManagedDownloadJob | null {
   return jobs.find((job) => job.status === 'queued') ?? null;
 }
 
@@ -509,8 +893,52 @@ function isCancelled(jobId: string): boolean {
   return jobs.find((job) => job.id === jobId)?.status === 'cancelled';
 }
 
-function currentJob(jobId: string): DownloadJob | null {
+function currentJob(jobId: string): ManagedDownloadJob | null {
   return jobs.find((job) => job.id === jobId) ?? null;
+}
+
+/**
+ * Выбирает следующую пачку для устройства: не меньше 5 подготовленных глав
+ * либо все оставшиеся, когда подготовка уже завершилась/остановилась.
+ */
+function selectDownloadBatch(job: ManagedDownloadJob): DownloadJobChapter[] {
+  if (job.mode === 'chapter') {
+    return job.chapters.filter((chapter) => chapter.status !== 'done').slice(0, 1);
+  }
+  const prepared = job.chapters.filter(
+    (chapter) =>
+      chapter.status !== 'done' &&
+      chapter.status !== 'error' &&
+      job.prepare.preparedIds.includes(chapter.id) &&
+      job.prepare.errors[chapter.id] === undefined,
+  );
+  if (prepared.length >= PREPARE_BATCH_SIZE) {
+    return prepared.slice(0, PREPARE_BATCH_SIZE);
+  }
+  if (terminalPrepare(job.prepare.status)) return prepared;
+  return [];
+}
+
+/** Помечает главы, которые так и не были подготовлены, ошибками. */
+async function markUnpreparedAsFailed(jobId: string): Promise<void> {
+  const job = currentJob(jobId);
+  if (!job) return;
+  const errors = { ...job.prepare.errors };
+  const chapters = job.chapters.map((chapter) => {
+    if (chapter.status === 'done') return chapter;
+    if (job.prepare.preparedIds.includes(chapter.id) || errors[chapter.id]) return chapter;
+    errors[chapter.id] = job.prepare.error ?? 'Глава не была подготовлена на сервере';
+    return {
+      ...chapter,
+      status: 'error' as const,
+      error: `Подготовка на сервере: ${errors[chapter.id]}`,
+    };
+  });
+  patchJob(jobId, {
+    chapters,
+    prepare: recomputePrepare({ ...job, chapters }, { errors }),
+  });
+  await persistAndNotify();
 }
 
 async function processJob(jobId: string): Promise<void> {
@@ -525,18 +953,23 @@ async function processJob(jobId: string): Promise<void> {
     if (chapterDoneIds.has(chapter.id)) {
       return { ...chapter, status: 'done', error: null };
     }
-    return {
-      ...chapter,
-      status: chapter.status === 'error' ? 'pending' : chapter.status,
-      error: null,
-    };
+    return { ...chapter, error: null };
   });
   const completedChapters = chapters.filter((chapter) => chapter.status === 'done').length;
   const totalPages = chapters.reduce((sum, chapter) => sum + (chapter.pageCount || 0), 0);
+  const nextJob = { ...started, chapters };
+  const prepare = recomputePrepare(nextJob, {
+    status:
+      started.mode === 'chapter' || terminalPrepare(started.prepare.status)
+        ? started.prepare.status
+        : 'running',
+    error: started.prepare.status === 'error' ? started.prepare.error : null,
+  });
 
   patchJob(jobId, {
     status: 'running',
     chapters,
+    prepare,
     completedChapters,
     downloadedPages: manifestPagesForChapters(manifest, jobChapterIds),
     totalPages,
@@ -546,181 +979,245 @@ async function processJob(jobId: string): Promise<void> {
   });
   await persistAndNotify();
 
-  for (let chapterIndex = 0; chapterIndex < chapters.length; chapterIndex += 1) {
-    if (isCancelled(jobId)) return;
-    const chapterRef = chapters[chapterIndex];
-    if (!chapterRef || chapterRef.status === 'done') continue;
+  if (started.mode === 'title' && !terminalPrepare(prepare.status)) {
+    startPrepareLoop(jobId);
+  }
 
-    patchJob(jobId, {
-      currentChapterId: chapterRef.id,
-      currentPage: 0,
-      chapters: chapters.map((chapter) =>
-        chapter.id === chapterRef.id
-          ? { ...chapter, status: 'downloading', error: null }
-          : chapter,
-      ),
-    });
-    await persistAndNotify();
+  while (!isCancelled(jobId)) {
+    const job = currentJob(jobId);
+    if (!job) return;
 
-    try {
-      const detail = await api.getChapter(chapterRef.id);
-      if (isCancelled(jobId)) return;
-      const pages = [...detail.pages].sort((a, b) => a.number - b.number);
-      if (pages.length === 0) {
-        throw new Error('Источник не отдал страницы главы');
-      }
+    if (
+      job.mode === 'title' &&
+      (job.prepare.status === 'idle' || job.prepare.status === 'running') &&
+      !prepareLoops.has(jobId)
+    ) {
+      patchPrepare(jobId, { status: 'running' });
+      startPrepareLoop(jobId);
+    }
 
-      chapterRef.pageCount = pages.length;
-      chapterRef.title = detail.title || chapterRef.title;
-      chapterRef.translator = detail.translator?.trim() || chapterRef.translator;
-      const nextTotalPages = chapters.reduce((sum, chapter) => sum + (chapter.pageCount || 0), 0);
-      patchJob(jobId, {
-        totalPages: nextTotalPages,
-        chapters: chapters.map((chapter) => ({ ...chapter })),
-      });
-      await persistAndNotify();
-
-      const already = await isChapterFullyDownloaded(started.mangaId, chapterRef.id, pages.length);
-      if (already) {
-        chapterRef.status = 'done';
-        const refreshed = await getOfflineTitle(started.mangaId);
-        patchJob(jobId, {
-          completedChapters: chapters.filter((chapter) => chapter.status === 'done').length,
-          downloadedPages: manifestPagesForChapters(refreshed, jobChapterIds),
-          chapters: chapters.map((chapter) => ({ ...chapter })),
-        });
-        await persistAndNotify();
-        continue;
-      }
-
-      const downloadedPages: OfflinePage[] = [];
-      for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
-        if (isCancelled(jobId)) return;
-        const page = pages[pageIndex];
-        if (!page) continue;
-        const path = offlinePagePath(started.mangaId, chapterRef.id, page.number);
-        const existing = await getOfflinePageInfo(path);
-
-        let offlinePage: OfflinePage;
-        let downloadedNow = false;
-        if (existing.exists && existing.size > 0) {
-          offlinePage = manifestPageFromExisting(page, path, existing);
-        } else {
-          // Единый темп на всё приложение: одно изображение за интервал.
-          await waitForImageSlot(started.mode);
-          if (isCancelled(jobId)) return;
-          const delay =
-            started.mode === 'title' ? wholeTitleImageDelay() : singleChapterImageDelay();
-          // Отсчитываем интервал от фактического старта запроса, чтобы служебные
-          // операции не растягивали паузу сверх заданного диапазона.
-          const requestStartedAt = Date.now();
-          const responsePromise = fetch(resolveApiUrl(page.url), { credentials: 'same-origin' });
-          if (started.mode === 'title') nextWholeImageAt = requestStartedAt + delay;
-          else nextSingleImageAt = requestStartedAt + delay;
-
-          const response = await responsePromise;
-          if (!response.ok) {
-            throw new Error(`Сервер вернул ${response.status} для страницы ${page.number}`);
-          }
-          const blob = await response.blob();
-          if (isCancelled(jobId)) return;
-          const contentType =
-            response.headers.get('content-type')?.split(';')[0]?.trim() ||
-            blob.type ||
-            guessContentType(page.url);
-          offlinePage = await saveOfflinePage({
-            mangaId: started.mangaId,
-            chapterId: chapterRef.id,
-            number: page.number,
-            width: page.width,
-            height: page.height,
-            blob,
-            contentType,
-          });
-          downloadedNow = true;
+    const batch = selectDownloadBatch(job);
+    if (batch.length === 0) {
+      const unfinished = job.chapters.some((chapter) => chapter.status !== 'done');
+      if (!unfinished) break;
+      if (job.mode === 'title' && terminalPrepare(job.prepare.status)) {
+        const pendingPrepared = job.chapters.some(
+          (chapter) =>
+            chapter.status !== 'done' &&
+            chapter.status !== 'error' &&
+            job.prepare.preparedIds.includes(chapter.id) &&
+            job.prepare.errors[chapter.id] === undefined,
+        );
+        if (!pendingPrepared) {
+          await markUnpreparedAsFailed(jobId);
+          break;
         }
-
-        downloadedPages.push(offlinePage);
-        if (downloadedNow) {
-          const job = currentJob(jobId);
-          const nextDownloaded = (job?.downloadedPages ?? 0) + 1;
-          patchJob(jobId, { downloadedPages: nextDownloaded, currentPage: pageIndex + 1 });
-          await persistAndNotify();
-        }
-
-        if (isCancelled(jobId)) return;
       }
+      await sleep(200);
+      continue;
+    }
 
+    for (const chapter of batch) {
       if (isCancelled(jobId)) return;
-
-      const latest = await getOfflineTitle(started.mangaId);
-      const now = nowIso();
-      const offlineChapter = {
-        id: chapterRef.id,
-        number: chapterRef.number,
-        volume: chapterRef.volume,
-        title: chapterRef.title,
-        translator: chapterRef.translator,
-        pages: [...downloadedPages].sort((a, b) => a.number - b.number),
-        downloadedAt: now,
-      };
-      const nextChapters = [
-        ...(latest?.chapters ?? []).filter((chapter) => chapter.id !== offlineChapter.id),
-        offlineChapter,
-      ];
-      await saveOfflineTitle({
-        ...(latest ?? {
-          ...started.meta,
-          chapters: [],
-          downloadedAt: now,
-          updatedAt: now,
-        }),
-        ...started.meta,
-        chapters: nextChapters,
-      });
-
-      chapterRef.status = 'done';
-      chapterRef.error = null;
-      const refreshed = await getOfflineTitle(started.mangaId);
-      patchJob(jobId, {
-        completedChapters: chapters.filter((chapter) => chapter.status === 'done').length,
-        downloadedPages: manifestPagesForChapters(refreshed, jobChapterIds),
-        chapters: chapters.map((chapter) => ({ ...chapter })),
-      });
-      await persistAndNotify();
-    } catch (error: unknown) {
-      if (isCancelled(jobId)) return;
-      chapterRef.status = 'error';
-      chapterRef.error = errorMessage(error);
-      patchJob(jobId, {
-        status: 'error',
-        error: chapterRef.error,
-        chapters: chapters.map((chapter) => ({ ...chapter })),
-      });
-      await persistAndNotify();
-      // Продолжаем следующие главы: одна проблемная глава не должна
-      // блокировать весь тайтл. Повтор — кнопкой «Повторить».
+      await downloadChapter(jobId, chapter.id);
     }
   }
 
   if (isCancelled(jobId)) return;
   const finalJob = currentJob(jobId);
   if (!finalJob) return;
+  stopPrepareLoop(jobId);
   const allDone = finalJob.chapters.every((chapter) => chapter.status === 'done');
   const failed = finalJob.chapters.find((chapter) => chapter.status === 'error');
   const status: DownloadJobStatus = allDone ? 'done' : failed ? 'error' : 'cancelled';
   patchJob(jobId, {
     status,
-    error: allDone ? null : (failed?.error ?? 'Загрузка прервана'),
+    error: allDone
+      ? null
+      : (failed?.error ?? finalJob.prepare.error ?? 'Загрузка прервана'),
     currentChapterId: null,
     currentPage: null,
   });
   await persistAndNotify();
 }
 
-async function waitForImageSlot(mode: DownloadJobMode): Promise<void> {
-  const nextAt = mode === 'title' ? nextWholeImageAt : nextSingleImageAt;
-  const wait = nextAt - Date.now();
+async function downloadChapter(jobId: string, chapterId: string): Promise<void> {
+  const job = currentJob(jobId);
+  if (!job) return;
+  const chapterRef = job.chapters.find((chapter) => chapter.id === chapterId);
+  if (!chapterRef || chapterRef.status === 'done') return;
+
+  patchJob(jobId, {
+    currentChapterId: chapterRef.id,
+    currentPage: 0,
+    chapters: job.chapters.map((chapter) =>
+      chapter.id === chapterRef.id
+        ? { ...chapter, status: 'downloading', error: null }
+        : chapter,
+    ),
+  });
+  await persistAndNotify();
+
+  try {
+    const detail = await api.getChapter(chapterRef.id);
+    if (isCancelled(jobId)) return;
+    const pages = [...detail.pages].sort((a, b) => a.number - b.number);
+    if (pages.length === 0) {
+      throw new Error('Источник не отдал страницы главы');
+    }
+
+    const updated = currentJob(jobId);
+    if (!updated) return;
+    const currentChapter = updated.chapters.find((chapter) => chapter.id === chapterRef.id);
+    if (currentChapter) {
+      currentChapter.pageCount = pages.length;
+      currentChapter.title = detail.title || currentChapter.title;
+      currentChapter.translator = detail.translator?.trim() || currentChapter.translator;
+    }
+    patchJob(jobId, {
+      totalPages: updated.chapters.reduce((sum, chapter) => sum + (chapter.pageCount || 0), 0),
+      chapters: updated.chapters.map((chapter) => ({ ...chapter })),
+    });
+    await persistAndNotify();
+
+    const already = await isChapterFullyDownloaded(job.mangaId, chapterRef.id, pages.length);
+    if (already) {
+      markChapterDone(jobId, chapterRef.id);
+      await persistAndNotify();
+      return;
+    }
+
+    const downloadedPages: OfflinePage[] = [];
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+      if (isCancelled(jobId)) return;
+      const page = pages[pageIndex];
+      if (!page) continue;
+      const path = offlinePagePath(job.mangaId, chapterRef.id, page.number);
+      const existing = await getOfflinePageInfo(path);
+
+      let offlinePage: OfflinePage;
+      let downloadedNow = false;
+      if (existing.exists && existing.size > 0) {
+        offlinePage = manifestPageFromExisting(page, path, existing);
+      } else {
+        // После серверной подготовки изображения не загружаются с источника:
+        // для полного тайтла искусственная пауза не нужна вовсе. Одиночная
+        // глава сохраняет прежний щадящий темп.
+        if (job.mode === 'chapter') {
+          await waitForImageSlot();
+          if (isCancelled(jobId)) return;
+        }
+        const requestStartedAt = Date.now();
+        const responsePromise = fetch(resolveApiUrl(page.url), { credentials: 'same-origin' });
+        if (job.mode === 'chapter') {
+          nextSingleImageAt = requestStartedAt + singleChapterImageDelay();
+        }
+
+        const response = await responsePromise;
+        if (!response.ok) {
+          throw new Error(`Сервер вернул ${response.status} для страницы ${page.number}`);
+        }
+        const blob = await response.blob();
+        if (isCancelled(jobId)) return;
+        const contentType =
+          response.headers.get('content-type')?.split(';')[0]?.trim() ||
+          blob.type ||
+          guessContentType(page.url);
+        offlinePage = await saveOfflinePage({
+          mangaId: job.mangaId,
+          chapterId: chapterRef.id,
+          number: page.number,
+          width: page.width,
+          height: page.height,
+          blob,
+          contentType,
+        });
+        downloadedNow = true;
+      }
+
+      downloadedPages.push(offlinePage);
+      if (downloadedNow) {
+        const current = currentJob(jobId);
+        const nextDownloaded = (current?.downloadedPages ?? 0) + 1;
+        patchJob(jobId, { downloadedPages: nextDownloaded, currentPage: pageIndex + 1 });
+        await persistAndNotify();
+      }
+
+      if (isCancelled(jobId)) return;
+    }
+
+    if (isCancelled(jobId)) return;
+
+    const latest = await getOfflineTitle(job.mangaId);
+    const now = nowIso();
+    const offlineChapter = {
+      id: chapterRef.id,
+      number: chapterRef.number,
+      volume: chapterRef.volume,
+      title: chapterRef.title,
+      translator: chapterRef.translator,
+      pages: [...downloadedPages].sort((a, b) => a.number - b.number),
+      downloadedAt: now,
+    };
+    const nextChapters = [
+      ...(latest?.chapters ?? []).filter((chapter) => chapter.id !== offlineChapter.id),
+      offlineChapter,
+    ];
+    await saveOfflineTitle({
+      ...(latest ?? {
+        ...job.meta,
+        chapters: [],
+        downloadedAt: now,
+        updatedAt: now,
+      }),
+      ...job.meta,
+      chapters: nextChapters,
+    });
+
+    markChapterDone(jobId, chapterRef.id);
+    await persistAndNotify();
+  } catch (error: unknown) {
+    if (isCancelled(jobId)) return;
+    const current = currentJob(jobId);
+    if (!current) return;
+    const message = errorMessage(error);
+    patchJob(jobId, {
+      error: message,
+      chapters: current.chapters.map((chapter) =>
+        chapter.id === chapterRef.id
+          ? { ...chapter, status: 'error', error: message }
+          : chapter,
+      ),
+    });
+    await persistAndNotify();
+    // Продолжаем следующие главы: одна проблемная глава не должна
+    // блокировать весь тайтл. Повтор — кнопкой «Повторить».
+  }
+}
+
+function markChapterDone(jobId: string, chapterId: string): void {
+  const job = currentJob(jobId);
+  if (!job) return;
+  const chapters = job.chapters.map((chapter) =>
+    chapter.id === chapterId ? { ...chapter, status: 'done' as const, error: null } : chapter,
+  );
+  const errors = { ...job.prepare.errors };
+  delete errors[chapterId];
+  const refreshed = { ...job, chapters };
+  patchJob(jobId, {
+    chapters,
+    completedChapters: chapters.filter((chapter) => chapter.status === 'done').length,
+    prepare: recomputePrepare(refreshed, {
+      errors,
+      preparedIds: job.prepare.preparedIds.includes(chapterId)
+        ? job.prepare.preparedIds
+        : [...job.prepare.preparedIds, chapterId],
+    }),
+  });
+}
+
+async function waitForImageSlot(): Promise<void> {
+  const wait = nextSingleImageAt - Date.now();
   if (wait > 0) await sleep(wait);
 }
 

@@ -1,0 +1,86 @@
+{
+  "next": null,
+  "previous": "/api/v2/search/catalog/?page=1&count=30",
+  "results": [
+    {
+      "id": 12255,
+      "main_name": "Профессор Лейтон и Весёлая тайна",
+      "secondary_name": "Professor Layton and the Cheerful Mystery",
+      "type": {
+        "id": 1,
+        "name": "Манга"
+      },
+      "status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "translate_status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "cover": {
+        "low": "/media/titles/professor-layton-and-the-cheerful-mystery/low_cover.jpg",
+        "mid": "/media/titles/professor-layton-and-the-cheerful-mystery/mid_cover.jpg",
+        "high": "/media/titles/professor-layton-and-the-cheerful-mystery/high_cover.jpg"
+      },
+      "dir": "professor-layton-and-the-cheerful-mystery",
+      "issue_year": 2008,
+      "avg_rating": 10.0,
+      "total_votes": 69,
+      "genres": [
+        {
+          "id": 8,
+          "name": "Детектив"
+        },
+        {
+          "id": 16,
+          "name": "Элементы юмора"
+        }
+      ],
+      "categories": [],
+      "is_forbidden": false
+    },
+    {
+      "id": 16421,
+      "main_name": "Томатный Ниндзя",
+      "secondary_name": "Ketchup Ninja",
+      "type": {
+        "id": 1,
+        "name": "Манга"
+      },
+      "status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "translate_status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "cover": {
+        "low": "/media/titles/ketchup-ninja/1e6393be811741573dce0d41438e27dd.jpg",
+        "mid": "/media/titles/ketchup-ninja/0590c844c751346ba609282ac1e0b58d.jpg",
+        "high": "/media/titles/ketchup-ninja/a0111e3f8ea5fbf7c005a7b95b2fa0c5.jpg"
+      },
+      "dir": "ketchup-ninja",
+      "issue_year": 2011,
+      "avg_rating": 10.0,
+      "total_votes": 31,
+      "genres": [
+        {
+          "id": 23,
+          "name": "Приключения"
+        },
+        {
+          "id": 39,
+          "name": "Школьники"
+        },
+        {
+          "id": 50,
+          "name": "Комедия"
+        }
+      ],
+      "categories": [],
+      "is_forbidden": false
+    }
+  ]
+}

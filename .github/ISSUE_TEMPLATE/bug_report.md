@@ -1,25 +1,38 @@
 ---
 name: Bug report
-about: Something is broken
-labels: qa
+about: Что-то сломалось или работает не так, как описано
+title: "[bug] "
+labels: ["qa"]
+assignees: []
 ---
 
-**What happened?**
+## Что произошло
 
-**Steps to reproduce**
+<!-- Опишите фактическое поведение. -->
+
+## Как воспроизвести
 
 1.
 2.
 3.
 
-**Expected**
+## Ожидаемое поведение
 
-**Environment**
+## Окружение
 
-- web / android / api
-- browser/device
-- version/commit
+- web / android-kotlin / android-capacitor / api / admin
+- браузер или устройство:
+- версия/коммит:
+- источник и тайтл (если относится к парсеру):
 
-**Logs / screenshots**
+## Логи и скриншоты
 
-<!-- Do not paste tokens, cookies or .env contents. -->
+<!--
+Приложите X-Request-ID, текст ошибки и скриншот.
+Не вставляйте токены, cookies, .env, SSH-пароли и приватные IP.
+-->
+
+## Проверки
+
+- [ ] Поискал похожий issue
+- [ ] Проверил, что это не известное ограничение из README / docs/QA.md

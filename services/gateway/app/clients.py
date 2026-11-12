@@ -19,6 +19,7 @@ from manga_common.schemas import (
     ChapterDetailOut,
     ChapterOut,
     ExportJobOut,
+    HomeUpdatesOut,
     MangaDetailOut,
     MangaListResponse,
     MangaOut,
@@ -181,6 +182,12 @@ class CatalogClient(InternalClient):
     async def manga_list(self, params: dict[str, Any]) -> MangaListResponse:
         data = await self.request("GET", "/internal/manga", params=params)
         return MangaListResponse.model_validate(data)
+
+    async def home_updates(self, limit: int = 25) -> HomeUpdatesOut:
+        data = await self.request(
+            "GET", "/internal/home/updates", params={"limit": max(1, min(50, limit))}
+        )
+        return HomeUpdatesOut.model_validate(data)
 
     async def search(
         self, q: str, *, source: str | None = None, page: int = 1, limit: int = 24
@@ -404,8 +411,26 @@ class ControlClient(InternalClient):
 
 class MediaClient(InternalClient):
     service_code = "media"
+
     async def archive_chapter(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("POST", "/internal/archives/chapters", json=payload, timeout=30.0)
+
+    async def archive_summary(self, chapter_ids: list[str]) -> list[dict[str, Any]]:
+        """Batch archive status; the media query string stays within proxy limits."""
+
+        items: list[dict[str, Any]] = []
+        chunk_size = 150
+        for index in range(0, len(chapter_ids), chunk_size):
+            chunk = chapter_ids[index : index + chunk_size]
+            data = await self.request(
+                "GET",
+                "/internal/archives/chapters/summary",
+                params={"ids": ",".join(chunk)},
+            )
+            chunk_items = data.get("items") if isinstance(data, dict) else None
+            if isinstance(chunk_items, list):
+                items.extend(item for item in chunk_items if isinstance(item, dict))
+        return items
 
     async def archived_page(self, chapter_id: str, number: int) -> httpx.Response:
         return await self.stream(f"/internal/archives/chapters/{chapter_id}/pages/{number}")

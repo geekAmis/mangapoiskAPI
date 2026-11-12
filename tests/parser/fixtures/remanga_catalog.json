@@ -1,0 +1,165 @@
+{
+  "next": "/api/v2/search/catalog/?page=2&count=30",
+  "previous": null,
+  "results": [
+    {
+      "id": 7349,
+      "main_name": "Лимит",
+      "secondary_name": "Limit",
+      "type": {
+        "id": 1,
+        "name": "Манга"
+      },
+      "status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "translate_status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "cover": {
+        "low": "/media/titles/limit/low_cover.jpg",
+        "mid": "/media/titles/limit/mid_cover.jpg",
+        "high": "/media/titles/limit/high_cover.jpg"
+      },
+      "dir": "limit",
+      "issue_year": 2009,
+      "avg_rating": 10.0,
+      "total_votes": 387,
+      "genres": [
+        {
+          "id": 11,
+          "name": "Драма"
+        },
+        {
+          "id": 24,
+          "name": "Психология"
+        },
+        {
+          "id": 28,
+          "name": "Сёдзё"
+        },
+        {
+          "id": 34,
+          "name": "Трагедия"
+        },
+        {
+          "id": 35,
+          "name": "Триллер"
+        }
+      ],
+      "categories": [],
+      "is_forbidden": false
+    },
+    {
+      "id": 14669,
+      "main_name": "Летний зной. Короткие истории Кито Мохиро",
+      "secondary_name": "Kitoh's Short Stories - Zansho",
+      "type": {
+        "id": 1,
+        "name": "Манга"
+      },
+      "status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "translate_status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "cover": {
+        "low": "/media/titles/kitohs-short-stories--zansho/bc01aed5a0d5198d07061f5c5783b2f7.jpg",
+        "mid": "/media/titles/kitohs-short-stories--zansho/2a2f4922d1b962e8b08c43be90bb1c99.jpg",
+        "high": "/media/titles/kitohs-short-stories--zansho/2043144b336a5accc77c884786252ea6.jpg"
+      },
+      "dir": "kitohs-short-stories--zansho",
+      "issue_year": 2004,
+      "avg_rating": 10.0,
+      "total_votes": 132,
+      "genres": [
+        {
+          "id": 11,
+          "name": "Драма"
+        },
+        {
+          "id": 21,
+          "name": "Повседневность"
+        },
+        {
+          "id": 27,
+          "name": "Сверхъестественное"
+        },
+        {
+          "id": 30,
+          "name": "Сёнэн"
+        }
+      ],
+      "categories": [],
+      "is_forbidden": false
+    },
+    {
+      "id": 88212,
+      "main_name": "Шумиха! 1700-х",
+      "secondary_name": "Baccano! - From The 1700S",
+      "type": {
+        "id": 1,
+        "name": "Манга"
+      },
+      "status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "translate_status": {
+        "id": 2,
+        "name": "Продолжается"
+      },
+      "cover": {
+        "low": "/media/titles/baccano--from-the-1700s/7f45decced6b8c9e59984598e9de8d95.jpg",
+        "mid": "/media/titles/baccano--from-the-1700s/0ba2d1d133bc7e87bc23cc62efe6b819.jpg",
+        "high": "/media/titles/baccano--from-the-1700s/d836c2e7ef9ae3ffe15e637d83b9ae52.jpg"
+      },
+      "dir": "baccano--from-the-1700s",
+      "issue_year": 2024,
+      "avg_rating": 10.0,
+      "total_votes": 143,
+      "genres": [
+        {
+          "id": 8,
+          "name": "Детектив"
+        },
+        {
+          "id": 11,
+          "name": "Драма"
+        },
+        {
+          "id": 23,
+          "name": "Приключения"
+        },
+        {
+          "id": 30,
+          "name": "Сёнэн"
+        }
+      ],
+      "categories": [
+        {
+          "id": 36,
+          "name": "Криминал"
+        },
+        {
+          "id": 47,
+          "name": "Алхимия"
+        },
+        {
+          "id": 64,
+          "name": "ГГ мужчина"
+        },
+        {
+          "id": 82,
+          "name": "Насилие / жестокость"
+        }
+      ],
+      "is_forbidden": false
+    }
+  ]
+}

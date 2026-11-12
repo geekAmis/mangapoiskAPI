@@ -5,9 +5,12 @@ import contextlib
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any, Literal
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from manga_common.auth import constant_time_compare, create_access_token
 from manga_common.errors import (
@@ -23,6 +26,7 @@ from manga_common.schemas import (
     ChapterDetailOut,
     ChapterOut,
     ExportJobOut,
+    HomeUpdatesOut,
     ImportMangaRequest,
     ImportMangaResponse,
     LoginRequest,
@@ -131,11 +135,162 @@ def _chapter_label(chapter: ChapterOut) -> str:
     return ", ".join(parts)
 
 
+class PrepareChapterOut(BaseModel):
+    id: str
+    status: Literal["done", "pending", "error"]
+    page_count: int = 0
+    error: str | None = None
+
+
+class PrepareStatusOut(BaseModel):
+    manga_id: str
+    total: int
+    prepared: int
+    pending: int
+    failed: int
+    batch: list[str]
+    chapters: list[PrepareChapterOut]
+    job_id: str | None = None
+    error: str | None = None
+
+
+class PrepareStartOut(BaseModel):
+    job_id: str
+    total: int
+    chapter_ids: list[str]
+
+
+@dataclass(slots=True)
+class _PrepareJob:
+    job_id: str
+    manga_id: str
+    chapter_ids: list[str]
+    created_at: float
+    errors: dict[str, str] = field(default_factory=dict)
+    error: str | None = None
+    task: asyncio.Task[None] | None = None
+    finished: bool = False
+
+
+class _PrepareRegistry:
+    """In-process dedupe for whole-title preparation.
+
+    Chapter archiving itself is idempotent in the media service; this registry
+    only prevents the gateway from spawning several identical background
+    workers for one manga.  Persisted progress lives in ``chapter_archives``.
+    """
+
+    def __init__(self) -> None:
+        self._jobs: dict[str, _PrepareJob] = {}
+
+    def active(self, manga_id: str) -> _PrepareJob | None:
+        job = self._jobs.get(manga_id)
+        if job is None:
+            return None
+        if job.finished or (job.task is not None and job.task.done()):
+            self._jobs.pop(manga_id, None)
+            return None
+        return job
+
+    def start(
+        self,
+        manga_id: str,
+        chapter_ids: list[str],
+        runner: Callable[[_PrepareJob], Awaitable[None]],
+    ) -> tuple[_PrepareJob, bool]:
+        existing = self.active(manga_id)
+        if existing is not None:
+            return existing, False
+        job = _PrepareJob(
+            job_id=str(uuid.uuid4()),
+            manga_id=manga_id,
+            chapter_ids=list(chapter_ids),
+            created_at=time.monotonic(),
+        )
+        task = asyncio.create_task(runner(job))
+        job.task = task
+        self._jobs[manga_id] = job
+        task.add_done_callback(lambda _completed, job=job: self._forget(job))
+        return job, True
+
+    def _forget(self, job: _PrepareJob) -> None:
+        job.finished = True
+        if self._jobs.get(job.manga_id) is job:
+            self._jobs.pop(job.manga_id, None)
+
+
+_prepare_registry = _PrepareRegistry()
+
+
+def _build_prepare_status(
+    manga_id: str,
+    chapters: list[ChapterOut],
+    summary: dict[str, dict[str, Any]],
+    *,
+    active: bool,
+    job_errors: dict[str, str] | None = None,
+    job_error: str | None = None,
+    job_id: str | None = None,
+) -> PrepareStatusOut:
+    errors = job_errors or {}
+    items: list[PrepareChapterOut] = []
+    batch: list[str] = []
+    prepared = 0
+    failed = 0
+    pending = 0
+    for chapter in chapters:
+        key = str(chapter.id)
+        raw = summary.get(key) or {}
+        raw_status = str(raw.get("status") or "missing")
+        page_count = int(raw.get("page_count") or 0)
+        message: str | None = None
+        if raw_status == "done":
+            status: Literal["done", "pending", "error"] = "done"
+            prepared += 1
+            if len(batch) < 5:
+                batch.append(key)
+        elif raw_status in {"queued", "running", "pending"}:
+            status = "pending"
+            pending += 1
+        elif raw_status in {"failed", "error"}:
+            status = "error"
+            failed += 1
+            message = str(raw.get("error") or errors.get(key) or "Не удалось подготовить главу")
+        elif active:
+            # The prepare worker has not reached this chapter yet.
+            status = "pending"
+            pending += 1
+        else:
+            status = "error"
+            failed += 1
+            message = errors.get(key) or "Глава ещё не подготовлена на сервере"
+        if raw_status != "done" and key in errors:
+            message = errors[key]
+        items.append(
+            PrepareChapterOut(
+                id=key,
+                status=status,
+                page_count=page_count if status == "done" else 0,
+                error=message,
+            )
+        )
+    return PrepareStatusOut(
+        manga_id=manga_id,
+        total=len(chapters),
+        prepared=prepared,
+        pending=pending,
+        failed=failed,
+        batch=batch,
+        chapters=items,
+        job_id=job_id,
+        error=job_error,
+    )
+
+
 # Chapter ids already posted to the media archive in this process.  The media
 # endpoint is idempotent, this simply avoids one request per reader page view.
 _archive_posted: set[str] = set()
 _archive_tasks: set[asyncio.Task] = set()
-_warm_tasks: set[asyncio.Task] = set()
 
 
 async def _post_archive(media: MediaClient, payload: dict[str, Any], key: str) -> None:
@@ -254,6 +409,7 @@ async def manga_list(
     query: str | None = Query(default=None, max_length=200),
     source: str | None = Query(default=None, max_length=64),
     genre: str | None = Query(default=None, max_length=64),
+    genres: str | None = Query(default=None, max_length=500),
     year: int | None = Query(default=None, ge=1900, le=2100),
     status: str | None = Query(default=None, max_length=64),
     sort: str = Query(default="popular", pattern="^(popular|rating|updated|title|new)$"),
@@ -268,11 +424,22 @@ async def manga_list(
         params["source"] = source
     if genre:
         params["genre"] = genre
+    if genres:
+        params["genres"] = genres
     if year:
         params["year"] = year
     if status:
         params["status"] = status
     return await catalog.manga_list(params)
+
+
+@router.get("/home/updates", response_model=HomeUpdatesOut)
+async def home_updates(
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=50),
+) -> HomeUpdatesOut:
+    catalog, _, _, _ = clients(request)
+    return await catalog.home_updates(limit)
 
 
 async def _live_search(
@@ -396,51 +563,173 @@ async def manga_variants(request: Request, manga_id: uuid.UUID) -> MangaVariants
     return await catalog.variants(str(manga_id))
 
 
+async def _run_prepare_job(
+    media: MediaClient,
+    catalog: CatalogClient,
+    job: _PrepareJob,
+    chapters: list[ChapterOut],
+) -> None:
+    """Queue media archiving for chapters that are not prepared yet."""
+
+    try:
+        summary_items = await media.archive_summary(list(job.chapter_ids))
+    except Exception as exc:
+        logger.warning("prepare summary failed for %s: %s", job.manga_id, exc)
+        job.error = f"Не удалось получить состояние архивов: {exc}"[:300]
+        return
+
+    states: dict[str, str] = {}
+    for item in summary_items:
+        chapter_id = item.get("chapter_id")
+        if isinstance(chapter_id, str):
+            states[chapter_id] = str(item.get("status") or "missing")
+
+    semaphore = asyncio.Semaphore(2)
+
+    async def one(chapter: ChapterOut) -> None:
+        key = str(chapter.id)
+        # Done chapters are never refetched; pending ones already have a
+        # media worker.  Failed/missing chapters are safely re-queued.
+        if states.get(key) in {"done", "pending"}:
+            return
+        async with semaphore:
+            try:
+                chapter_detail = await catalog.chapter(key)
+                if not chapter_detail.pages:
+                    job.errors[key] = "Источник не отдал страницы главы"
+                    return
+                result = await media.archive_chapter(
+                    {
+                        "chapter_id": key,
+                        "source": chapter_detail.source,
+                        "translator": getattr(chapter_detail, "translator", None),
+                        "pages": [
+                            {
+                                "number": page.number,
+                                "url": page.url,
+                                "width": page.width,
+                                "height": page.height,
+                            }
+                            for page in chapter_detail.pages
+                        ],
+                    }
+                )
+                if isinstance(result, dict) and result.get("status") == "failed":
+                    job.errors[key] = str(result.get("error") or "Архивирование не удалось")
+            except Exception as exc:
+                job.errors[key] = str(exc)[:300]
+                logger.debug("prepare chapter failed %s: %s", chapter.id, exc)
+
+    await asyncio.gather(*(one(chapter) for chapter in chapters))
+
+
+def _prepare_start_payload(job: _PrepareJob) -> PrepareStartOut:
+    return PrepareStartOut(
+        job_id=job.job_id,
+        total=len(job.chapter_ids),
+        chapter_ids=list(job.chapter_ids),
+    )
+
+
+async def _start_prepare(request: Request, manga_id: uuid.UUID) -> tuple[PrepareStartOut, bool]:
+    catalog, _, _, media = clients(request)
+    manga_key = str(manga_id)
+    active = _prepare_registry.active(manga_key)
+    if active is not None:
+        return _prepare_start_payload(active), False
+
+    detail = await catalog.manga(manga_key)
+    chapters = [chapter for chapter in detail.chapters if not chapter.is_external]
+    chapter_ids = [str(chapter.id) for chapter in chapters]
+    if not chapter_ids:
+        return PrepareStartOut(job_id=str(uuid.uuid4()), total=0, chapter_ids=[]), False
+
+    async def runner(job: _PrepareJob) -> None:
+        await _run_prepare_job(media, catalog, job, chapters)
+
+    job, created = _prepare_registry.start(manga_key, chapter_ids, runner)
+    return _prepare_start_payload(job), created
+
+
+@router.post("/manga/{manga_id}/prepare", response_model=PrepareStartOut)
+async def prepare_manga(
+    request: Request,
+    manga_id: uuid.UUID,
+    response: Response,
+    user: UserClaims = Depends(require_user),
+) -> PrepareStartOut:
+    """Queue server-side archiving for every chapter of a title.
+
+    Idempotent while a prepare worker is active: repeated calls return the same
+    ``job_id``.  Progress is read back from the persistent media archive via
+    :func:`prepare_status`.
+    """
+
+    result, created = await _start_prepare(request, manga_id)
+    response.status_code = 202 if created else 200
+    return result
+
+
+@router.get("/manga/{manga_id}/prepare", response_model=PrepareStatusOut)
+async def prepare_status(
+    request: Request,
+    manga_id: uuid.UUID,
+    user: UserClaims = Depends(require_user),
+) -> PrepareStatusOut:
+    """Persistent prepare progress for a title.
+
+    Statuses come from the media archive database, so they survive gateway and
+    client restarts.  ``batch`` is the first up-to-five prepared chapter ids in
+    catalog order and is informational; clients decide which prepared ids they
+    still need to download locally.
+    """
+
+    catalog, _, _, media = clients(request)
+    manga_key = str(manga_id)
+    detail = await catalog.manga(manga_key)
+    chapters = [chapter for chapter in detail.chapters if not chapter.is_external]
+    job = _prepare_registry.active(manga_key)
+    summary: dict[str, dict[str, Any]] = {}
+    if chapters:
+        try:
+            items = await media.archive_summary([str(chapter.id) for chapter in chapters])
+        except Exception as exc:
+            logger.warning("prepare status summary failed for %s: %s", manga_id, exc)
+            if job is not None:
+                job.error = f"Не удалось получить состояние архивов: {exc}"[:300]
+            raise UpstreamError("Не удалось получить состояние подготовки глав") from exc
+        for item in items:
+            chapter_id = item.get("chapter_id")
+            if isinstance(chapter_id, str):
+                summary[chapter_id] = item
+    return _build_prepare_status(
+        manga_key,
+        chapters,
+        summary,
+        active=job is not None,
+        job_errors=job.errors if job is not None else None,
+        job_error=job.error if job is not None else None,
+        job_id=job.job_id if job is not None else None,
+    )
+
+
 @router.post("/manga/{manga_id}/warm")
 async def warm_manga(
     request: Request,
     manga_id: uuid.UUID,
+    response: Response,
     user: UserClaims = Depends(require_user),
 ) -> dict[str, Any]:
-    """Queue server-side archiving for every chapter of a title.
+    """Backward-compatible alias for ``/prepare``."""
 
-    A user downloading a whole work triggers this; later readers get the pages
-    from our archive instead of the upstream source.  Chapters that appear
-    later still need their first read to be archived.
-    """
-
-    catalog, _, _, media = clients(request)
-    detail = await catalog.manga(str(manga_id))
-
-    async def worker() -> None:
-        semaphore = asyncio.Semaphore(2)
-
-        async def one(chapter: ChapterOut) -> None:
-            async with semaphore:
-                try:
-                    chapter_detail = await catalog.chapter(str(chapter.id))
-                    if not chapter_detail.pages:
-                        return
-                    await media.archive_chapter(
-                        {
-                            "chapter_id": str(chapter_detail.id),
-                            "source": chapter_detail.source,
-                            "translator": getattr(chapter_detail, "translator", None),
-                            "pages": [
-                                {"number": page.number, "url": page.url}
-                                for page in chapter_detail.pages
-                            ],
-                        }
-                    )
-                except Exception as exc:
-                    logger.debug("warm chapter failed %s: %s", chapter.id, exc)
-
-        await asyncio.gather(*(one(chapter) for chapter in detail.chapters))
-
-    task = asyncio.create_task(worker())
-    _warm_tasks.add(task)
-    task.add_done_callback(_warm_tasks.discard)
-    return {"queued": len(detail.chapters), "manga_id": str(manga_id)}
+    result, created = await _start_prepare(request, manga_id)
+    response.status_code = 202 if created else 200
+    return {
+        "queued": result.total,
+        "manga_id": str(manga_id),
+        "job_id": result.job_id,
+        "chapter_ids": result.chapter_ids,
+    }
 
 
 @router.get("/manga/{manga_id}", response_model=MangaDetailOut)
@@ -503,14 +792,31 @@ async def chapter_pages(request: Request, chapter_id: uuid.UUID) -> list[PageOut
     return _public_chapter(detail).pages
 
 
+_READER_IMAGE_WIDTH = 1280
+_MIN_READER_IMAGE_WIDTH = 320
+_MAX_READER_IMAGE_WIDTH = 1600
+
+
 @router.get("/chapters/{chapter_id}/images/{number}")
 async def chapter_image(
-    request: Request, chapter_id: uuid.UUID, number: int
+    request: Request,
+    chapter_id: uuid.UUID,
+    number: int,
+    w: int | None = Query(default=None),
 ) -> StreamingResponse:
     catalog, _, _, media = clients(request)
+    # Reader pages are downscaled to WebP by the media service.  Archives keep
+    # the original bytes; only this reader-facing upstream request asks for a
+    # variant.  Clients may request a different width within safe bounds.
+    width = _READER_IMAGE_WIDTH if w is None else max(
+        _MIN_READER_IMAGE_WIDTH, min(_MAX_READER_IMAGE_WIDTH, w)
+    )
     # Prefer the server-side archive: a chapter fetched by any user once is
     # served from media without touching the original source again.
-    response = await media.archived_page(str(chapter_id), number)
+    response = await media.stream(
+        f"/internal/archives/chapters/{chapter_id}/pages/{number}",
+        params={"w": width},
+    )
     if response.status_code != 200:
         if response.status_code != 404:
             logger.debug(
@@ -525,7 +831,9 @@ async def chapter_image(
         page = next((item for item in detail.pages if item.number == number), None)
         if page is None:
             raise NotFoundError("Страница не найдена")
-        response = await media.image(page.url)
+        response = await media.stream(
+            "/internal/image", params={"url": page.url, "w": width}
+        )
     if response.status_code >= 400:
         body = await response.aread()
         await response.aclose()
@@ -826,7 +1134,9 @@ async def _apply_registry(target: Any, registry: dict[str, Any]) -> dict[str, st
         "catalog": state.catalog,
         "library": state.library,
         "media": state.media,
+        "comments": getattr(state, "comments", None),
     }
+    mapping = {code: value for code, value in mapping.items() if value is not None}
     updated: dict[str, str] = {}
     for code, client in mapping.items():
         items = registry.get("services", {}).get(code, [])
@@ -966,6 +1276,40 @@ async def admin_registry(
     request: Request, user: UserClaims = Depends(require_admin)
 ) -> dict[str, Any]:
     return await control(request).registry()
+
+
+class SourceCookieIn(BaseModel):
+    cookie: str = Field(default="", max_length=20000)
+
+
+@router.get("/admin/sources/{code}/cookie")
+async def admin_get_source_cookie(
+    request: Request,
+    code: str,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    """Return only the non-secret cookie state for a source."""
+
+    return await request.app.state.parser.request(
+        "GET", f"/internal/sources/{quote(code, safe='')}/cookie"
+    )
+
+
+@router.put("/admin/sources/{code}/cookie")
+async def admin_put_source_cookie(
+    request: Request,
+    code: str,
+    payload: SourceCookieIn,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    """Store or clear a source cookie without ever echoing its value."""
+
+    return await request.app.state.parser.request(
+        "PUT",
+        f"/internal/sources/{quote(code, safe='')}/cookie",
+        json={"cookie": payload.cookie},
+    )
+
 
 
 @router.post("/admin/registry/sync")

@@ -12,6 +12,7 @@ import { Modal } from '../components/Modal';
 import { Poster } from '../components/Poster';
 import {
   cancelDownload,
+  preparePercent,
   retryDownload,
   useDownloadJobs,
 } from '../lib/downloadManager';
@@ -380,14 +381,24 @@ export default function LibraryPage() {
             <div className="download-list">
               {offlineTitles.map((offlineTitle) => {
                 const stats = offlineTitleStats(offlineTitle);
-                const job = downloadJobs.find(
-                  (item) =>
-                    item.mangaId === offlineTitle.id &&
-                    (item.status === 'queued' ||
-                      item.status === 'running' ||
-                      item.status === 'error' ||
-                      item.status === 'cancelled'),
-                );
+                const job =
+                  downloadJobs.find(
+                    (item) =>
+                      item.mangaId === offlineTitle.id &&
+                      item.mode === 'title' &&
+                      (item.status === 'queued' ||
+                        item.status === 'running' ||
+                        item.status === 'error' ||
+                        item.status === 'cancelled'),
+                  ) ??
+                  downloadJobs.find(
+                    (item) =>
+                      item.mangaId === offlineTitle.id &&
+                      (item.status === 'queued' ||
+                        item.status === 'running' ||
+                        item.status === 'error' ||
+                        item.status === 'cancelled'),
+                  );
                 const activeJob =
                   job && (job.status === 'queued' || job.status === 'running') ? job : null;
                 return (
@@ -420,34 +431,59 @@ export default function LibraryPage() {
                         {formatRelative(offlineTitle.downloadedAt)}
                       </span>
 
-                      {activeJob ? (
-                        <div className="download-card__progress">
-                          <div className="download-card__progress-text">
-                            <span>
-                              Скачиваем · {formatInt(activeJob.completedChapters)} из{' '}
-                              {formatInt(activeJob.chapters.length)} глав
-                              {activeJob.currentPage
-                                ? ` · стр. ${formatInt(activeJob.currentPage)}`
-                                : ''}
-                            </span>
-                            <span>{jobPercent(activeJob)}%</span>
+                      {job ? (
+                        <>
+                          <div className="download-card__progress">
+                            {job.mode === 'title' ? (
+                              <>
+                                <div className="download-card__progress-text">
+                                  <span>
+                                    Подготовка на сервере{' '}
+                                    {formatInt(job.prepare.prepared)} из{' '}
+                                    {formatInt(job.chapters.length)}
+                                  </span>
+                                  <span>{preparePercent(job)}%</span>
+                                </div>
+                                <div className="progress">
+                                  <div
+                                    className="progress__bar"
+                                    style={{ width: `${preparePercent(job)}%` }}
+                                  />
+                                </div>
+                              </>
+                            ) : null}
+                            <div className="download-card__progress-text">
+                              <span>
+                                Скачано на устройство {formatInt(job.completedChapters)} из{' '}
+                                {formatInt(job.chapters.length)} глав
+                                {job.currentPage ? ` · стр. ${formatInt(job.currentPage)}` : ''}
+                              </span>
+                              <span>{jobPercent(job)}%</span>
+                            </div>
+                            <div className="progress">
+                              <div
+                                className="progress__bar"
+                                style={{ width: `${jobPercent(job)}%` }}
+                              />
+                            </div>
+                            {job.mode === 'title' && job.prepare.failed > 0 ? (
+                              <span className="download-card__source">
+                                Ошибок подготовки: {formatInt(job.prepare.failed)} — повторите,
+                                готовое будет пропущено
+                              </span>
+                            ) : null}
                           </div>
-                          <div className="progress">
-                            <div
-                              className="progress__bar"
-                              style={{ width: `${jobPercent(activeJob)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ) : job?.status === 'error' || job?.status === 'cancelled' ? (
-                        <div className="download-card__status download-card__status--error">
-                          <Icon name="alert" size={14} />
-                          <span>
-                            {job.status === 'cancelled'
-                              ? 'Загрузка отменена — можно продолжить'
-                              : (job.error ?? 'Загрузка остановилась')}
-                          </span>
-                        </div>
+                          {!activeJob && (job.status === 'error' || job.status === 'cancelled') ? (
+                            <div className="download-card__status download-card__status--error">
+                              <Icon name="alert" size={14} />
+                              <span>
+                                {job.status === 'cancelled'
+                                  ? 'Загрузка отменена — можно продолжить'
+                                  : (job.error ?? 'Загрузка остановилась')}
+                              </span>
+                            </div>
+                          ) : null}
+                        </>
                       ) : (
                         <div className="download-card__status">
                           <Icon name="check" size={14} />

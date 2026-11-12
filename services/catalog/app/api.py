@@ -16,9 +16,14 @@ from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
 from .schemas import (
     CatalogStats,
     ChapterDetailInternal,
+    CrawlStateIn,
+    CrawlStateOut,
+    GenreListOut,
+    HomeUpdatesOut,
     ImportRequest,
     ImportResult,
     PagesPatch,
+    PendingEnrichmentListOut,
     RefreshResult,
     SourceSyncRequest,
 )
@@ -68,19 +73,29 @@ async def manga_list(
     query: str | None = Query(default=None, max_length=200),
     source: str | None = Query(default=None, max_length=64),
     genre: str | None = Query(default=None, max_length=64),
+    genres: str | None = Query(
+        default=None,
+        max_length=500,
+        description="AND filter: horror+fantasy+mecha (canonical English slugs)",
+    ),
     year: int | None = Query(default=None, ge=1900, le=2100),
     status: str | None = Query(default=None, max_length=64),
+    include_empty: bool = Query(default=False),
     sort: str = Query(default="popular", pattern="^(popular|rating|updated|title|new)$"),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=24, ge=1, le=100),
     service: CatalogService = Depends(get_service),
 ) -> MangaListResponse:
+    from .normalization import parse_genre_filter
+
     return await service.list(
         query=query,
         source=source,
         genre=genre,
+        genres=parse_genre_filter(genres),
         year=year,
         status=status,
+        include_empty=include_empty,
         sort=sort,
         page=page,
         limit=limit,
@@ -91,11 +106,24 @@ async def manga_list(
 async def manga_search(
     q: str = Query(min_length=1, max_length=200),
     source: str | None = Query(default=None, max_length=64),
+    genre: str | None = Query(default=None, max_length=64),
+    genres: str | None = Query(default=None, max_length=500),
+    include_empty: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=24, ge=1, le=100),
     service: CatalogService = Depends(get_service),
 ) -> MangaListResponse:
-    return await service.list(query=q, source=source, page=page, limit=limit)
+    from .normalization import parse_genre_filter
+
+    return await service.list(
+        query=q,
+        source=source,
+        genre=genre,
+        genres=parse_genre_filter(genres),
+        include_empty=include_empty,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.get("/manga/by-source/{source}/{source_id}", response_model=dict)
@@ -106,6 +134,61 @@ async def manga_by_source(
 ) -> dict:
     detail = await service.manga_by_source(source, source_id)
     return detail.model_dump(mode="json")
+
+
+@router.get("/manga/pending", response_model=PendingEnrichmentListOut)
+async def pending_enrichment(
+    source: str = Query(min_length=1, max_length=64),
+    limit: int = Query(default=50, ge=1, le=500),
+    service: CatalogService = Depends(get_service),
+) -> PendingEnrichmentListOut:
+    return await service.pending_enrichment(source=source, limit=limit)
+
+
+@router.get("/genres", response_model=GenreListOut)
+async def genres(
+    service: CatalogService = Depends(get_service),
+) -> GenreListOut:
+    return await service.genres()
+
+
+@router.get("/home/updates", response_model=HomeUpdatesOut)
+async def home_updates(
+    limit: int = Query(default=25, ge=1, le=100),
+    service: CatalogService = Depends(get_service),
+) -> HomeUpdatesOut:
+    return await service.home_updates(limit=limit)
+
+
+@router.get("/crawl-state", response_model=list[CrawlStateOut])
+async def crawl_states(
+    source: str | None = Query(default=None, max_length=64),
+    service: CatalogService = Depends(get_service),
+) -> list[CrawlStateOut]:
+    return await service.crawl_states(source=source)
+
+
+@router.get("/crawl-state/{source}", response_model=CrawlStateOut)
+async def crawl_state(
+    source: str,
+    mode: str = Query(default="full", pattern="^(full|incremental)$"),
+    service: CatalogService = Depends(get_service),
+) -> CrawlStateOut:
+    from manga_common.errors import NotFoundError
+
+    state = await service.crawl_state(source, mode)
+    if state is None:
+        raise NotFoundError("Crawl state not found")
+    return state
+
+
+@router.put("/crawl-state/{source}", response_model=CrawlStateOut)
+async def save_crawl_state(
+    source: str,
+    payload: CrawlStateIn,
+    service: CatalogService = Depends(get_service),
+) -> CrawlStateOut:
+    return await service.save_crawl_state(payload.model_copy(update={"source": source}))
 
 
 @router.get("/manga/{manga_id}/variants", response_model=MangaVariantsOut)
@@ -206,6 +289,14 @@ async def maintenance_refresh(
     service: CatalogService = Depends(get_service),
 ) -> RefreshResult:
     return await service.refresh_stale(limit)
+
+
+@router.post("/maintenance/reset-enrichment")
+async def maintenance_reset_enrichment(
+    source: str | None = Query(default=None, max_length=64),
+    service: CatalogService = Depends(get_service),
+) -> dict[str, int]:
+    return {"queued": await service.reset_enrichment(source=source)}
 
 
 @router.get("/stats", response_model=CatalogStats)

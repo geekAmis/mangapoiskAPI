@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from manga_common.errors import NotFoundError, UpstreamError
 from manga_common.schemas import (
     ChapterOut,
+    CoverOut,
+    GenreRefOut,
     MangaDetailOut,
     MangaListResponse,
     MangaOut,
@@ -19,33 +21,92 @@ from manga_common.source_models import MangaDetail, SourceInfo
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .config import CatalogSettings
+from .normalization import GENRE_LABELS, genre_slugs
 from .parser_client import ParserClient
 from .repository import (
+    DESCRIPTION_FALLBACK,
     chapter_label,
+    covers_for_group,
     find_manga,
     get_chapter,
+    get_crawl_state,
     get_manga_chapters,
+    latest_updates,
+    list_crawl_states,
+    list_genres,
     list_manga,
     ordered_chapter_ids,
+    pending_enrichment,
     stale_manga,
     stats,
     update_chapter_pages,
+    upsert_crawl_state,
     upsert_manga_detail,
     upsert_source,
 )
 from .schemas import (
     CatalogStats,
     ChapterDetailInternal,
+    CrawlStateIn,
+    CrawlStateOut,
+    GenreListOut,
+    GenreOut,
+    HomeUpdateOut,
+    HomeUpdatesOut,
     ImportResult,
     NewChapterEvent,
+    PendingEnrichmentListOut,
+    PendingEnrichmentOut,
     RefreshResult,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _manga_out(manga) -> MangaOut:  # type: ignore[no-untyped-def]
-    return MangaOut.model_validate(manga)
+def _cover_out(cover) -> CoverOut:  # type: ignore[no-untyped-def]
+    return CoverOut(
+        id=cover.id,
+        source=cover.source,
+        source_id=cover.source_id,
+        url=cover.url,
+        rating=cover.rating,
+        quality=cover.quality,
+        chapters_count=cover.chapters_count,
+        updated_at=cover.updated_at,
+        is_primary=cover.is_primary,
+    )
+
+
+def _manga_out(manga, covers=None) -> MangaOut:  # type: ignore[no-untyped-def]
+    payload = MangaOut.model_validate(manga)
+    payload.description_missing = not bool((manga.description or "").strip())
+    payload.description_fallback = DESCRIPTION_FALLBACK if payload.description_missing else None
+    payload.genre_slugs = genre_slugs(manga.genres or [])
+    payload.genre_details = [
+        GenreRefOut(slug=slug, label=GENRE_LABELS.get(slug, slug))
+        for slug in payload.genre_slugs
+    ]
+    if covers is not None:
+        payload.covers = [_cover_out(cover) for cover in covers]
+    return payload
+
+
+def _crawl_state_out(state) -> CrawlStateOut:  # type: ignore[no-untyped-def]
+    return CrawlStateOut(
+        id=state.id,
+        source=state.source,
+        mode=state.mode,
+        page=state.page,
+        status=state.status,
+        last_error=state.last_error,
+        next_run_at=state.next_run_at,
+        total_pages=state.total_pages,
+        items_seen=state.items_seen,
+        items_imported=state.items_imported,
+        last_run_at=state.last_run_at,
+        created_at=state.created_at,
+        updated_at=state.updated_at,
+    )
 
 
 def _chapter_out(chapter) -> ChapterOut:  # type: ignore[no-untyped-def]
@@ -74,7 +135,8 @@ class CatalogService:
             manga, created, new_chapters = await upsert_manga_detail(session, detail)
             await session.commit()
             chapters = await get_manga_chapters(session, manga.id, limit=2000)
-            manga_out = _manga_out(manga)
+            covers = await covers_for_group(session, manga.group_key)
+            manga_out = _manga_out(manga, covers)
             detail_out = MangaDetailOut(
                 **manga_out.model_dump(),
                 chapters=[_chapter_out(chapter) for chapter in chapters],
@@ -94,7 +156,8 @@ class CatalogService:
         async with self.session_factory() as session:
             manga, _ = await upsert_manga_summary(session, summary)
             await session.commit()
-            return _manga_out(manga)
+            covers = await covers_for_group(session, manga.group_key)
+            return _manga_out(manga, covers)
 
     async def chapter_meta(self, chapter_id: uuid.UUID) -> ChapterOut:
         async with self.session_factory() as session:
@@ -137,7 +200,8 @@ class CatalogService:
             if manga is None:
                 raise NotFoundError("Manga not found")
             chapters = await get_manga_chapters(session, manga_id, limit=2000)
-            manga_out = _manga_out(manga)
+            covers = await covers_for_group(session, manga.group_key)
+            manga_out = _manga_out(manga, covers)
             return MangaDetailOut(
                 **manga_out.model_dump(),
                 chapters=[_chapter_out(chapter) for chapter in chapters],
@@ -151,7 +215,8 @@ class CatalogService:
             if manga is None:
                 raise NotFoundError("Manga not found")
             chapters = await get_manga_chapters(session, manga.id, limit=2000)
-            manga_out = _manga_out(manga)
+            covers = await covers_for_group(session, manga.group_key)
+            manga_out = _manga_out(manga, covers)
             return MangaDetailOut(
                 **manga_out.model_dump(),
                 chapters=[_chapter_out(chapter) for chapter in chapters],
@@ -163,8 +228,10 @@ class CatalogService:
         query: str | None = None,
         source: str | None = None,
         genre: str | None = None,
+        genres: list[str] | None = None,
         year: int | None = None,
         status: str | None = None,
+        include_empty: bool = False,
         sort: str = "popular",
         page: int = 1,
         limit: int = 24,
@@ -175,8 +242,10 @@ class CatalogService:
                 query=query,
                 source=source,
                 genre=genre,
+                genres=genres,
                 year=year,
                 status=status,
+                include_empty=include_empty,
                 sort=sort,
                 page=page,
                 limit=limit,
@@ -341,6 +410,71 @@ class CatalogService:
     async def catalog_stats(self) -> CatalogStats:
         async with self.session_factory() as session:
             return await stats(session)
+
+    async def genres(self) -> GenreListOut:
+        async with self.session_factory() as session:
+            rows = await list_genres(session)
+            items = [GenreOut(**row) for row in rows]
+            return GenreListOut(items=items, total=len(items))
+
+    async def home_updates(self, *, limit: int = 25) -> HomeUpdatesOut:
+        async with self.session_factory() as session:
+            rows = await latest_updates(session, limit=limit)
+            items = [
+                HomeUpdateOut(
+                    manga_id=manga.id,
+                    manga_title=manga.title,
+                    poster_url=manga.poster_url,
+                    source=chapter.source,
+                    chapter_id=chapter.id,
+                    chapter_number=chapter.number,
+                    chapter_volume=chapter.volume,
+                    chapter_title=chapter.title,
+                    published_at=chapter.published_at,
+                    added_at=chapter.created_at,
+                )
+                for chapter, manga in rows
+            ]
+            return HomeUpdatesOut(items=items, total=len(items))
+
+    async def pending_enrichment(self, *, source: str, limit: int = 50) -> PendingEnrichmentListOut:
+        async with self.session_factory() as session:
+            rows = await pending_enrichment(session, source=source, limit=limit)
+            items = [
+                PendingEnrichmentOut(
+                    manga_id=row.id,
+                    source=row.source,
+                    source_id=row.source_id,
+                    title=row.title,
+                    url=row.url,
+                )
+                for row in rows
+            ]
+            return PendingEnrichmentListOut(items=items, total=len(items))
+
+    async def crawl_states(self, *, source: str | None = None) -> list[CrawlStateOut]:
+        async with self.session_factory() as session:
+            rows = await list_crawl_states(session, source=source)
+            return [_crawl_state_out(row) for row in rows]
+
+    async def crawl_state(self, source: str, mode: str = "full") -> CrawlStateOut | None:
+        async with self.session_factory() as session:
+            row = await get_crawl_state(session, source, mode)
+            return _crawl_state_out(row) if row is not None else None
+
+    async def reset_enrichment(self, *, source: str | None = None) -> int:
+        from .repository import reset_enrichment
+
+        async with self.session_factory() as session:
+            count = await reset_enrichment(session, source=source)
+            await session.commit()
+            return count
+
+    async def save_crawl_state(self, payload: CrawlStateIn) -> CrawlStateOut:
+        async with self.session_factory() as session:
+            row = await upsert_crawl_state(session, payload.model_dump())
+            await session.commit()
+            return _crawl_state_out(row)
 
     async def chapter_label(self, chapter_id: uuid.UUID) -> str:
         async with self.session_factory() as session:

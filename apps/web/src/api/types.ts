@@ -53,6 +53,18 @@ export interface ChapterDetailOut extends ChapterOut {
   is_horizontal: boolean;
 }
 
+export interface CoverOut {
+  id: UUID | null;
+  source: string;
+  source_id: string;
+  url: string;
+  rating: number | null;
+  quality: number | null;
+  chapters_count: number;
+  updated_at: string | null;
+  is_primary: boolean;
+}
+
 export interface MangaOut {
   id: UUID;
   source: string;
@@ -62,6 +74,8 @@ export interface MangaOut {
   title_en: string | null;
   title_alt: string | null;
   description: string | null;
+  description_missing?: boolean;
+  description_fallback?: string | null;
   year: number | null;
   status: string | null;
   content_type: string | null;
@@ -70,6 +84,8 @@ export interface MangaOut {
   poster_url: string | null;
   adult: boolean;
   genres: string[];
+  genre_slugs?: string[];
+  covers?: CoverOut[];
   chapters_count: number;
   last_chapter_at: string | null;
   last_synced_at: string | null;
@@ -79,6 +95,24 @@ export interface MangaOut {
 
 export interface MangaDetailOut extends MangaOut {
   chapters: ChapterOut[];
+}
+
+export interface HomeUpdateOut {
+  manga_id: UUID;
+  manga_title: string;
+  poster_url: string | null;
+  source: string;
+  chapter_id: UUID;
+  chapter_number: string;
+  chapter_volume: string | null;
+  chapter_title: string;
+  published_at: string | null;
+  added_at: string | null;
+}
+
+export interface HomeUpdatesOut {
+  items: HomeUpdateOut[];
+  total: number;
 }
 
 export interface TranslatorOut {
@@ -223,6 +257,7 @@ export interface MangaListParams {
   query?: string;
   source?: string;
   genre?: string;
+  genres?: string;
   year?: number;
   status?: string;
   sort?: MangaSort;

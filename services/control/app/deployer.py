@@ -293,12 +293,15 @@ fi
             f"PUBLIC_WEB_URL={self.settings.public_web_url.rstrip('/')}",
             f"PUBLIC_API_URL={self.settings.public_api_url.rstrip('/')}",
             f"CORS_ORIGINS={self.settings.public_web_url.rstrip('/')},http://{public_host}:8088,http://localhost:5173,http://localhost:8080,capacitor://localhost,https://localhost",
-            "SCRAPER_REQUESTS_PER_MINUTE=20",
+            "SCRAPER_REQUESTS_PER_MINUTE=36",
             "SCRAPER_CACHE_TTL_SECONDS=600",
             "MEDIA_ALLOWED_HOSTS=static2.mangapoisk.me,img2.imglib.info,img3.cdnlibs.org,remanga.org,img3.reimg2.org,img-reserve.reimg2.org",
             "PARSER_ENABLED_SOURCES=",
             "CATALOGUE_IMPORT_ENABLED=true",
             "CATALOGUE_IMPORT_INTERVAL_SECONDS=21600",
+            "CATALOGUE_SOURCES=mangapoisk,mangalib,remanga",
+            "CATALOGUE_CRAWL_DELAY_SECONDS=1.75",
+            "CATALOGUE_ENRICHMENT_LIMIT=60",
             f"CONTROL_URL={self.settings.control_public_url}",
         ]
         for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica", "comments"):

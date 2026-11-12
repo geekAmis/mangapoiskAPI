@@ -14,9 +14,22 @@ through a jump host) with the admin panel, or you can do it manually:
    `sqlite+aiosqlite:////opt/mangapoisk-reborn/data/catalog.db` and the same for
    `library.db`/`control.db`.
 5. Add systemd units (`mangapoisk-parser`, `-catalog`, `-library`, `-media`,
-   `-control`, `-gateway`, `-notifier`, `-scheduler`) running
-   `venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 81xx` with
-   `EnvironmentFile=/opt/mangapoisk-reborn/.env`.
+   `-control`, `-gateway`, `-notifier`, `-scheduler`) with
+   `EnvironmentFile=/opt/mangapoisk-reborn/.env`. Production ports:
+
+   | Service | Port |
+   |---|---:|
+   | gateway | 8100 |
+   | parser | 8101 |
+   | catalog | 8102 |
+   | library | 8103 |
+   | media | 8104 |
+   | control | 8005 |
+   | notifier | 8106 |
+   | scheduler | 8107 (no HTTP) |
+
+   The HTTP services run
+   `venv/bin/uvicorn app.main:app --host 127.0.0.1 --port <port>`.
 6. Run a private nginx instance on `:8088` with root
    `/opt/mangapoisk-reborn/web` and `/api` proxied to the gateway on 8100.
 7. Upload the built `apps/web/dist` to `/opt/mangapoisk-reborn/web`.
@@ -46,8 +59,9 @@ docker compose up -d --build
 docker compose ps
 ```
 
-The web app listens on `:8080`.  Put a TLS reverse proxy (Caddy, Traefik or
-nginx) in front of it:
+The web app listens on `:8080`; internal Compose services use `8000–8006`.
+This is not the production systemd layout described in Option A.  Put a TLS
+reverse proxy (Caddy, Traefik or nginx) in front of the web app:
 
 ```caddy
 manga.example.com {
@@ -65,18 +79,23 @@ gateway inside the compose network.
 |---|---|
 | `JWT_SECRET` | access-token signing key (32+ random bytes) |
 | `INTERNAL_TOKEN` | service-to-service auth |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | admin panel login; the default password is refused in production |
+| `CONTROL_SECRET_KEY` | encrypts SSH credentials in `control` |
 | `CATALOG_DATABASE_URL` | `postgresql+asyncpg://.../catalog` |
 | `LIBRARY_DATABASE_URL` | `postgresql+asyncpg://.../library` |
 | `REDIS_URL` | cache (`redis://redis:6379/0`) |
-| `PARSER_URL`, `CATALOG_URL`, `LIBRARY_URL`, `MEDIA_URL`, `NOTIFIER_URL` | service map |
+| `PARSER_URL`, `CATALOG_URL`, `LIBRARY_URL`, `MEDIA_URL`, `CONTROL_URL`, `NOTIFIER_URL` | service map |
 | `CORS_ORIGINS` | comma-separated public origins |
 | `MANGAPOISK_COOKIE` | optional; never commit |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | optional notifications |
 | `MEDIA_ALLOWED_HOSTS` | optional comma-separated image CDN allowlist |
 | `PUBLIC_WEB_URL`, `PUBLIC_API_URL` | links in notifications/docs |
 
-Production validation refuses to start with the default `JWT_SECRET` or
-`INTERNAL_TOKEN`.
+Production validation refuses `dev-*` values for `JWT_SECRET`/`INTERNAL_TOKEN`
+and the default `ADMIN_PASSWORD`.  It does **not** catch every placeholder:
+replace all `change-me-*` values from `.env.example`, including
+`CONTROL_SECRET_KEY`.  Rotating the admin credentials also invalidates existing
+admin sessions.
 
 ## Data and backups
 

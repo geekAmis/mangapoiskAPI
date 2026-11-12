@@ -287,6 +287,21 @@ const ICONS = {
       <path d="M6.5 6.5a8 8 0 1 0 11 0" />
     </>
   ),
+  heart: (
+    <path d="M12 20.2S4.6 15.7 4.6 10.4A4.1 4.1 0 0 1 12 7.8a4.1 4.1 0 0 1 7.4 2.6c0 5.3-7.4 9.8-7.4 9.8Z" />
+  ),
+  message: (
+    <>
+      <path d="M4 5.5h16v10.2H9.2L4 20V5.5Z" />
+      <path d="M8 9.2h8M8 12.2h5.5" opacity=".6" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="m21 3-7.4 18-4-7.6L2 9.4 21 3Z" />
+      <path d="M21 3 9.6 13.4" opacity=".6" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

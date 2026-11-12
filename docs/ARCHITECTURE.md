@@ -6,8 +6,9 @@ MangaPoisk Reborn is a Russian-language manga catalogue, search and reading
 platform.  It is designed as an API-first product:
 
 - **web** (React SPA),
-- **Android** (native Compose client),
+- **Android** (native Compose client and a Node.js/Capacitor shell),
 - **public API** for third-party clients,
+- **offline library** (downloaded chapters on the device),
 - **offline exports** (CBZ / PDF / HTML) for reading without internet.
 
 The old Flask/FastAPI prototype was a single process with hard-coded cookies,
@@ -40,17 +41,21 @@ fragile parts.
    MangaPoisk / MangaLib / Remanga / ReadManga / MangaDex
 ```
 
-| Service | Port (dev) | Responsibility | Storage |
-|---|---|---|---|
-| `gateway` | 8000 | Public BFF, API versioning, CORS, rate limit, aggregation | Redis (rate limit/cache) |
-| `parser` | 8001 | Source adapters, normalisation, polite HTTP, page extraction | none (Redis cache) |
-| `catalog` | 8002 | Manga/chapter index, search, import/upsert, refresh | PostgreSQL |
-| `library` | 8003 | Accounts, JWT, bookmarks, reading progress, settings | PostgreSQL |
-| `media` | 8004 | Image proxy/cache, CBZ/PDF/HTML export jobs | disk (S3-compatible optional) |
-| `control` | 8005 | Server inventory, SSH deploys, health registry/failover | SQLite/Postgres |
-| `web` | 8080 | React build served by nginx | static |
-| `scheduler` | — | Periodic catalogue refresh + notifications | none |
-| `notifier` | 8006 | Telegram delivery | none |
+| Service | Docker Compose (dev) | Production (systemd) | Responsibility | Storage |
+|---|---:|---:|---|---|
+| `gateway` | 8000 | 8100 | Public BFF, API versioning, CORS, rate limit, aggregation | Redis (rate limit/cache) |
+| `parser` | 8001 | 8101 | Source adapters, normalisation, polite HTTP, page extraction | none (Redis cache) |
+| `catalog` | 8002 | 8102 | Manga/chapter index, search, import/upsert, refresh | PostgreSQL (SQLite in the single-node deployment) |
+| `library` | 8003 | 8103 | Accounts, JWT, bookmarks, reading progress, settings | PostgreSQL (SQLite in the single-node deployment) |
+| `media` | 8004 | 8104 | Image proxy/cache, CBZ/PDF/HTML export jobs, chapter archive | disk (S3-compatible optional) |
+| `control` | 8005 | 8005 | Server inventory, SSH deploys, health registry/failover | SQLite/Postgres |
+| `web` | 8080 | 8088 | React build served by nginx | static |
+| `scheduler` | — | 8107 (no HTTP) | Periodic catalogue refresh + notifications | none |
+| `notifier` | 8006 | 8106 | Telegram delivery | none |
+
+The two port ranges are intentional: Compose is for local development, while the
+production server runs systemd units behind a private nginx on `:8088`. Only
+nginx is exposed; the backend ports bind to `127.0.0.1`.
 
 ### Admin / server manager
 
@@ -59,10 +64,13 @@ fragile parts.
 deployment jobs.  It can install the selected services over SSH or through a
 jump host, write systemd units and health-check them.  `/api/v1/admin/*` is
 protected by an admin JWT issued from `ADMIN_USERNAME`/`ADMIN_PASSWORD`.
-The gateway periodically pulls `/internal/registry` and switches a service to
-the first healthy endpoint (non-fallback first, then fallback).  This is how a
-server can be replaced without redeploying the web client.  The 83 jump host is
-just an SSH route; it is not used for application traffic.
+The gateway periodically pulls `/internal/registry` and routes by `priority`
+with a deterministic per-client hash; healthy non-fallback endpoints are tried
+first, then fallbacks, then jump hosts.  Writes and stateful reads stay on the
+leader.  This is how a server can be replaced without redeploying the web
+client.  The 83 jump host is primarily an SSH route; it can run services, but
+the gateway orders it after regular application servers.  The registry path is
+omitted from the diagram above for readability.
 
 ## Key decisions
 
@@ -132,6 +140,38 @@ to the original source URL when the page is not archived yet.  On startup,
 unfinished jobs are marked failed and temporary files are removed.  Readiness
 reports the archive database and directory separately from the image cache.
 
+### Offline library
+
+The web client can download a single chapter or an entire title to the device.
+The queue is persisted after every page, so an interrupted download resumes
+where it stopped; already downloaded pages are skipped. Whole-title downloads
+use a deliberate delay between images (2.0–4.9 s) to stay polite to the source,
+single-chapter downloads use 150–400 ms.
+
+- **Browser:** title manifests, images and progress live in IndexedDB
+  (`mangapoisk-offline`). Image bytes are never put in `localStorage`.
+- **Capacitor:** the same React code uses `@capacitor/filesystem` (application
+  data directory) for images and `@capacitor/preferences` for manifests, queue
+  and progress.
+- **Native Kotlin:** Room stores bookmarks, progress and download metadata;
+  WorkManager downloads chapters and the reader prefers local files when the
+  API is unavailable.
+
+Offline data is device-local. It is not synced between the web, Capacitor and
+Kotlin clients, and the offline library does not cache the whole catalogue.
+
+### Multi-server routing
+
+`control` keeps a registry of service endpoints with `priority`, `is_fallback`
+and `is_jump` flags. The gateway refreshes the registry every 20 seconds.
+Stateless GETs use rendezvous hashing with a priority weight, giving each client
+a stable preferred node; writes and stateful reads (library, control) go to the
+leader. Fallbacks are tried only after every preferred endpoint fails. The
+control registry orders regular nodes before jump hosts, and the gateway also
+applies the `priority` weight. Data is still stored on a single node: a separate
+replica service for SQLite snapshots and chapter archives is in progress, but
+replication is **not enabled in production yet**.
+
 ## Security
 
 - Internal routes require `X-Internal-Token`.
@@ -140,6 +180,14 @@ reports the archive database and directory separately from the image cache.
 - Passwords use Argon2id.
 - The gateway never accepts arbitrary image URLs from clients; it only proxies
   URLs already stored in `catalog`.
+- Admin JWTs carry an HMAC fingerprint of the current
+  `ADMIN_USERNAME`/`ADMIN_PASSWORD`; rotating either invalidates old admin
+  sessions immediately with `401 admin_session_expired`. Production startup
+  refuses the default `ADMIN_PASSWORD`; admin tokens default to 60 minutes and
+  failed logins are limited to five per IP per five minutes.
+- Rate limiting uses nginx's `X-Real-IP`, not a client-supplied
+  `X-Forwarded-For`. The media proxy re-checks DNS and every redirect hop and
+  rejects private/link-local/metadata hosts and non-raster responses.
 - CORS is explicit; production must set `CORS_ORIGINS`.
 - No secrets in git.  `.env` is ignored; `.env.example` is documentation only.
 
@@ -157,11 +205,14 @@ services/gateway/        public BFF
 services/parser/         source adapters
 services/catalog/        PostgreSQL catalogue
 services/library/        users/library
-services/media/          image cache + exports
+services/media/          image cache + exports + chapter archive
+services/control/        server inventory, SSH deploy, health registry
+services/replica/        SQLite/archive replication (in progress)
 services/scheduler/      periodic jobs
 services/notifier/       Telegram
-apps/web/                React + TypeScript + Vite
+apps/web/                React + TypeScript + Vite (offline library)
 apps/android/            Jetpack Compose client
+apps/mobile/             Node.js/Capacitor shell
 infra/                   compose/nginx/postgres helpers
 docs/                    architecture, API, design, deployment
 ```

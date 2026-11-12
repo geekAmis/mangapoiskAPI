@@ -188,6 +188,46 @@ async def test_startup_recovers_unfinished_jobs(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_archive_summary_reports_mixed_states(tmp_path: Path) -> None:
+    cache = FakeCache(tmp_path / "cache")
+    manager = ArchiveManager(
+        cache,
+        db_path=tmp_path / "archives.db",
+        archive_dir=tmp_path / "chapter-archives",
+        threshold_bytes=1024 * 1024,
+    )
+    ready_id = uuid.uuid4()
+    failed_id = uuid.uuid4()
+    missing_id = uuid.uuid4()
+    ready = ArchiveRequest(
+        chapter_id=ready_id,
+        source="test-source",
+        pages=_pages(),
+    )
+    failing = ArchiveRequest(
+        chapter_id=failed_id,
+        source="test-source",
+        pages=[ArchivePage(number=1, url="https://example.com/missing.jpg")],
+    )
+    try:
+        await manager.create(ready)
+        await _wait(manager, ready_id)
+        await manager.create(failing)
+        await _wait(manager, failed_id)
+
+        items = await manager.summary([missing_id, ready_id, failed_id, ready_id])
+        assert [item.chapter_id for item in items] == [missing_id, ready_id, failed_id]
+        by_id = {item.chapter_id: item for item in items}
+        assert by_id[missing_id].status == "missing"
+        assert by_id[ready_id].status == "done"
+        assert by_id[ready_id].page_count == 3
+        assert by_id[failed_id].status == "error"
+        assert by_id[failed_id].error
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
 async def test_archive_is_idempotent(tmp_path: Path) -> None:
     cache = FakeCache(tmp_path / "cache")
     manager = ArchiveManager(

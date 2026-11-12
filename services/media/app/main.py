@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
         db_path=settings.archive_db_path,
         archive_dir=settings.archive_root,
         threshold_bytes=settings.archive_db_threshold_bytes,
+        max_bytes=settings.archive_max_bytes,
     )
     app.state.cache = cache
     app.state.exports = exports
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI):
     add_ready_check(app, "storage", storage_ready)
     add_ready_check(app, "archives", archives.ready)
     await archives.startup()
+    await archives.prune()
     await exports.cleanup()
     logger.info("media service ready")
     try:

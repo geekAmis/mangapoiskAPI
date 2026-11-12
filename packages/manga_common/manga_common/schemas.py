@@ -52,6 +52,25 @@ class ChapterDetailOut(ChapterOut):
     is_horizontal: bool = False
 
 
+class CoverOut(BaseModel):
+    """One cover variant contributed by a source title."""
+
+    id: UUID | None = None
+    source: str
+    source_id: str
+    url: str
+    rating: float | None = None
+    quality: float | None = None
+    chapters_count: int = 0
+    updated_at: datetime | None = None
+    is_primary: bool = False
+
+
+class GenreRefOut(BaseModel):
+    slug: str
+    label: str
+
+
 class MangaOut(ORMModel):
     id: UUID
     source: str
@@ -61,6 +80,8 @@ class MangaOut(ORMModel):
     title_en: str | None = None
     title_alt: str | None = None
     description: str | None = None
+    description_missing: bool = False
+    description_fallback: str | None = None
     year: int | None = None
     status: str | None = None
     content_type: str | None = None
@@ -69,6 +90,9 @@ class MangaOut(ORMModel):
     poster_url: str | None = None
     adult: bool = False
     genres: list[str] = Field(default_factory=list)
+    genre_slugs: list[str] = Field(default_factory=list)
+    genre_details: list[GenreRefOut] = Field(default_factory=list)
+    covers: list[CoverOut] = Field(default_factory=list)
     url: str | None = None
     chapters_count: int = 0
     last_chapter_at: datetime | None = None
@@ -98,6 +122,24 @@ class MangaListResponse(BaseModel):
     page: int
     limit: int
     has_next: bool
+
+
+class HomeUpdateOut(BaseModel):
+    manga_id: UUID
+    manga_title: str
+    poster_url: str | None = None
+    source: str
+    chapter_id: UUID
+    chapter_number: str
+    chapter_volume: str | None = None
+    chapter_title: str = ""
+    published_at: datetime | None = None
+    added_at: datetime | None = None
+
+
+class HomeUpdatesOut(BaseModel):
+    items: list[HomeUpdateOut] = Field(default_factory=list)
+    total: int = 0
 
 
 class SearchResponse(BaseModel):

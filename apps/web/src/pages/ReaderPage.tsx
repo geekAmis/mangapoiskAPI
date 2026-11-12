@@ -1470,7 +1470,35 @@ function ReaderPageImage({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [failures, setFailures] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  const retryTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    },
+    [],
+  );
+
+  const retry = () => {
+    setFailed(false);
+    setLoaded(false);
+    setFailures(0);
+    setAttempt((value) => value + 1);
+  };
+
+  const handleError = () => {
+    setLoaded(false);
+    const next = failures + 1;
+    setFailures(next);
+    if (next >= 3) {
+      setFailed(true);
+      return;
+    }
+    if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    retryTimer.current = window.setTimeout(() => setAttempt((value) => value + 1), 450);
+  };
 
   return (
     <section
@@ -1483,19 +1511,16 @@ function ReaderPageImage({
         className={`reader-page__frame${loaded ? ' is-loaded' : ''}`}
         style={!loaded ? { aspectRatio: pageRatio(page) } : undefined}
       >
-        {!loaded && !failed ? <div className="reader-page__skeleton" /> : null}
+        {!loaded && !failed ? (
+          <div className="reader-page__loading" aria-hidden="true">
+            <DancingLoader compact label={failures > 0 ? 'Повторяем загрузку…' : undefined} />
+          </div>
+        ) : null}
         {failed ? (
           <div className="reader-page__error">
             <Icon name="alert" size={24} />
             <span>Изображение не загрузилось</span>
-            <button
-              type="button"
-              className="btn btn--outline btn--sm"
-              onClick={() => {
-                setFailed(false);
-                setAttempt((value) => value + 1);
-              }}
-            >
+            <button type="button" className="btn btn--outline btn--sm" onClick={retry}>
               <Icon name="refresh" size={14} />
               Повторить
             </button>
@@ -1512,7 +1537,7 @@ function ReaderPageImage({
             decoding="async"
             draggable={false}
             onLoad={() => setLoaded(true)}
-            onError={() => setFailed(true)}
+            onError={handleError}
           />
         )}
         {showLabel ? <div className="reader-page__label">Страница {index}</div> : null}
@@ -1534,21 +1559,42 @@ function PagedReaderImage({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [failures, setFailures] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  const retryTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    },
+    [],
+  );
+
+  const retry = () => {
+    setFailed(false);
+    setLoaded(false);
+    setFailures(0);
+    setAttempt((value) => value + 1);
+  };
+
+  const handleError = () => {
+    setLoaded(false);
+    const next = failures + 1;
+    setFailures(next);
+    if (next >= 3) {
+      setFailed(true);
+      return;
+    }
+    if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    retryTimer.current = window.setTimeout(() => setAttempt((value) => value + 1), 450);
+  };
 
   if (failed) {
     return (
       <div className="reader-paged__error" role="alert">
         <Icon name="alert" size={28} />
         <span>Не удалось загрузить страницу. Проверьте соединение и попробуйте снова.</span>
-        <button
-          type="button"
-          className="btn btn--outline btn--sm"
-          onClick={() => {
-            setFailed(false);
-            setAttempt((value) => value + 1);
-          }}
-        >
+        <button type="button" className="btn btn--outline btn--sm" onClick={retry}>
           <Icon name="refresh" size={14} />
           Повторить
         </button>
@@ -1558,7 +1604,11 @@ function PagedReaderImage({
 
   return (
     <>
-      {!loaded ? <div className="reader-paged__skeleton" aria-hidden="true" /> : null}
+      {!loaded ? (
+        <div className="reader-paged__loading" aria-hidden="true">
+          <DancingLoader compact label={failures > 0 ? 'Повторяем загрузку…' : undefined} />
+        </div>
+      ) : null}
       <img
         key={attempt}
         className={`reader-paged__image fit-${fit}${tall ? ' is-tall' : ''}${loaded ? ' is-loaded' : ''}`}
@@ -1570,7 +1620,7 @@ function PagedReaderImage({
         decoding="async"
         draggable={false}
         onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
+        onError={handleError}
       />
     </>
   );

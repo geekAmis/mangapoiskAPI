@@ -12,7 +12,7 @@ async def test_registry_lists_all_sources(settings, cache, client) -> None:
     infos = {info.code: info for info in registry.infos()}
     assert infos["mangapoisk"].enabled is True
     assert infos["mangalib"].enabled is True
-    assert infos["remanga"].enabled is False
+    assert infos["remanga"].enabled is True
     assert infos["readmanga"].enabled is False
     assert infos["mangadex"].enabled is False
     assert infos["mangalib"].capabilities.pages is True
@@ -22,8 +22,9 @@ async def test_registry_lists_all_sources(settings, cache, client) -> None:
 async def test_registry_requires_enabled_source(settings, cache, client) -> None:
     registry = build_registry(client, settings, cache)
     assert registry.require("MANGApoisk").info.code == "mangapoisk"
+    assert registry.require("remanga").info.code == "remanga"
     with pytest.raises(NotFoundError) as disabled:
-        registry.require("remanga")
+        registry.require("readmanga")
     assert disabled.value.code == "source_disabled"
     with pytest.raises(NotFoundError) as unknown:
         registry.require("does-not-exist")

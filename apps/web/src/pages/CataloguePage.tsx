@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ImportMangaResponse } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
@@ -50,8 +50,27 @@ function isStatus(value: string | null): value is (typeof STATUS_OPTIONS)[number
   return STATUS_OPTIONS.some((option) => option.value === value);
 }
 
+function parseGenreHash(hash: string): string[] {
+  const raw = hash.replace(/^#/, '').trim();
+  if (!raw) return [];
+  return raw
+    .split(/[+,]+/)
+    .map((part) => {
+      const value = part.trim();
+      if (!value) return '';
+      try {
+        return decodeURIComponent(value).trim();
+      } catch {
+        return value;
+      }
+    })
+    .filter(Boolean);
+}
+
 export default function CataloguePage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const sourcesQuery = useQuery({
     queryKey: queryKeys.sources,
@@ -62,6 +81,10 @@ export default function CataloguePage() {
   const q = searchParams.get('q')?.trim() ?? '';
   const source = searchParams.get('source') ?? '';
   const genre = searchParams.get('genre') ?? '';
+  const hashGenres = location.pathname.endsWith('/genres')
+    ? parseGenreHash(location.hash)
+    : [];
+  const genresParam = hashGenres.join('+');
   const year = parseYear(searchParams.get('year'));
   const statusRaw = searchParams.get('status');
   const status = isStatus(statusRaw) ? statusRaw : '';
@@ -81,7 +104,8 @@ export default function CataloguePage() {
   const params = {
     query: q || undefined,
     source: source || undefined,
-    genre: genre || undefined,
+    genre: hashGenres.length > 0 ? undefined : genre || undefined,
+    genres: genresParam || undefined,
     year,
     status: status || undefined,
     sort,
@@ -151,6 +175,7 @@ export default function CataloguePage() {
     q,
     source,
     genre,
+    genresParam,
     year,
     status,
     sort,
@@ -158,7 +183,7 @@ export default function CataloguePage() {
   ]);
 
   const resetFilters = () => {
-    setSearchParams(new URLSearchParams());
+    navigate('/catalogue', { replace: true });
     setFiltersOpen(false);
   };
 
@@ -176,7 +201,7 @@ export default function CataloguePage() {
       ? sources
       : [{ code: 'mangapoisk', name: 'MangaPoisk', enabled: true, language: 'ru', base_url: '', requires_cookies: false, capabilities: {} }];
 
-  const activeFilterCount = [source, genre, year, status].filter(Boolean).length;
+  const activeFilterCount = [source, hashGenres.length > 0 ? 'genres' : genre, year, status].filter(Boolean).length;
   const hasFilters = Boolean(q || activeFilterCount);
   const items = catalogueQuery.data?.items ?? [];
   const total = catalogueQuery.data?.total ?? 0;
@@ -189,7 +214,15 @@ export default function CataloguePage() {
       label: sources.find((item) => item.code === source)?.name ?? sourceLabel(source),
       clear: () => updateParams({ source: undefined }),
     });
-  if (genre) activeChips.push({ key: 'genre', label: genre, clear: () => updateParams({ genre: undefined }) });
+  if (hashGenres.length > 0) {
+    activeChips.push({
+      key: 'genres',
+      label: hashGenres.join(' + '),
+      clear: () => navigate('/catalogue'),
+    });
+  } else if (genre) {
+    activeChips.push({ key: 'genre', label: genre, clear: () => updateParams({ genre: undefined }) });
+  }
   if (year) activeChips.push({ key: 'year', label: String(year), clear: () => updateParams({ year: undefined }) });
   if (status)
     activeChips.push({

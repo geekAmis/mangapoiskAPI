@@ -6,6 +6,7 @@ import type {
   ChapterListParams,
   ChapterOut,
   HealthOut,
+  HomeUpdatesOut,
   ImportMangaRequest,
   ImportMangaResponse,
   ItemList,
@@ -265,12 +266,19 @@ export const api = {
   sources: (signal?: AbortSignal) =>
     request<SourceOut[]>('/sources', { auth: false, signal }),
 
+  homeUpdates: (limit = 25, signal?: AbortSignal) =>
+    request<HomeUpdatesOut>(`/home/updates?limit=${encodeURIComponent(String(limit))}`, {
+      auth: false,
+      signal,
+    }),
+
   listManga: (params: MangaListParams, signal?: AbortSignal) =>
     request<Paginated<MangaOut>>('/manga', {
       query: {
         query: params.query,
         source: params.source,
         genre: params.genre,
+        genres: params.genres,
         year: params.year,
         status: params.status,
         sort: params.sort,

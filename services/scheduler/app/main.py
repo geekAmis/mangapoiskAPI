@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from itertools import zip_longest
 
@@ -11,8 +12,10 @@ import httpx
 from manga_common.config import Settings
 from manga_common.http import build_client
 from manga_common.logging import configure_logging
-from manga_common.source_models import MangaSummary
+from manga_common.source_models import MangaDetail, MangaSummary
 from pydantic import ValidationError
+
+from .catalogue import CatalogueCrawler
 
 logger = logging.getLogger("scheduler")
 
@@ -26,16 +29,49 @@ class SchedulerSettings(Settings):
     catalogue_import_enabled: bool = True
     catalogue_import_interval_seconds: int = 21600
     catalogue_import_per_source_limit: int = 60
+    catalogue_enrichment_enabled: bool = True
+    catalogue_enrichment_concurrency: int = 2
+    catalogue_enrichment_limit: int = 30
+    # Full-catalogue crawler (MangaPoisk + MangaLib + Remanga).
+    catalogue_crawl_enabled: bool = True
+    catalogue_sources: str = "mangapoisk,mangalib,remanga"
+    catalogue_crawl_delay_seconds: float = 1.75
+    catalogue_full_refresh_interval_seconds: int = 604800
+    catalogue_incremental_interval_seconds: int = 900
+    catalogue_incremental_pages: int = 2
+    catalogue_full_retry_seconds: int = 900
+    catalogue_enrichment_batch_size: int = 50
+    # 36 requests/minute = one request every 1.67 s, inside the requested
+    # 1.5-2 s politeness window (the adapters also enforce this per source).
+    scraper_requests_per_minute: int = 36
+
+
+@dataclass(frozen=True, slots=True)
+class EnrichmentTarget:
+    source: str
+    source_id: str
+    url: str | None = None
 
 
 class Scheduler:
-    def __init__(self, settings: SchedulerSettings) -> None:
+    def __init__(
+        self,
+        settings: SchedulerSettings,
+        *,
+        adapter_factory=None,  # type: ignore[no-untyped-def]
+        catalogue_sleep=None,  # type: ignore[no-untyped-def]
+    ) -> None:
         self.settings = settings
         self.client = build_client(settings)
         self.client.headers["X-Internal-Token"] = settings.internal_token
         self._last_cleanup: datetime | None = None
         self._last_catalogue_import: datetime | None = None
         self._stop = asyncio.Event()
+        self._catalogue_task: asyncio.Task | None = None
+        self._catalogue_kwargs = {
+            "adapter_factory": adapter_factory,
+            "sleep": catalogue_sleep,
+        }
 
     async def _post(self, base: str, path: str, **kwargs) -> dict | None:  # type: ignore[no-untyped-def]
         try:
@@ -50,9 +86,9 @@ class Scheduler:
             logger.warning("POST %s%s failed: %s", base, path, exc)
             return None
 
-    async def _get(self, base: str, path: str) -> dict | list | None:
+    async def _get(self, base: str, path: str, **kwargs) -> dict | list | None:  # type: ignore[no-untyped-def]
         try:
-            response = await self.client.get(f"{base.rstrip('/')}{path}", timeout=30.0)
+            response = await self.client.get(f"{base.rstrip('/')}{path}", timeout=30.0, **kwargs)
             if response.status_code >= 400:
                 logger.warning(
                     "GET %s%s -> %s %s",
@@ -124,6 +160,10 @@ class Scheduler:
         imported = 0
         failed_sources: list[str] = []
         limit = self.settings.catalogue_import_per_source_limit
+        enrichment_limit = max(0, self.settings.catalogue_enrichment_limit)
+        enrichment_enabled = self.settings.catalogue_enrichment_enabled and enrichment_limit > 0
+        enrichment_targets: list[EnrichmentTarget] = []
+        enrichment_deferred = 0
 
         for raw_source in sources:
             if not isinstance(raw_source, dict):
@@ -193,6 +233,17 @@ class Scheduler:
                         else:
                             imported += 1
                             imported_here += 1
+                            if enrichment_enabled and self._needs_enrichment(result, summary):
+                                if len(enrichment_targets) >= enrichment_limit:
+                                    enrichment_deferred += 1
+                                else:
+                                    enrichment_targets.append(
+                                        EnrichmentTarget(
+                                            source=summary.source,
+                                            source_id=source_id,
+                                            url=summary.url,
+                                        )
+                                    )
             except Exception as exc:
                 failed_sources.append(code)
                 logger.warning(
@@ -217,15 +268,133 @@ class Scheduler:
                 imported_here,
             )
 
+        try:
+            enriched, enrichment_failed = await self.enrich_catalogue(enrichment_targets)
+        except Exception:
+            logger.exception("catalogue enrichment stage failed")
+            enriched, enrichment_failed = 0, len(enrichment_targets)
         self._last_catalogue_import = now or datetime.now(UTC)
         logger.info(
             "catalogue import finished: sources=%d titles_discovered=%d imported=%d "
-            "failed_sources=%d",
+            "failed_sources=%d enrichment_candidates=%d enriched=%d "
+            "enrichment_failed=%d enrichment_deferred=%d",
             processed,
             len(seen),
             imported,
             len(failed_sources),
+            len(enrichment_targets),
+            enriched,
+            enrichment_failed,
+            enrichment_deferred,
         )
+
+    @staticmethod
+    def _needs_enrichment(result: dict, summary: MangaSummary) -> bool:
+        """Return True when the stored summary is a dead-end stub.
+
+        The catalog import-summary response is authoritative for stored
+        metadata.  If it has an older/opaque shape, we deliberately skip
+        enrichment rather than hammering the parser for every title.
+        """
+
+        metadata_fields = {"chapters_count", "description", "genres"}
+        if not metadata_fields.intersection(result):
+            return False
+        if result.get("chapters_count") == 0:
+            return True
+        description = result.get("description", summary.description)
+        genres = result.get("genres", summary.genres)
+        return not str(description or "").strip() or not genres
+
+    async def enrich_catalogue(self, targets: list[EnrichmentTarget]) -> tuple[int, int]:
+        """Hydrate incomplete summaries with the parser's full detail.
+
+        Concurrency is bounded (and capped at three) so the parser's upstream
+        rate limiting is not overloaded.  Every target isolates its own
+        failure.
+        """
+
+        if not targets:
+            return 0, 0
+        if not self.settings.catalogue_enrichment_enabled:
+            return 0, 0
+        limit = max(0, self.settings.catalogue_enrichment_limit)
+        if limit:
+            targets = targets[:limit]
+        if not targets:
+            return 0, 0
+        concurrency = max(1, min(3, self.settings.catalogue_enrichment_concurrency))
+        semaphore = asyncio.Semaphore(concurrency)
+        results = await asyncio.gather(
+            *(self._enrich_target(target, semaphore) for target in targets),
+            return_exceptions=True,
+        )
+        enriched = sum(1 for result in results if result is True)
+        failed = len(results) - enriched
+        logger.info(
+            "catalogue enrichment finished: candidates=%d enriched=%d failed=%d concurrency=%d",
+            len(targets),
+            enriched,
+            failed,
+            concurrency,
+        )
+        return enriched, failed
+
+    async def _enrich_target(self, target: EnrichmentTarget, semaphore: asyncio.Semaphore) -> bool:
+        async with semaphore:
+            try:
+                params = {
+                    "source": target.source,
+                    "source_id": target.source_id,
+                    "chapters_limit": 1000,
+                }
+                if target.url:
+                    params["url"] = target.url
+                detail = await self._get(
+                    self.settings.parser_url,
+                    "/internal/manga",
+                    params=params,
+                )
+                if not isinstance(detail, dict):
+                    raise RuntimeError("empty parser detail response")
+                parsed = MangaDetail.model_validate(detail)
+                if parsed.source != target.source:
+                    raise RuntimeError(
+                        f"parser returned source {parsed.source!r}, expected {target.source!r}"
+                    )
+                if parsed.source_id != target.source_id:
+                    # The catalogue row was created under the summary identity.
+                    # Pin the detail to it so enrichment updates that row instead
+                    # of creating a second entry for a normalised source id.
+                    logger.warning(
+                        "catalogue enrichment: %s/%s parser returned source_id %s; "
+                        "pinning to summary id",
+                        target.source,
+                        target.source_id,
+                        parsed.source_id,
+                    )
+                    parsed = parsed.model_copy(update={"source_id": target.source_id})
+                result = await self._post(
+                    self.settings.catalog_url,
+                    "/internal/manga/import-detail",
+                    json=parsed.model_dump(mode="json"),
+                )
+                if result is None:
+                    raise RuntimeError("catalogue rejected detail")
+            except Exception as exc:
+                logger.warning(
+                    "catalogue enrichment: %s/%s failed: %s",
+                    target.source,
+                    target.source_id,
+                    exc,
+                )
+                return False
+        logger.info(
+            "catalogue enrichment: %s/%s hydrated",
+            target.source,
+            target.source_id,
+        )
+        return True
 
     def catalogue_import_due(self, now: datetime | None = None) -> bool:
         """Return True when the next catalogue import should run."""
@@ -262,30 +431,52 @@ class Scheduler:
         if result:
             logger.info("media cleanup: %s", result.get("message"))
 
+    async def _run_catalogue(self) -> None:
+        crawler = CatalogueCrawler(self.settings, self.client, **self._catalogue_kwargs)
+        try:
+            await crawler.run(self._stop)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("catalogue crawler crashed")
+
     async def run(self) -> None:
         logger.info("scheduler started; interval=%ss", self.settings.sync_interval_seconds)
-        await asyncio.sleep(8)
-        while not self._stop.is_set():
-            try:
-                await self.refresh()
-            except Exception:
-                logger.exception("scheduler refresh failed")
-            try:
-                await self.cleanup()
-            except Exception:
-                logger.exception("scheduler cleanup failed")
-            try:
-                await self.maybe_import_catalogue()
-            except Exception:
-                logger.exception("scheduler catalogue import failed")
-            try:
-                await asyncio.wait_for(
-                    self._stop.wait(), timeout=self.settings.sync_interval_seconds
-                )
-            except TimeoutError:
-                continue
-        await self.client.aclose()
-        logger.info("scheduler stopped")
+        if self.settings.catalogue_crawl_enabled:
+            self._catalogue_task = asyncio.create_task(self._run_catalogue())
+            logger.info(
+                "catalogue crawler started: sources=%s delay=%ss",
+                self.settings.catalogue_sources,
+                self.settings.catalogue_crawl_delay_seconds,
+            )
+        try:
+            await asyncio.sleep(8)
+            while not self._stop.is_set():
+                try:
+                    await self.refresh()
+                except Exception:
+                    logger.exception("scheduler refresh failed")
+                try:
+                    await self.cleanup()
+                except Exception:
+                    logger.exception("scheduler cleanup failed")
+                if not self.settings.catalogue_crawl_enabled:
+                    try:
+                        await self.maybe_import_catalogue()
+                    except Exception:
+                        logger.exception("scheduler catalogue import failed")
+                try:
+                    await asyncio.wait_for(
+                        self._stop.wait(), timeout=self.settings.sync_interval_seconds
+                    )
+                except TimeoutError:
+                    continue
+        finally:
+            if self._catalogue_task is not None:
+                self._catalogue_task.cancel()
+                await asyncio.gather(self._catalogue_task, return_exceptions=True)
+            await self.client.aclose()
+            logger.info("scheduler stopped")
 
     def stop(self) -> None:
         self._stop.set()

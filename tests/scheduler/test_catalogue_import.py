@@ -29,11 +29,59 @@ def source(
     }
 
 
-def summary(source_code: str | None, source_id: str, title: str) -> dict[str, Any]:
-    item = {"source_id": source_id, "title": title}
+def summary(
+    source_code: str | None, source_id: str, title: str, *, url: str | None = None
+) -> dict[str, Any]:
+    item: dict[str, Any] = {"source_id": source_id, "title": title}
     if source_code is not None:
         item["source"] = source_code
+    if url is not None:
+        item["url"] = url
     return item
+
+
+def stored_summary(
+    source_id: str,
+    *,
+    source_code: str = "reader",
+    chapters_count: int = 0,
+    description: str | None = None,
+    genres: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": f"manga-{source_id}",
+        "source": source_code,
+        "source_id": source_id,
+        "title": f"Title {source_id}",
+        "description": description,
+        "genres": genres or [],
+        "chapters_count": chapters_count,
+    }
+
+
+def parser_detail(
+    source_id: str,
+    *,
+    source_code: str = "reader",
+    chapters: int = 1,
+) -> dict[str, Any]:
+    return {
+        "source": source_code,
+        "source_id": source_id,
+        "title": f"Title {source_id}",
+        "description": f"Full description for {source_id}",
+        "genres": ["Фэнтези", "Приключения"],
+        "chapters": [
+            {
+                "source": source_code,
+                "source_id": f"{source_id}-{number}",
+                "manga_source_id": source_id,
+                "number": str(number),
+                "title": f"Chapter {number}",
+            }
+            for number in range(1, chapters + 1)
+        ],
+    }
 
 
 def make_scheduler(
@@ -53,6 +101,9 @@ def make_scheduler(
         "catalogue_import_enabled": True,
         "catalogue_import_interval_seconds": 3600,
         "catalogue_import_per_source_limit": 60,
+        "catalogue_enrichment_enabled": True,
+        "catalogue_enrichment_concurrency": 3,
+        "catalogue_enrichment_limit": 30,
     }
     values.update(overrides)
     settings = SchedulerSettings(_env_file=None, **values)
@@ -300,14 +351,230 @@ async def test_disabled_import_makes_no_requests(monkeypatch: pytest.MonkeyPatch
     assert calls == []
 
 
+@pytest.mark.asyncio
+async def test_stub_summaries_are_enriched_after_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    imported_details: list[dict[str, Any]] = []
+    parser_requests: list[httpx.Request] = []
+    stored = {
+        "zero": stored_summary(
+            "zero",
+            chapters_count=0,
+            description="Known metadata",
+            genres=["Фэнтези"],
+        ),
+        "meta": stored_summary("meta", chapters_count=12, description=None, genres=[]),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/internal/sources":
+            return httpx.Response(200, json=[source("reader")])
+        if request.url.path == "/internal/home":
+            return httpx.Response(
+                200,
+                json={
+                    "source": "reader",
+                    "popular": [
+                        summary(
+                            "reader",
+                            "zero",
+                            "Title zero",
+                            url="https://reader.example/manga/zero",
+                        ),
+                        summary("reader", "meta", "Title meta"),
+                    ],
+                    "latest": [],
+                },
+            )
+        if request.url.path == "/internal/manga/import-summary":
+            payload = json.loads(request.content)
+            return httpx.Response(200, json=stored[payload["source_id"]])
+        if request.url.host == "parser.test" and request.url.path == "/internal/manga":
+            parser_requests.append(request)
+            return httpx.Response(
+                200, json=parser_detail(request.url.params["source_id"], chapters=2)
+            )
+        if request.url.path == "/internal/manga/import-detail":
+            imported_details.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": "detail"})
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    scheduler = make_scheduler(monkeypatch, handler)
+    try:
+        await scheduler.import_catalogue(now=FIXED_NOW)
+    finally:
+        await close(scheduler)
+
+    assert {item["source_id"] for item in imported_details} == {"zero", "meta"}
+    assert all(item["description"] for item in imported_details)
+    assert all(item["genres"] == ["Фэнтези", "Приключения"] for item in imported_details)
+    assert all(len(item["chapters"]) == 2 for item in imported_details)
+
+    requests_by_id = {request.url.params["source_id"]: request for request in parser_requests}
+    assert set(requests_by_id) == {"zero", "meta"}
+    assert requests_by_id["zero"].url.params["source"] == "reader"
+    assert requests_by_id["zero"].url.params["url"] == "https://reader.example/manga/zero"
+    assert requests_by_id["zero"].url.params["chapters_limit"] == "1000"
+    assert "url" not in requests_by_id["meta"].url.params
+
+
+@pytest.mark.asyncio
+async def test_complete_summaries_are_not_enriched_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser_requests: list[httpx.Request] = []
+    imported_details: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/internal/sources":
+            return httpx.Response(200, json=[source("reader")])
+        if request.url.path == "/internal/home":
+            return httpx.Response(
+                200,
+                json={
+                    "source": "reader",
+                    "popular": [summary("reader", "complete", "Complete title")],
+                    "latest": [],
+                },
+            )
+        if request.url.path == "/internal/manga/import-summary":
+            return httpx.Response(
+                200,
+                json=stored_summary(
+                    "complete",
+                    chapters_count=42,
+                    description="Complete description",
+                    genres=["Фэнтези"],
+                ),
+            )
+        if request.url.host == "parser.test" and request.url.path == "/internal/manga":
+            parser_requests.append(request)
+            return httpx.Response(200, json=parser_detail("complete"))
+        if request.url.path == "/internal/manga/import-detail":
+            imported_details.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": "detail"})
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    scheduler = make_scheduler(monkeypatch, handler)
+    try:
+        await scheduler.import_catalogue(now=FIXED_NOW)
+    finally:
+        await close(scheduler)
+
+    assert parser_requests == []
+    assert imported_details == []
+
+
+@pytest.mark.asyncio
+async def test_enrichment_failure_does_not_abort_other_titles(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    imported_details: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/internal/sources":
+            return httpx.Response(200, json=[source("reader")])
+        if request.url.path == "/internal/home":
+            return httpx.Response(
+                200,
+                json={
+                    "source": "reader",
+                    "popular": [
+                        summary("reader", "bad", "Broken enrichment"),
+                        summary("reader", "good", "Healthy enrichment"),
+                    ],
+                    "latest": [],
+                },
+            )
+        if request.url.path == "/internal/manga/import-summary":
+            payload = json.loads(request.content)
+            return httpx.Response(200, json=stored_summary(payload["source_id"]))
+        if request.url.host == "parser.test" and request.url.path == "/internal/manga":
+            source_id = request.url.params["source_id"]
+            if source_id == "bad":
+                return httpx.Response(500, json={"detail": "parser failure"})
+            return httpx.Response(200, json=parser_detail(source_id))
+        if request.url.path == "/internal/manga/import-detail":
+            imported_details.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": "detail"})
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    scheduler = make_scheduler(monkeypatch, handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="scheduler"):
+            await scheduler.import_catalogue(now=FIXED_NOW)
+    finally:
+        await close(scheduler)
+
+    assert [item["source_id"] for item in imported_details] == ["good"]
+    assert "catalogue enrichment: reader/bad failed" in caplog.text
+    assert "catalogue enrichment finished: candidates=2 enriched=1 failed=1" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_enrichment_cap_is_respected(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    parser_requests: list[httpx.Request] = []
+    imported_details: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/internal/sources":
+            return httpx.Response(200, json=[source("reader")])
+        if request.url.path == "/internal/home":
+            return httpx.Response(
+                200,
+                json={
+                    "source": "reader",
+                    "popular": [
+                        summary("reader", f"stub-{index}", f"Stub {index}") for index in range(5)
+                    ],
+                    "latest": [],
+                },
+            )
+        if request.url.path == "/internal/manga/import-summary":
+            payload = json.loads(request.content)
+            return httpx.Response(200, json=stored_summary(payload["source_id"]))
+        if request.url.host == "parser.test" and request.url.path == "/internal/manga":
+            parser_requests.append(request)
+            return httpx.Response(200, json=parser_detail(request.url.params["source_id"]))
+        if request.url.path == "/internal/manga/import-detail":
+            imported_details.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": "detail"})
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    scheduler = make_scheduler(monkeypatch, handler, catalogue_enrichment_limit=2)
+    try:
+        with caplog.at_level(logging.INFO, logger="scheduler"):
+            await scheduler.import_catalogue(now=FIXED_NOW)
+    finally:
+        await close(scheduler)
+
+    assert len(parser_requests) == 2
+    assert len(imported_details) == 2
+    assert (
+        "enrichment_candidates=2 enriched=2 enrichment_failed=0 enrichment_deferred=3"
+        in caplog.text
+    )
+
+
 def test_defaults_are_safe(monkeypatch: pytest.MonkeyPatch) -> None:
     for variable in (
         "CATALOGUE_IMPORT_ENABLED",
         "CATALOGUE_IMPORT_INTERVAL_SECONDS",
         "CATALOGUE_IMPORT_PER_SOURCE_LIMIT",
+        "CATALOGUE_ENRICHMENT_ENABLED",
+        "CATALOGUE_ENRICHMENT_CONCURRENCY",
+        "CATALOGUE_ENRICHMENT_LIMIT",
     ):
         monkeypatch.delenv(variable, raising=False)
     settings = SchedulerSettings(_env_file=None)
     assert settings.catalogue_import_enabled is True
     assert settings.catalogue_import_interval_seconds == 21600
     assert settings.catalogue_import_per_source_limit == 60
+    assert settings.catalogue_enrichment_enabled is True
+    assert settings.catalogue_enrichment_concurrency == 2
+    assert settings.catalogue_enrichment_limit == 30

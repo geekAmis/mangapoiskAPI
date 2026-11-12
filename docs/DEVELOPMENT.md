@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Python 3.12+ (3.13 works)
-- Node.js 20+ (22 tested)
+- Node.js 20.19+ (22 tested)
 - Git
 - Optional: Docker Desktop / Docker Engine + Compose v2
 - Optional for Android: JDK 17 + Android SDK (compileSdk 34)
@@ -12,7 +12,7 @@
 
 ```bash
 cp .env.example .env
-# edit .env: set JWT_SECRET and INTERNAL_TOKEN
+# edit .env: JWT_SECRET, INTERNAL_TOKEN, ADMIN_PASSWORD, CONTROL_SECRET_KEY
 docker compose up --build
 ```
 
@@ -21,7 +21,14 @@ Open:
 - web: <http://localhost:8080>
 - API docs: <http://localhost:8000/docs> after starting the `gateway-public`
   profile: `docker compose --profile dev up -d gateway-public`
-- API: <http://localhost:8000/api/v1>
+- API: <http://localhost:8000/api/v1> (or <http://localhost:8080/api/v1> through
+  the web nginx)
+
+Compose uses ports `8000–8006` for local development.  The production systemd
+deployment uses `8100–8107` (gateway `8100`, parser `8101`, catalog `8102`,
+library `8103`, media `8104`, control `8005`, notifier `8106`, scheduler `8107`)
+behind nginx on `8088`; see
+[`SERVER_MANAGER.md`](SERVER_MANAGER.md#порты-на-текущем-сервере).
 
 ## Local development without Docker
 
@@ -36,6 +43,7 @@ pip install -r services/parser/requirements.txt
 pip install -r services/catalog/requirements.txt
 pip install -r services/library/requirements.txt
 pip install -r services/media/requirements.txt
+pip install -r services/control/requirements.txt
 pip install -r services/gateway/requirements.txt
 pip install -r services/scheduler/requirements.txt
 pip install -r services/notifier/requirements.txt
@@ -57,6 +65,8 @@ uvicorn app.main:app --app-dir services/parser --port 8001 --reload
 uvicorn app.main:app --app-dir services/catalog --port 8002 --reload
 uvicorn app.main:app --app-dir services/library --port 8003 --reload
 uvicorn app.main:app --app-dir services/media --port 8004 --reload
+uvicorn app.main:app --app-dir services/control --port 8005 --reload
+uvicorn app.main:app --app-dir services/notifier --port 8006 --reload
 uvicorn app.main:app --app-dir services/gateway --port 8000 --reload
 python -m services.scheduler.app.main
 ```
@@ -67,8 +77,10 @@ Or use the helper:
 .\scripts\dev.ps1
 ```
 
-It starts all Python services in background jobs and writes logs to
-`data/logs/`.
+It starts parser, catalog, library, media, notifier and gateway in background
+jobs and writes logs to `data/logs/`; start control and scheduler separately if
+you need the admin panel or periodic refresh.  `scripts/stop-dev.ps1` stops the
+jobs started by the helper.
 
 Frontend:
 

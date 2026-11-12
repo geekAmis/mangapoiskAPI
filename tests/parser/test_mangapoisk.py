@@ -3,6 +3,7 @@
 import copy
 
 import httpx
+import pytest
 import respx
 from parser_helpers import (
     inertia_html,
@@ -17,6 +18,7 @@ SEARCH = load_json("mangapoisk_search.json")
 MANGA = load_json("mangapoisk_manga.json")
 CHAPTER = load_json("mangapoisk_chapter.json")
 CHAPTER_EMPTY = load_json("mangapoisk_chapter_empty.json")
+CATALOGUE = load_json("mangapoisk_catalogue.json")
 
 MANGA_PATH = "https://mangapoisk.me/manga/overgeared-abs3nSd"
 CHAPTER_PATH = f"{MANGA_PATH}/chapter/1-300"
@@ -61,6 +63,51 @@ async def test_search_second_page_is_empty_without_request(settings, cache, clie
         assert result.items == []
         assert result.has_next is False
         assert search_route.call_count == 0
+
+
+async def test_catalogue_parses_inertia_pagination_and_sort(settings, cache, client) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        mock_allow_robots(router, "mangapoisk.me")
+        router.get("https://mangapoisk.me/").mock(
+            return_value=httpx.Response(200, text=inertia_html(HOME))
+        )
+        catalogue_route = router.get("https://mangapoisk.me/manga").mock(
+            return_value=json_response(CATALOGUE)
+        )
+        adapter = MangaPoiskAdapter(client, settings, cache)
+
+        result = await adapter.catalogue(page=1, sort="updated")
+
+        assert result.source == "mangapoisk"
+        assert result.page == 1
+        assert result.total == 100
+        assert result.total_pages == 3
+        assert result.per_page == 40
+        assert result.has_next is True
+        assert len(result.items) == 2
+        first = result.items[0]
+        assert first.source_id == "alpha-title"
+        assert first.title == "Альфа"
+        assert first.description == "Описание Альфы."
+        assert first.genres == ["Экшен", "Фэнтези"]
+        assert first.chapters_count == 42
+        assert first.latest_chapter is not None
+        assert first.latest_chapter.number == "42"
+        request = catalogue_route.calls[0].request
+        assert request.headers["x-inertia"] == "true"
+        assert request.url.params["page"] == "1"
+        assert request.url.params["sortBy"] == "-last_chapter_at"
+
+        cached = await adapter.catalogue(page=1, sort="updated")
+        assert cached.total == 100
+        assert catalogue_route.call_count == 1
+
+
+async def test_catalogue_rejects_unknown_sort(settings, cache, client) -> None:
+    adapter = MangaPoiskAdapter(client, settings, cache)
+    with pytest.raises(Exception) as error:
+        await adapter.catalogue(sort="trending")
+    assert getattr(error.value, "code", None) == "invalid_sort"
 
 
 async def test_manga_parses_inertia_payload(settings, cache, client) -> None:

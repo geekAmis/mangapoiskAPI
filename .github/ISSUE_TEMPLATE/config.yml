@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Вопросы и обсуждения
+    url: https://github.com/geekAmis/mangapoiskAPI/discussions
+    about: Для вопросов по запуску, идеям и общим обсуждениям.
+  - name: Документация
+    url: https://github.com/geekAmis/mangapoiskAPI/blob/main/docs/ARCHITECTURE.md
+    about: Архитектура, API, деплой, Android и источники.
+  - name: Правообладателям
+    url: https://github.com/geekAmis/mangapoiskAPI/blob/main/docs/LEGAL.md
+    about: Как сообщить о нарушении прав и как работает удаление источников.

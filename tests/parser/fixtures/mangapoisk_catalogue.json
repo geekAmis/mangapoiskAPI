@@ -1,0 +1,92 @@
+{
+  "component": "Manga/Index",
+  "url": "/manga",
+  "props": {
+    "mangaList": {
+      "data": [
+        {
+          "id": 101,
+          "link": "/manga/alpha-title",
+          "title": "Альфа",
+          "description": "Описание Альфы.",
+          "chapters_count": 42,
+          "genres": [
+            {
+              "id": 3,
+              "link": "/genre/action",
+              "name_en": "action",
+              "title": "Экшен"
+            },
+            {
+              "id": 8,
+              "link": "/genre/fantasy",
+              "name_en": "fantasy",
+              "title": "Фэнтези"
+            }
+          ],
+          "poster": {
+            "link": "https://static2.mangapoisk.me/posters/101/full.jpg",
+            "link_mini": "https://static2.mangapoisk.me/posters/101/mini.jpg"
+          },
+          "lastChapter": {
+            "id": 1,
+            "link": "/manga/alpha-title/chapter/1-42",
+            "name": "",
+            "volume": "1",
+            "number": "42",
+            "title": "42 Том 1",
+            "formattedDate": "25 сентября 2026"
+          },
+          "rating": 4.5,
+          "ratesCount": 100,
+          "is_external_link": false
+        },
+        {
+          "id": 102,
+          "link": "/manga/beta-title",
+          "title": "Бета",
+          "description": null,
+          "chapters_count": 7,
+          "genres": [],
+          "poster": {
+            "link": "https://static2.mangapoisk.me/posters/102/full.jpg"
+          },
+          "lastChapter": {
+            "id": 2,
+            "link": "/manga/beta-title/chapter/1-7",
+            "volume": "1",
+            "number": "7",
+            "formattedDate": "1 октября 2026"
+          },
+          "rating": 3.9,
+          "ratesCount": 12,
+          "is_external_link": false
+        }
+      ],
+      "links": {
+        "first": "https://mangapoisk.me/manga?page=1",
+        "last": "https://mangapoisk.me/manga?page=3",
+        "prev": null,
+        "next": "https://mangapoisk.me/manga?page=2"
+      },
+      "meta": {
+        "current_page": 1,
+        "from": 1,
+        "last_page": 3,
+        "per_page": 40,
+        "total": 100,
+        "to": 40
+      }
+    },
+    "genres": {
+      "data": [
+        {
+          "id": 3,
+          "link": "/genre/action",
+          "name_en": "action",
+          "title": "Экшен"
+        }
+      ]
+    }
+  }
+}

@@ -17,6 +17,10 @@ class MediaSettings(Settings):
     archive_db: str | None = None
     archive_dir: str | None = None
     archive_db_threshold_bytes: int = 1024 * 1024
+    # Chapter archives are an LRU disk cache: metadata and covers stay
+    # unlimited in the image cache, while prepared chapters are capped at a
+    # configurable 20-30 GB budget (25 GiB by default).
+    archive_max_bytes: int = 25 * 1024 * 1024 * 1024
 
     @property
     def cache_root(self) -> Path:

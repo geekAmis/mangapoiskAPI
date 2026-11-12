@@ -1,9 +1,10 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api, listItems } from '../api/client';
+import { api, listItems, resolveApiUrl } from '../api/client';
 import type { ChapterOut, MangaVariantOut } from '../api/types';
 import { ChapterRow } from '../components/ChapterRow';
+import { CommentsSection } from '../components/CommentsSection';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
@@ -15,6 +16,7 @@ import { SearchBox } from '../components/SearchBox';
 import { Skeleton } from '../components/Skeleton';
 import {
   cancelDownload,
+  preparePercent,
   retryDownload,
   startChapterDownload,
   startTitleDownload,
@@ -99,6 +101,7 @@ export default function MangaPage() {
   const updateReaderPrefs = useReaderStore((state) => state.update);
 
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [coverIndex, setCoverIndex] = useState(0);
   const [chapterSearch, setChapterSearch] = useState('');
   const deferredChapterSearch = useDeferredValue(chapterSearch);
   const [chapterSort, setChapterSort] = useState<ChapterSort>('desc');
@@ -235,18 +238,6 @@ export default function MangaPage() {
     },
   });
 
-  const warmMutation = useMutation({
-    mutationFn: () => api.warmManga(activeVariant?.id ?? id),
-    onSuccess: (result) => {
-      toast.success(
-        `Сервер готовит ${formatInt(result.queued)} глав для быстрого онлайн-чтения. На устройство ничего не скачивается.`,
-      );
-    },
-    onError: (error: unknown) => {
-      toast.error(humanizeError(error, 'Не удалось запустить подготовку глав на сервере.'));
-    },
-  });
-
   const refreshMutation = useMutation({
     mutationFn: () => {
       if (!manga) return Promise.reject(new Error('Нет данных о манге'));
@@ -268,6 +259,7 @@ export default function MangaPage() {
 
   useEffect(() => {
     setDescriptionExpanded(false);
+    setCoverIndex(0);
     setChapterSearch('');
     setChapterSort('desc');
     setVisibleChapters(60);
@@ -377,6 +369,10 @@ export default function MangaPage() {
     : false;
 
   const viewManga = activeManga ?? manga;
+  const covers = viewManga.covers ?? [];
+  const safeCoverIndex = covers.length > 0 ? Math.min(coverIndex, covers.length - 1) : 0;
+  const activeCover = covers[safeCoverIndex];
+  const posterSrc = activeCover?.url ?? activeVariant?.poster_url ?? viewManga.poster_url;
   const displayTitle = activeVariant?.title ?? viewManga.title;
   const altTitles = [viewManga.title_en, viewManga.title_alt].filter(
     (title): title is string => Boolean(title && title.trim() && title.trim() !== displayTitle),
@@ -452,6 +448,11 @@ export default function MangaPage() {
   };
 
   const queueDeviceDownload = async () => {
+    if (!user) {
+      toast.info('Войдите, чтобы подготовить главы на сервере и скачать тайтл на устройство');
+      navigate(`/login?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`);
+      return;
+    }
     const target = activeManga ?? (activeVariantId === id ? manga : null);
     if (!target || chapters.length === 0) {
       toast.info('Пока нет глав для скачивания на устройство');
@@ -468,7 +469,7 @@ export default function MangaPage() {
       });
       if (job) {
         toast.success(
-          `Скачиваем «${displayTitle}» на устройство: ${formatInt(job.chapters.length)} глав. Прогресс сохранится.`,
+          `Готовим ${formatInt(job.chapters.length)} глав на сервере и скачиваем на устройство. Прогресс сохранится.`,
         );
       } else {
         toast.info('Все главы уже скачаны на устройство');
@@ -530,11 +531,54 @@ export default function MangaPage() {
         <div className="manga-poster-column">
           <div className="manga-poster-frame">
             <Poster
-              src={activeVariant?.poster_url ?? viewManga.poster_url}
+              src={posterSrc}
               alt={`Обложка «${displayTitle}»`}
               blurred={viewManga.adult && blurAdultPosters}
               eager
             />
+            {covers.length > 1 ? (
+              <>
+                <div className="manga-cover-nav">
+                  <button
+                    type="button"
+                    className="manga-cover-nav__arrow"
+                    aria-label="Предыдущая обложка"
+                    onClick={() =>
+                      setCoverIndex((safeCoverIndex - 1 + covers.length) % covers.length)
+                    }
+                  >
+                    <Icon name="chevron-left" size={16} />
+                  </button>
+                  <span className="manga-cover-nav__count">
+                    {safeCoverIndex + 1} / {covers.length}
+                    {activeCover ? ` · ${sourceLabel(activeCover.source)}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className="manga-cover-nav__arrow"
+                    aria-label="Следующая обложка"
+                    onClick={() => setCoverIndex((safeCoverIndex + 1) % covers.length)}
+                  >
+                    <Icon name="chevron-right" size={16} />
+                  </button>
+                </div>
+                <div className="manga-cover-thumbs" role="list" aria-label="Все обложки тайтла">
+                  {covers.map((cover, index) => (
+                    <button
+                      key={`${cover.source}-${cover.source_id}-${index}`}
+                      type="button"
+                      role="listitem"
+                      className={`manga-cover-thumb${index === safeCoverIndex ? ' is-active' : ''}`}
+                      onClick={() => setCoverIndex(index)}
+                      aria-label={`Обложка ${sourceLabel(cover.source)}${cover.is_primary ? ', основная' : ''}`}
+                      aria-pressed={index === safeCoverIndex}
+                    >
+                      <img src={resolveApiUrl(cover.url)} alt="" loading="lazy" decoding="async" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
             {viewManga.adult ? (
               <div className="manga-poster-overlay">
                 <span className="badge badge--danger">18+</span>
@@ -663,7 +707,7 @@ export default function MangaPage() {
           {viewManga.genres.length > 0 ? (
             <div className="manga-genres">
               {viewManga.genres.map((genre) => (
-                <Link key={genre} to={`/catalogue?genre=${encodeURIComponent(genre)}`} className="chip">
+                <Link key={genre} to={`/catalog/genres#${encodeURIComponent(genre)}`} className="chip">
                   {genre}
                 </Link>
               ))}
@@ -706,7 +750,7 @@ export default function MangaPage() {
 
           {deviceJob ? (
             <div
-              className={`manga-download-status${deviceJob.status === 'error' ? ' is-error' : ''}`}
+              className={`manga-download-status${deviceJob.status === 'error' || deviceJob.prepare.status === 'error' ? ' is-error' : ''}`}
               role="status"
             >
               <div className="manga-download-status__head">
@@ -716,16 +760,39 @@ export default function MangaPage() {
                 <div className="manga-download-status__body">
                   <strong>
                     {activeDeviceJob
-                      ? 'Скачиваем на устройство'
+                      ? activeDeviceJob.prepare.status === 'running' ||
+                        activeDeviceJob.prepare.status === 'idle'
+                        ? activeDeviceJob.downloadedPages > 0
+                          ? 'Готовим и скачиваем'
+                          : 'Подготовка на сервере'
+                        : 'Скачиваем на устройство'
                       : deviceJob.status === 'cancelled'
                         ? 'Загрузка отменена'
                         : 'Загрузка остановилась'}
                   </strong>
-                  <span>
-                    {activeDeviceJob
-                      ? `${formatInt(activeDeviceJob.completedChapters)} из ${formatInt(activeDeviceJob.chapters.length)} глав · ${formatInt(activeDeviceJob.downloadedPages)} из ${formatInt(activeDeviceJob.totalPages)} страниц`
-                      : deviceJob.error ?? 'Повторите загрузку — уже скачанное будет пропущено.'}
-                  </span>
+                  {deviceJob.mode === 'title' ? (
+                    <>
+                      <span>
+                        Подготовка на сервере {formatInt(deviceJob.prepare.prepared)} из{' '}
+                        {formatInt(deviceJob.chapters.length)}
+                      </span>
+                      <span>
+                        Скачано на устройство {formatInt(deviceJob.completedChapters)} из{' '}
+                        {formatInt(deviceJob.chapters.length)}
+                      </span>
+                      {deviceJob.prepare.failed > 0 ? (
+                        <span>
+                          Не удалось подготовить глав: {formatInt(deviceJob.prepare.failed)}.
+                          Нажмите «Повторить» — готовое будет пропущено.
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {!activeDeviceJob ? (
+                    <span>
+                      {deviceJob.error ?? 'Повторите загрузку — уже скачанное будет пропущено.'}
+                    </span>
+                  ) : null}
                 </div>
                 {activeDeviceJob ? (
                   <button
@@ -747,16 +814,29 @@ export default function MangaPage() {
                   </button>
                 )}
               </div>
-              {activeDeviceJob ? (
-                <div className="manga-download-status__progress">
-                  <div className="progress">
-                    <div
-                      className="progress__bar"
-                      style={{ width: `${jobPercent(activeDeviceJob)}%` }}
-                    />
+              {activeDeviceJob || deviceJob.mode === 'title' ? (
+                <>
+                  {deviceJob.mode === 'title' ? (
+                    <div className="manga-download-status__progress">
+                      <div className="progress">
+                        <div
+                          className="progress__bar"
+                          style={{ width: `${preparePercent(deviceJob)}%` }}
+                        />
+                      </div>
+                      <span>{preparePercent(deviceJob)}%</span>
+                    </div>
+                  ) : null}
+                  <div className="manga-download-status__progress">
+                    <div className="progress">
+                      <div
+                        className="progress__bar"
+                        style={{ width: `${jobPercent(deviceJob)}%` }}
+                      />
+                    </div>
+                    <span>{jobPercent(deviceJob)}%</span>
                   </div>
-                  <span>{jobPercent(activeDeviceJob)}%</span>
-                </div>
+                </>
               ) : null}
             </div>
           ) : offlineStats && offlineStats.chapters > 0 ? (
@@ -821,7 +901,9 @@ export default function MangaPage() {
               <div className="manga-description__head">
                 <h2>Описание</h2>
               </div>
-              <p className="manga-description__text">Описание пока не добавлено.</p>
+              <p className="manga-description__text">
+                {viewManga.description_fallback ?? 'Упс. Описание не нашлось в источниках'}
+              </p>
             </div>
           )}
         </div>
@@ -851,22 +933,15 @@ export default function MangaPage() {
                 className="btn btn--primary btn--sm"
                 onClick={() => void queueDeviceDownload()}
                 disabled={chapters.length === 0 || chaptersLoading || Boolean(activeDeviceJob)}
-                title="Сохранить все главы выбранного источника на это устройство. Уже скачанные страницы будут пропущены."
+                title="Подготовить главы на сервере и сохранить их на это устройство. Уже скачанное будет пропущено."
               >
                 <Icon name="download" size={16} />
                 {activeDeviceJob
-                  ? `Скачиваем ${jobPercent(activeDeviceJob)}%`
+                  ? activeDeviceJob.prepare.status === 'running' ||
+                    activeDeviceJob.prepare.status === 'idle'
+                    ? `Подготовка ${preparePercent(activeDeviceJob)}%`
+                    : `Скачиваем ${jobPercent(activeDeviceJob)}%`
                   : 'Скачать всё на устройство'}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() => warmMutation.mutate()}
-                disabled={warmMutation.isPending}
-                title="Подготовка на сервере: главы загрузятся в серверный кэш для быстрого онлайн-чтения. Это не скачивание файла на устройство."
-              >
-                <Icon name="server" size={16} />
-                {warmMutation.isPending ? 'Готовим…' : 'Подготовить на сервере'}
               </button>
               <button
                 type="button"
@@ -1051,6 +1126,8 @@ export default function MangaPage() {
           )}
         </section>
       </div>
+
+      <CommentsSection mangaId={manga.id} />
 
       <Modal
         open={chaptersOpen}

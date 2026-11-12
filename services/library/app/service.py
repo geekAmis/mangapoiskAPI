@@ -71,7 +71,10 @@ class LibraryService:
         ip_address: str | None = None,
     ) -> TokenPair:
         access, expires_in = create_access_token(
-            self.settings, subject=str(user.id), role=user.role
+            self.settings,
+            subject=str(user.id),
+            role=user.role,
+            extra={"display_name": user.display_name, "username": user.display_name},
         )
         refresh = new_refresh_token()
         await create_refresh_token(
