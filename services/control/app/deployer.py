@@ -238,12 +238,13 @@ class Deployer:
             deferred = """
 echo "== control restart =="
 if command -v systemd-run >/dev/null 2>&1; then
-  systemd-run --quiet --on-active=5 --unit="mangapoisk-control-restart-$RANDOM" \
+  systemd-run --quiet --on-active=5 --unit="mangapoisk-control-restart-$RANDOM" \\
     systemctl restart mangapoisk-control.service
 else
   (sleep 5; systemctl restart mangapoisk-control.service) >/dev/null 2>&1 &
 fi
 """
+        env_extras = self._service_env_files(services)
         health_checks = "\n".join(
             self._health_block(code, port) for code, port in services if code in HTTP_SERVICE_CODES
         )
@@ -254,6 +255,7 @@ fi
             "@@BIND_HOST@@": bind_host,
             "@@SOURCE_URL@@": shlex.quote(self.settings.deploy_source_url),
             "@@ENV_FILE@@": env,
+            "@@ENV_EXTRAS@@": env_extras,
             "@@UNITS@@": units,
             "@@INSTALLS@@": installs,
             "@@ENABLE@@": enable,
@@ -273,11 +275,6 @@ fi
             "DEBUG=false",
             f"JWT_SECRET={self.settings.jwt_secret}",
             f"INTERNAL_TOKEN={self.settings.internal_token}",
-            f"CONTROL_SECRET_KEY={self.settings.control_secret_key}",
-            f"ADMIN_USERNAME={self.settings.admin_username}",
-            f"ADMIN_PASSWORD={self.settings.admin_password}",
-            f"ADMIN_TOKEN_MINUTES={self.settings.admin_token_minutes}",
-            f"DEPLOY_SOURCE_URL={self.settings.deploy_source_url}",
             f"CATALOG_DATABASE_URL=sqlite+aiosqlite:///{root}/data/catalog.db",
             f"LIBRARY_DATABASE_URL=sqlite+aiosqlite:///{root}/data/library.db",
             f"CONTROL_DATABASE_URL=sqlite+aiosqlite:///{root}/data/control.db",
@@ -297,14 +294,60 @@ fi
             "SCRAPER_CACHE_TTL_SECONDS=600",
             "MEDIA_ALLOWED_HOSTS=static2.mangapoisk.me,img2.imglib.info,img3.cdnlibs.org",
             "PARSER_ENABLED_SOURCES=",
+            "CATALOGUE_IMPORT_ENABLED=true",
+            "CATALOGUE_IMPORT_INTERVAL_SECONDS=21600",
             f"CONTROL_URL={self.settings.control_public_url}",
-            f"TELEGRAM_BOT_TOKEN={self.settings.telegram_bot_token or ''}",
-            f"TELEGRAM_CHAT_ID={self.settings.telegram_chat_id or ''}",
         ]
         for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica"):
             if code in urls:
                 lines.append(f"{code.upper()}_URL={urls[code]}")
         return "\n".join(lines) + "\n"
+
+    def _service_env_files(self, services: list[tuple[str, int]]) -> str:
+        """Write service-scoped secrets next to the shared read-only env.
+
+        Parser/media/catalog must not receive ADMIN_PASSWORD or
+        CONTROL_SECRET_KEY; only gateway/control get admin credentials, and
+        only control gets the Fernet key and deploy source.
+        """
+
+        blocks: list[str] = []
+        for code in ("gateway", "control", "notifier"):
+            lines: list[str] = []
+            if code in {"gateway", "control"}:
+                lines.extend(
+                    [
+                        f"ADMIN_USERNAME={self.settings.admin_username}",
+                        f"ADMIN_PASSWORD={self.settings.admin_password}",
+                        f"ADMIN_TOKEN_MINUTES={self.settings.admin_token_minutes}",
+                    ]
+                )
+            if code == "control":
+                lines.extend(
+                    [
+                        f"CONTROL_SECRET_KEY={self.settings.control_secret_key}",
+                        f"DEPLOY_SOURCE_URL={self.settings.deploy_source_url}",
+                    ]
+                )
+            if code == "notifier":
+                lines.extend(
+                    [
+                        f"TELEGRAM_BOT_TOKEN={self.settings.telegram_bot_token or ''}",
+                        f"TELEGRAM_CHAT_ID={self.settings.telegram_chat_id or ''}",
+                    ]
+                )
+            if not lines:
+                continue
+            content = "\n".join(lines) + "\n"
+            blocks.append(
+                f"""mkdir -p "$ROOT/env"
+cat > "$ROOT/env/{code}.env" <<'SERVICEENV'
+{content}SERVICEENV
+chmod 640 "$ROOT/env/{code}.env"
+chown root:"$USER_NAME" "$ROOT/env/{code}.env" || true
+"""
+            )
+        return "\n".join(blocks)
 
     def _unit_file(self, root: str, user: str, bind_host: str, code: str, port: int) -> str:
         paths = f"{root}/src/services/{code}"
@@ -327,6 +370,7 @@ User={user}
 Group={user}
 WorkingDirectory={paths}
 EnvironmentFile=-{root}/.env
+EnvironmentFile=-{root}/env/{code}.env
 Environment=PYTHONPATH={root}/src/packages
 ExecStart={command}
 Restart=always
@@ -389,6 +433,7 @@ cat > "$ROOT/.env" <<'ENVEOF'
 @@ENV_FILE@@ENVEOF
 chmod 640 "$ROOT/.env"
 chown root:"$USER_NAME" "$ROOT/.env" || true
+@@ENV_EXTRAS@@
 
 echo "== venv =="
 if [ ! -x "$ROOT/venv/bin/python" ]; then

@@ -4,12 +4,46 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 ServiceCode = Literal[
     "parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica", "scheduler"
 ]
 HTTP_SERVICES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica"}
+
+_HOST_RE = r"^[A-Za-z0-9._:\-\[\]]+$"
+
+
+class _ServerFields(BaseModel):
+    @field_validator("name", check_fields=False)
+    @classmethod
+    def _clean_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        if any(ch in cleaned for ch in "\r\n\t"):
+            raise ValueError("Имя не должно содержать переводы строк")
+        return cleaned
+
+    @field_validator("host", "public_host", "bind_host", check_fields=False)
+    @classmethod
+    def _clean_host(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if any(ch in cleaned for ch in "\r\n\t \"'`;$|&"):
+            raise ValueError("Некорректный адрес сервера")
+        return cleaned
+
+    @field_validator("username", check_fields=False)
+    @classmethod
+    def _clean_username(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        if not cleaned or any(ch in cleaned for ch in "\r\n\t \"'`;$|&/"):
+            raise ValueError("Некорректное имя SSH-пользователя")
+        return cleaned
 
 
 class ServiceSpec(BaseModel):
@@ -17,7 +51,7 @@ class ServiceSpec(BaseModel):
     port: int = Field(ge=1024, le=65535)
 
 
-class ServerCreate(BaseModel):
+class ServerCreate(_ServerFields):
     name: str = Field(min_length=1, max_length=128)
     host: str = Field(min_length=1, max_length=255)
     public_host: str | None = Field(default=None, max_length=255)
@@ -33,7 +67,7 @@ class ServerCreate(BaseModel):
     services: list[ServiceSpec] = Field(default_factory=list)
 
 
-class ServerUpdate(BaseModel):
+class ServerUpdate(_ServerFields):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     host: str | None = Field(default=None, min_length=1, max_length=255)
     public_host: str | None = Field(default=None, max_length=255)

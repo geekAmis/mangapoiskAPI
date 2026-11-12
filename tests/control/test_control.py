@@ -19,6 +19,33 @@ def test_secret_box_roundtrip() -> None:
     assert box.decrypt(encrypted) == "super-secret-password"
 
 
+def test_server_fields_reject_shell_injection() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ServerCreate(
+            name="bad\n[Service]",
+            host="127.0.0.1",
+            username="root",
+            password="secret",
+        )
+    with pytest.raises(ValidationError):
+        ServerCreate(
+            name="bad",
+            host="127.0.0.1",
+            username="root; rm -rf /",
+            password="secret",
+        )
+    with pytest.raises(ValidationError):
+        ServerCreate(
+            name="bad",
+            host="127.0.0.1",
+            username="root",
+            password="secret",
+            bind_host="0.0.0.0\nExecStartPre=/bin/sh -c id",
+        )
+
+
 def test_partial_deploy_merges_inventory() -> None:
     assert merge_deployed_services(
         [("parser", 8101), ("catalog", 8102)], [("gateway", 8100)]
@@ -90,6 +117,16 @@ async def test_server_crud_and_registry(tmp_path: Path) -> None:
     assert "systemd-run" in control_script
     assert 'systemctl restart "mangapoisk-control.service"' not in control_script
     assert "ensurepip" in control_script
+    assert "env/control.env" in control_script
+
+    server_model = await service._server_model(created.id)
+    base_env = service.deployer._env_file(server_model, "127.0.0.1", {})
+    assert "ADMIN_PASSWORD" not in base_env
+    assert "CONTROL_SECRET_KEY" not in base_env
+    extras = service.deployer._service_env_files([("control", 8005)])
+    assert "env/control.env" in extras
+    assert "ADMIN_PASSWORD" in extras
+    assert "CONTROL_SECRET_KEY" in extras
 
     with pytest.raises(ConflictError) as duplicate:
         await service.create(
