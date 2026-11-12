@@ -15,6 +15,7 @@ from manga_common.errors import NotFoundError
 from manga_common.source_models import SourceInfo
 
 from .adapters.base import BaseAdapter
+from .adapters.hentailib import HentaiLibAdapter
 from .adapters.mangadex import MangaDexAdapter
 from .adapters.mangalib import MangaLibAdapter
 from .adapters.mangapoisk import MangaPoiskAdapter
@@ -83,6 +84,7 @@ def build_registry(
         RemangaAdapter(client, settings, cache),
         ReadMangaAdapter(client, settings, cache),
         MangaDexAdapter(client, settings, cache),
+        HentaiLibAdapter(client, settings, cache),
     ]
     enabled = getattr(settings, "enabled_source_codes", set())
     if enabled:

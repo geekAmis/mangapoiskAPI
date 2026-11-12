@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from manga_common.db import retry_on_locked
-from manga_common.errors import NotFoundError, UpstreamError
+from manga_common.errors import ForbiddenError, NotFoundError, UpstreamError
 from manga_common.schemas import (
     ChapterOut,
     CoverOut,
@@ -140,8 +140,28 @@ def _crawl_state_out(state) -> CrawlStateOut:  # type: ignore[no-untyped-def]
     )
 
 
-def _chapter_out(chapter) -> ChapterOut:  # type: ignore[no-untyped-def]
-    return ChapterOut.model_validate(chapter)
+def _chapter_out(chapter, manga=None) -> ChapterOut:  # type: ignore[no-untyped-def]
+    payload = ChapterOut.model_validate(chapter)
+    if manga is not None:
+        payload.adult_only = bool(manga.adult_only)
+        payload.requires_age_confirmation = bool(manga.requires_age_confirmation)
+    return payload
+
+
+def _ensure_adult_access(manga, *, adult_allowed: bool) -> None:  # type: ignore[no-untyped-def]
+    """Refuse age-gated titles without leaking any of their content."""
+
+    if adult_allowed:
+        return
+    if bool(manga.adult_only or manga.requires_age_confirmation):
+        raise ForbiddenError(
+            "Для просмотра этого тайтла нужно подтвердить возраст 18+",
+            code="age_confirmation_required",
+            details={
+                "manga_id": str(manga.id),
+                "age_confirmation_required": True,
+            },
+        )
 
 
 class CatalogService:
@@ -156,8 +176,41 @@ class CatalogService:
         self.parser = parser
 
     async def import_from_source(
-        self, source: str, *, source_id: str | None = None, url: str | None = None
+        self,
+        source: str,
+        *,
+        source_id: str | None = None,
+        url: str | None = None,
+        adult_allowed: bool = False,
     ) -> ImportResult:
+        from .repository import ensure_source
+
+        async with self.session_factory() as session:
+            source_row = await ensure_source(session, source)
+            if (source_row.adult_only or source_row.requires_age_confirmation) and not adult_allowed:
+                raise ForbiddenError(
+                    "Для просмотра этого источника нужно подтвердить возраст 18+",
+                    code="age_confirmation_required",
+                    details={"source": source, "age_confirmation_required": True},
+                )
+            await session.commit()
+        if not adult_allowed:
+            # A source row may not have been synchronised yet (first deploy or
+            # a manual import).  Ask the parser registry for the authoritative
+            # adult flags before calling the upstream.
+            try:
+                infos = await self.parser.sources()
+            except Exception:
+                infos = []
+            selected = next((item for item in infos if item.code == source), None)
+            if selected is not None and (
+                selected.adult_only or selected.requires_age_confirmation
+            ):
+                raise ForbiddenError(
+                    "Для просмотра этого источника нужно подтвердить возраст 18+",
+                    code="age_confirmation_required",
+                    details={"source": source, "age_confirmation_required": True},
+                )
         detail = await self.parser.manga(source, source_id=source_id, url=url)
         return await self.import_detail(detail)
 
@@ -170,7 +223,7 @@ class CatalogService:
             manga_out = _manga_out(manga, covers)
             detail_out = MangaDetailOut(
                 **manga_out.model_dump(),
-                chapters=[_chapter_out(chapter) for chapter in chapters],
+                chapters=[_chapter_out(chapter, manga) for chapter in chapters],
             )
             return ImportResult(
                 manga=detail_out,
@@ -178,7 +231,7 @@ class CatalogService:
                 created=created,
                 imported_chapters=len(new_chapters),
                 imported_pages=sum(chapter.page_count for chapter in new_chapters),
-                new_chapters=[_chapter_out(chapter) for chapter in new_chapters],
+                new_chapters=[_chapter_out(chapter, manga) for chapter in new_chapters],
             )
 
     async def import_summary(self, summary) -> MangaOut:  # type: ignore[no-untyped-def]
@@ -190,21 +243,30 @@ class CatalogService:
             covers = await covers_for_group(session, manga.group_key)
             return _manga_out(manga, covers)
 
-    async def chapter_meta(self, chapter_id: uuid.UUID) -> ChapterOut:
+    async def chapter_meta(
+        self, chapter_id: uuid.UUID, *, adult_allowed: bool = False
+    ) -> ChapterOut:
         async with self.session_factory() as session:
             chapter = await get_chapter(session, chapter_id)
             if chapter is None:
                 raise NotFoundError("Chapter not found")
-            return _chapter_out(chapter)
+            manga = await find_manga(session, chapter.manga_id)
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            _ensure_adult_access(manga, adult_allowed=adult_allowed)
+            return _chapter_out(chapter, manga)
 
-    async def variants(self, manga_id: uuid.UUID) -> MangaVariantsOut:
+    async def variants(
+        self, manga_id: uuid.UUID, *, adult_allowed: bool = False
+    ) -> MangaVariantsOut:
         from .repository import manga_variants
 
         async with self.session_factory() as session:
             manga = await find_manga(session, manga_id)
             if manga is None:
                 raise NotFoundError("Manga not found")
-            rows = await manga_variants(session, manga)
+            _ensure_adult_access(manga, adult_allowed=adult_allowed)
+            rows = await manga_variants(session, manga, adult_allowed=adult_allowed)
             return MangaVariantsOut(
                 primary_id=manga.id,
                 items=[
@@ -225,17 +287,20 @@ class CatalogService:
                 ],
             )
 
-    async def manga_detail(self, manga_id: uuid.UUID) -> MangaDetailOut:
+    async def manga_detail(
+        self, manga_id: uuid.UUID, *, adult_allowed: bool = False
+    ) -> MangaDetailOut:
         async with self.session_factory() as session:
             manga = await find_manga(session, manga_id)
             if manga is None:
                 raise NotFoundError("Manga not found")
+            _ensure_adult_access(manga, adult_allowed=adult_allowed)
             chapters = await get_manga_chapters(session, manga_id, limit=2000)
             covers = await covers_for_group(session, manga.group_key)
             manga_out = _manga_out(manga, covers)
             return MangaDetailOut(
                 **manga_out.model_dump(),
-                chapters=[_chapter_out(chapter) for chapter in chapters],
+                chapters=[_chapter_out(chapter, manga) for chapter in chapters],
             )
 
     async def recommendations(self, payload: RecommendationRequest) -> RecommendationResult:
@@ -265,12 +330,17 @@ class CatalogService:
         recommendation_cache.set(key, result)
         return result
 
-    async def related(self, manga_id: uuid.UUID) -> RelatedMangaOut:
+    async def related(
+        self, manga_id: uuid.UUID, *, adult_allowed: bool = False
+    ) -> RelatedMangaOut:
         async with self.session_factory() as session:
             manga = await find_manga(session, manga_id)
             if manga is None:
                 raise NotFoundError("Manga not found")
-            series, related = await manga_relations(session, manga_id)
+            _ensure_adult_access(manga, adult_allowed=adult_allowed)
+            series, related = await manga_relations(
+                session, manga_id, adult_allowed=adult_allowed
+            )
             return RelatedMangaOut(
                 series=[_manga_out(row) for row in series],
                 related=[_manga_out(row) for row in related],
@@ -301,19 +371,22 @@ class CatalogService:
             await session.commit()
             return RelationsOut(linked=linked)
 
-    async def manga_by_source(self, source: str, source_id: str) -> MangaDetailOut:
+    async def manga_by_source(
+        self, source: str, source_id: str, *, adult_allowed: bool = False
+    ) -> MangaDetailOut:
         from .repository import find_manga_by_source
 
         async with self.session_factory() as session:
             manga = await find_manga_by_source(session, source, source_id)
             if manga is None:
                 raise NotFoundError("Manga not found")
+            _ensure_adult_access(manga, adult_allowed=adult_allowed)
             chapters = await get_manga_chapters(session, manga.id, limit=2000)
             covers = await covers_for_group(session, manga.group_key)
             manga_out = _manga_out(manga, covers)
             return MangaDetailOut(
                 **manga_out.model_dump(),
-                chapters=[_chapter_out(chapter) for chapter in chapters],
+                chapters=[_chapter_out(chapter, manga) for chapter in chapters],
             )
 
     async def list(
@@ -326,6 +399,7 @@ class CatalogService:
         year: int | None = None,
         status: str | None = None,
         include_empty: bool = False,
+        adult_allowed: bool = False,
         sort: str = "popular",
         page: int = 1,
         limit: int = 24,
@@ -341,6 +415,7 @@ class CatalogService:
                     year=year,
                     status=status,
                     include_empty=include_empty,
+                    adult_allowed=adult_allowed,
                     sort=sort,
                     page=page,
                     limit=limit,
@@ -355,12 +430,16 @@ class CatalogService:
 
         return await retry_on_locked(read)
 
-    async def suggest(self, query: str, *, limit: int = 6) -> SuggestResponse:
+    async def suggest(
+        self, query: str, *, limit: int = 6, adult_allowed: bool = False
+    ) -> SuggestResponse:
         """Instant local suggestions; this method has no parser dependency."""
 
         async def read() -> SuggestResponse:
             async with self.session_factory() as session:
-                rows = await suggest_manga(session, query, limit=limit)
+                rows = await suggest_manga(
+                    session, query, limit=limit, adult_allowed=adult_allowed
+                )
                 items = [
                     SearchSuggestionOut(
                         id=row.id,
@@ -378,12 +457,19 @@ class CatalogService:
         return await retry_on_locked(read)
 
     async def chapters(
-        self, manga_id: uuid.UUID, *, query: str | None = None, page: int = 1, limit: int = 200
+        self,
+        manga_id: uuid.UUID,
+        *,
+        query: str | None = None,
+        page: int = 1,
+        limit: int = 200,
+        adult_allowed: bool = False,
     ) -> list[ChapterOut]:
         async with self.session_factory() as session:
             manga = await find_manga(session, manga_id)
             if manga is None:
                 raise NotFoundError("Manga not found")
+            _ensure_adult_access(manga, adult_allowed=adult_allowed)
             chapters = await get_manga_chapters(
                 session,
                 manga_id,
@@ -391,15 +477,23 @@ class CatalogService:
                 offset=(page - 1) * limit,
                 query=query,
             )
-            return [_chapter_out(chapter) for chapter in chapters]
+            return [_chapter_out(chapter, manga) for chapter in chapters]
 
     async def chapter_detail(
-        self, chapter_id: uuid.UUID, *, refresh: bool = True
+        self,
+        chapter_id: uuid.UUID,
+        *,
+        refresh: bool = True,
+        adult_allowed: bool = False,
     ) -> ChapterDetailInternal:
         async with self.session_factory() as session:
             chapter = await get_chapter(session, chapter_id)
             if chapter is None:
                 raise NotFoundError("Chapter not found")
+            manga = await find_manga(session, chapter.manga_id)
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            _ensure_adult_access(manga, adult_allowed=adult_allowed)
             cached_at = chapter.pages_cached_at
             if cached_at is not None and cached_at.tzinfo is None:
                 cached_at = cached_at.replace(tzinfo=UTC)
@@ -455,7 +549,7 @@ class CatalogService:
                 )
                 for idx, page in enumerate(chapter.pages or [])
             ]
-            base = _chapter_out(chapter)
+            base = _chapter_out(chapter, manga)
             return ChapterDetailInternal(
                 **base.model_dump(),
                 pages=[page.model_dump(mode="json") for page in pages],
@@ -533,10 +627,17 @@ class CatalogService:
 
         return await retry_on_locked(read)
 
-    async def source_rows(self) -> list[Any]:
+    async def source_rows(self, *, adult_allowed: bool = False) -> list[Any]:
         async def read() -> list[Any]:
             async with self.session_factory() as session:
-                return list(await list_sources(session))
+                rows = list(await list_sources(session))
+                if not adult_allowed:
+                    rows = [
+                        row
+                        for row in rows
+                        if not (row.adult_only or row.requires_age_confirmation)
+                    ]
+                return rows
 
         return await retry_on_locked(read)
 

@@ -9,6 +9,7 @@ interface AuthState {
   setSession: (pair: TokenPair) => void;
   setAccessToken: (token: string) => void;
   setUser: (user: UserOut) => void;
+  setAgeConfirmedAt: (value: string | null) => void;
   clear: () => void;
 }
 
@@ -26,6 +27,10 @@ export const useAuthStore = create<AuthState>()(
         }),
       setAccessToken: (token) => set({ accessToken: token }),
       setUser: (user) => set({ user }),
+      setAgeConfirmedAt: (value) =>
+        set((state) => ({
+          user: state.user ? { ...state.user, age_confirmed_at: value } : state.user,
+        })),
       clear: () => set({ accessToken: null, refreshToken: null, user: null }),
     }),
     {

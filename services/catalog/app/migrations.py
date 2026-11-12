@@ -44,6 +44,22 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
         # older deployments and direct ``ensure_runtime_schema`` calls safe.
         await connection.run_sync(Base.metadata.create_all)
         if dialect == "sqlite":
+            result = await connection.execute(text("PRAGMA table_info(sources)"))
+            source_columns = {row[1] for row in result.fetchall()}
+            if "adult_only" not in source_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE sources ADD COLUMN adult_only "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "requires_age_confirmation" not in source_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE sources ADD COLUMN requires_age_confirmation "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
             result = await connection.execute(text("PRAGMA table_info(chapters)"))
             chapter_columns = {row[1] for row in result.fetchall()}
             if "translator" not in chapter_columns:
@@ -55,6 +71,20 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             if "group_key" not in manga_columns:
                 await connection.execute(
                     text("ALTER TABLE manga ADD COLUMN group_key VARCHAR(255)")
+                )
+            if "adult_only" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN adult_only "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "requires_age_confirmation" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN requires_age_confirmation "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
                 )
             if "status_key" not in manga_columns:
                 await connection.execute(
@@ -106,6 +136,11 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_adult_only ON manga (adult_only)"
+                )
+            )
+            await connection.execute(
+                text(
                     "CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)"
                 )
             )
@@ -151,10 +186,34 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
         else:
             await connection.execute(
+                text(
+                    "ALTER TABLE sources ADD COLUMN IF NOT EXISTS adult_only "
+                    "BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE sources ADD COLUMN IF NOT EXISTS "
+                    "requires_age_confirmation BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+            await connection.execute(
                 text("ALTER TABLE chapters ADD COLUMN IF NOT EXISTS translator VARCHAR(255)")
             )
             await connection.execute(
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS group_key VARCHAR(255)")
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS adult_only "
+                    "BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "requires_age_confirmation BOOLEAN NOT NULL DEFAULT FALSE"
+                )
             )
             await connection.execute(
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS status_key VARCHAR(64)")
@@ -217,6 +276,9 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_adult_only ON manga (adult_only)")
             )
             await connection.execute(
                 text(

@@ -11,7 +11,9 @@ class CatalogSpy:
     def __init__(self) -> None:
         self.queries: list[tuple[str, int]] = []
 
-    async def suggest(self, q: str, *, limit: int = 6) -> SuggestResponse:
+    async def suggest(
+        self, q: str, *, limit: int = 6, adult_allowed: bool = False
+    ) -> SuggestResponse:
         self.queries.append((q, limit))
         return SuggestResponse(
             query=q,

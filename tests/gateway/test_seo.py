@@ -10,12 +10,20 @@ from fastapi.testclient import TestClient
 from services.gateway.app import seo
 
 
-def _manga(manga_id: str, *, chapters: int, updated: datetime | None = None) -> SimpleNamespace:
+def _manga(
+    manga_id: str,
+    *,
+    chapters: int,
+    updated: datetime | None = None,
+    adult_only: bool = False,
+) -> SimpleNamespace:
     return SimpleNamespace(
         id=manga_id,
         chapters_count=chapters,
         last_chapter_at=updated,
         updated_at=updated,
+        adult_only=adult_only,
+        requires_age_confirmation=adult_only,
     )
 
 
@@ -102,6 +110,26 @@ def test_sitemap_lists_only_titles_with_chapters_and_caches() -> None:
     assert second.status_code == 200
     assert second.text == response.text
     assert catalog.calls == calls_after_first_request
+    seo.reset_sitemap_cache()
+
+
+def test_sitemap_fallback_excludes_adult_only_titles() -> None:
+    seo.reset_sitemap_cache()
+    client = _client(
+        {
+            1: SimpleNamespace(
+                items=[
+                    _manga("public-title", chapters=2),
+                    _manga("adult-title", chapters=5, adult_only=True),
+                ],
+                has_next=False,
+            )
+        }
+    )
+    response = client.get("/sitemap.xml")
+    assert response.status_code == 200
+    assert "<loc>https://example.test/manga/public-title</loc>" in response.text
+    assert "adult-title" not in response.text
     seo.reset_sitemap_cache()
 
 

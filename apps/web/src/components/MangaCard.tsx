@@ -16,7 +16,8 @@ interface MangaCardProps {
 
 export function MangaCard({ manga, action, eager = false, compact = false }: MangaCardProps) {
   const blurAdultPosters = useReaderStore((state) => state.blurAdultPosters);
-  const shouldBlur = manga.adult && blurAdultPosters;
+  const adult = Boolean(manga.adult || manga.adult_only || manga.requires_age_confirmation);
+  const shouldBlur = adult && blurAdultPosters;
   const meta = [manga.year ? String(manga.year) : null, chaptersLabel(manga.chapters_count)].filter(Boolean);
 
   return (
@@ -25,7 +26,7 @@ export function MangaCard({ manga, action, eager = false, compact = false }: Man
         <Link
           to={`/manga/${manga.id}`}
           className="manga-card__cover"
-          aria-label={`${manga.title}${manga.adult ? ', 18+' : ''}`}
+          aria-label={`${manga.title}${adult ? ', 18+' : ''}`}
         >
           <Poster
             src={manga.poster_url}
@@ -37,7 +38,7 @@ export function MangaCard({ manga, action, eager = false, compact = false }: Man
           <span className="manga-card__rating">
             <Rating value={manga.rating} compact />
           </span>
-          {manga.adult ? (
+          {adult ? (
             <span className="manga-card__adult" title={shouldBlur ? 'Обложка скрыта настройкой 18+' : 'Контент 18+'}>
               18+
             </span>

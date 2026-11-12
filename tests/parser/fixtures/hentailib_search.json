@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "id": 33052,
+      "name": "Adabana",
+      "rus_name": "Пустоцвет",
+      "eng_name": "Adabana",
+      "model": "manga",
+      "slug": "adabana",
+      "slug_url": "33052--adabana",
+      "cover": {
+        "thumbnail": "https://cover.hentaicdn.org/adabana_thumb.jpg",
+        "default": "https://cover.hentaicdn.org/adabana.jpg",
+        "md": "https://cover.hentaicdn.org/adabana_md.jpg"
+      },
+      "ageRestriction": {"id": 5, "label": "18+ (RX)"},
+      "site": 4,
+      "type": {"id": 1, "label": "Манга"},
+      "is_licensed": false,
+      "status": {"id": 2, "label": "Завершён"},
+      "releaseDateString": "2020 г."
+    }
+  ],
+  "meta": {"current_page": 1, "has_next_page": false, "items_count": 1}
+}

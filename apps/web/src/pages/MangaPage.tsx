@@ -1,10 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api, listItems, resolveApiUrl } from '../api/client';
+import { ApiError, api, listItems, resolveApiUrl } from '../api/client';
 import { notificationsApi } from '../api/notifications';
 import type { ChapterOut, MangaDetailOut, MangaVariantOut } from '../api/types';
 import { AdSlot } from '../components/ads/AdSlot';
+import { AdultNotice } from '../components/AdultNotice';
+import { AgeGate } from '../components/AgeGate';
 import { ChapterRow } from '../components/ChapterRow';
 import { CommentsSection } from '../components/CommentsSection';
 import { EmptyState } from '../components/EmptyState';
@@ -145,6 +147,10 @@ export default function MangaPage() {
     enabled: Boolean(id),
   });
   const manga = mangaQuery.data;
+  const ageBlocked =
+    mangaQuery.error instanceof ApiError &&
+    mangaQuery.error.status === 403 &&
+    mangaQuery.error.code === 'age_confirmation_required';
 
   const variantsQuery = useQuery({
     queryKey: ['manga', id, 'variants'],
@@ -289,7 +295,12 @@ export default function MangaPage() {
     title: seoTitle,
     description: mangaMetaDescription(manga, viewTitle),
     canonical: seoCanonical,
-    robots: mangaQuery.isError ? 'noindex,follow' : 'index,follow,max-image-preview:large',
+    robots:
+      ageBlocked || manga?.adult_only || manga?.requires_age_confirmation
+        ? 'noindex,nofollow'
+        : mangaQuery.isError
+          ? 'noindex,follow'
+          : 'index,follow,max-image-preview:large',
     image: seoCover,
     imageAlt: viewTitle ? `Обложка «${viewTitle}»` : undefined,
     type: 'book',
@@ -403,6 +414,14 @@ export default function MangaPage() {
   }, [deferredChapterSearch, chapterSort, translationFilter, activeVariantId]);
 
   if (!manga) {
+    if (ageBlocked) {
+      return (
+        <AgeGate
+          signedIn={Boolean(user)}
+          onConfirmed={() => void mangaQuery.refetch()}
+        />
+      );
+    }
     if (mangaQuery.isLoading) {
       return (
         <div className="page container manga-page">
@@ -436,6 +455,19 @@ export default function MangaPage() {
           }
         />
       </div>
+    );
+  }
+
+  // Defence in depth against a cached adult response after logout/revoke.
+  if (
+    (manga.adult_only || manga.requires_age_confirmation) &&
+    !user?.age_confirmed_at
+  ) {
+    return (
+      <AgeGate
+        signedIn={Boolean(user)}
+        onConfirmed={() => void mangaQuery.refetch()}
+      />
     );
   }
 
@@ -645,6 +677,10 @@ export default function MangaPage() {
         <Icon name="chevron-right" size={13} />
         <span aria-current="page">{displayTitle}</span>
       </nav>
+
+      {viewManga.adult_only || viewManga.requires_age_confirmation || viewManga.adult ? (
+        <AdultNotice source={viewManga.source} />
+      ) : null}
 
       {mangaQuery.isError ? (
         <div className="manga-inline-error">
@@ -1275,7 +1311,9 @@ export default function MangaPage() {
           )}
         </section>
 
-        <AdSlot placement="sidebar" adult={viewManga.adult} />
+        {viewManga.adult_only || viewManga.requires_age_confirmation ? null : (
+          <AdSlot placement="sidebar" adult={viewManga.adult} />
+        )}
       </div>
 
       <RelatedShelf mangaId={id} />

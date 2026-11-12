@@ -18,6 +18,8 @@ class SourceOut(BaseModel):
     language: str = "ru"
     enabled: bool = True
     requires_cookies: bool = False
+    adult_only: bool = False
+    requires_age_confirmation: bool = False
     capabilities: dict[str, bool] = Field(default_factory=dict)
 
 
@@ -41,6 +43,8 @@ class ChapterOut(ORMModel):
     page_count: int = 0
     url: str | None = None
     is_external: bool = False
+    adult_only: bool = False
+    requires_age_confirmation: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -89,6 +93,8 @@ class MangaOut(ORMModel):
     rating_count: int | None = None
     poster_url: str | None = None
     adult: bool = False
+    adult_only: bool = False
+    requires_age_confirmation: bool = False
     genres: list[str] = Field(default_factory=list)
     genre_slugs: list[str] = Field(default_factory=list)
     genre_details: list[GenreRefOut] = Field(default_factory=list)
@@ -226,6 +232,20 @@ class UserOut(ORMModel):
     display_name: str
     role: str = "user"
     created_at: datetime | None = None
+    age_confirmed_at: datetime | None = None
+
+
+class AgeStatusOut(BaseModel):
+    """Self-confirmed 18+ status for the current account."""
+
+    age_confirmed: bool = False
+    age_confirmed_at: datetime | None = None
+
+
+class AgeConfirmRequest(BaseModel):
+    """Explicit self-confirmation; the body is optional but must be true."""
+
+    confirm: bool = True
 
 
 class RegisterRequest(BaseModel):

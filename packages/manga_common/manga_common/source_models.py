@@ -30,6 +30,11 @@ class SourceInfo(BaseModel):
     language: str = "ru"
     enabled: bool = True
     requires_cookies: bool = False
+    # Adult-only sources are never exposed to guests or users who have not
+    # confirmed they are 18+.  ``requires_age_confirmation`` is the stricter
+    # per-title flag used by the catalogue and gateway.
+    adult_only: bool = False
+    requires_age_confirmation: bool = False
     capabilities: SourceCapabilities = Field(default_factory=SourceCapabilities)
     notes: str | None = None
 
@@ -69,6 +74,8 @@ class MangaSummary(BaseModel):
     rating_count: int | None = None
     poster_url: str | None = None
     adult: bool = False
+    adult_only: bool = False
+    requires_age_confirmation: bool = False
     genres: list[str] = Field(default_factory=list)
     url: str | None = None
     updated_at: datetime | None = None

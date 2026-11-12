@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from manga_common.schemas import (
+    AgeStatusOut,
     AnalyticsEventsIn,
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
@@ -94,6 +95,30 @@ async def me(
     service: LibraryService = Depends(get_service),
 ) -> UserOut:
     return await service.me(uuid.UUID(user.id))
+
+
+@router.get("/me/age-status", response_model=AgeStatusOut)
+async def age_status(
+    user: UserClaims = Depends(require_user),
+    service: LibraryService = Depends(get_service),
+) -> AgeStatusOut:
+    return await service.age_status(uuid.UUID(user.id))
+
+
+@router.post("/me/age-confirm", response_model=AgeStatusOut)
+async def age_confirm(
+    user: UserClaims = Depends(require_user),
+    service: LibraryService = Depends(get_service),
+) -> AgeStatusOut:
+    return await service.confirm_age(uuid.UUID(user.id))
+
+
+@router.delete("/me/age-confirm", response_model=AgeStatusOut)
+async def age_revoke(
+    user: UserClaims = Depends(require_user),
+    service: LibraryService = Depends(get_service),
+) -> AgeStatusOut:
+    return await service.revoke_age(uuid.UUID(user.id))
 
 
 @router.get("/me/bookmarks", response_model=list[BookmarkOut])

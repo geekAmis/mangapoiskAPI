@@ -1,5 +1,6 @@
 import { useAuthStore } from '../stores/auth';
 import type {
+  AgeStatusOut,
   AnalyticsEventIn,
   AnalyticsIngestOut,
   ApiErrorBody,
@@ -272,7 +273,7 @@ export const api = {
     request<HealthOut>('/health', { auth: false, signal }),
 
   sources: (signal?: AbortSignal) =>
-    request<SourceOut[]>('/sources', { auth: false, signal }),
+    request<SourceOut[]>('/sources', { signal }),
 
   homeUpdates: (limit = 25, signal?: AbortSignal) =>
     request<HomeUpdatesOut>(`/home/updates?limit=${encodeURIComponent(String(limit))}`, {
@@ -293,7 +294,6 @@ export const api = {
         page: params.page,
         limit: params.limit,
       },
-      auth: false,
       signal,
     }),
 
@@ -306,7 +306,6 @@ export const api = {
         page: params.page,
         limit: params.limit,
       },
-      auth: false,
       signal,
     }),
 
@@ -314,24 +313,21 @@ export const api = {
   suggestManga: (q: string, limit = 6, signal?: AbortSignal) =>
     request<SuggestResponse>('/manga/suggest', {
       query: { q, limit },
-      auth: false,
       signal,
     }),
 
   getManga: (id: string, signal?: AbortSignal) =>
-    request<MangaDetailOut>(`/manga/${encodeURIComponent(id)}`, { auth: false, signal }),
+    request<MangaDetailOut>(`/manga/${encodeURIComponent(id)}`, { signal }),
 
   /** Группа каталожных записей одного тайтла из разных источников. */
   getMangaVariants: (id: string, signal?: AbortSignal) =>
     request<MangaVariantsOut>(`/manga/${encodeURIComponent(id)}/variants`, {
-      auth: false,
       signal,
     }),
 
   getMangaChapters: (id: string, params: ChapterListParams = {}, signal?: AbortSignal) =>
     request<ItemList<ChapterOut>>(`/manga/${encodeURIComponent(id)}/chapters`, {
       query: { page: params.page, limit: params.limit },
-      auth: false,
       signal,
     }),
 
@@ -339,14 +335,13 @@ export const api = {
     request<ImportMangaResponse>('/manga/import', {
       method: 'POST',
       body,
-      auth: false,
     }),
 
   getChapter: (id: string, signal?: AbortSignal) =>
-    request<ChapterDetailOut>(`/chapters/${encodeURIComponent(id)}`, { auth: false, signal }),
+    request<ChapterDetailOut>(`/chapters/${encodeURIComponent(id)}`, { signal }),
 
   getChapterPages: (id: string, signal?: AbortSignal) =>
-    request<PageOut[]>(`/chapters/${encodeURIComponent(id)}/pages`, { auth: false, signal }),
+    request<PageOut[]>(`/chapters/${encodeURIComponent(id)}/pages`, { signal }),
 
   chapterImageUrl: (chapterId: string, pageNumber: number) =>
     buildUrl(
@@ -384,6 +379,15 @@ export const api = {
     }),
 
   me: (signal?: AbortSignal) => request<UserOut>('/auth/me', { auth: true, signal }),
+
+  ageStatus: (signal?: AbortSignal) =>
+    request<AgeStatusOut>('/profile/age-status', { auth: true, signal }),
+
+  confirmAge: () =>
+    request<AgeStatusOut>('/profile/age-confirm', { method: 'POST', auth: true }),
+
+  revokeAge: () =>
+    request<AgeStatusOut>('/profile/age-confirm', { method: 'DELETE', auth: true }),
 
   getBookmarks: (signal?: AbortSignal) =>
     request<ItemList<BookmarkOut>>('/library/bookmarks', { auth: true, signal }),

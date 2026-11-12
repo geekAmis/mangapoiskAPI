@@ -30,6 +30,11 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(64), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Self-confirmed 18+ date.  NULL means not confirmed or revoked; no
+    # identity documents are collected.
+    age_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     refresh_tokens: Mapped[list[RefreshToken]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True

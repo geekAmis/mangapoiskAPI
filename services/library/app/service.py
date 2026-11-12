@@ -15,6 +15,7 @@ from manga_common.auth import (
 )
 from manga_common.errors import ConflictError, NotFoundError, UnauthorizedError
 from manga_common.schemas import (
+    AgeStatusOut,
     AnalyticsEventIn,
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
@@ -87,7 +88,16 @@ class LibraryService:
             self.settings,
             subject=str(user.id),
             role=user.role,
-            extra={"display_name": user.display_name, "username": user.display_name},
+            extra={
+                "display_name": user.display_name,
+                "username": user.display_name,
+                "age_confirmed": user.age_confirmed_at is not None,
+                "age_confirmed_at": (
+                    user.age_confirmed_at.isoformat()
+                    if user.age_confirmed_at is not None
+                    else None
+                ),
+            },
         )
         refresh = new_refresh_token()
         await create_refresh_token(
@@ -188,6 +198,39 @@ class LibraryService:
             if user is None or not user.is_active:
                 raise UnauthorizedError("Пользователь не найден", code="invalid_user")
             return _user_out(user)
+
+    async def age_status(self, user_id: uuid.UUID) -> AgeStatusOut:
+        async with self.session_factory() as session:
+            user = await get_user(session, user_id)
+            if user is None or not user.is_active:
+                raise UnauthorizedError("Пользователь не найден", code="invalid_user")
+            return AgeStatusOut(
+                age_confirmed=user.age_confirmed_at is not None,
+                age_confirmed_at=as_utc(user.age_confirmed_at),
+            )
+
+    async def confirm_age(self, user_id: uuid.UUID) -> AgeStatusOut:
+        async with self.session_factory() as session:
+            user = await get_user(session, user_id)
+            if user is None or not user.is_active:
+                raise UnauthorizedError("Пользователь не найден", code="invalid_user")
+            if user.age_confirmed_at is None:
+                user.age_confirmed_at = datetime.now(UTC)
+                await session.commit()
+            return AgeStatusOut(
+                age_confirmed=True,
+                age_confirmed_at=as_utc(user.age_confirmed_at),
+            )
+
+    async def revoke_age(self, user_id: uuid.UUID) -> AgeStatusOut:
+        async with self.session_factory() as session:
+            user = await get_user(session, user_id)
+            if user is None or not user.is_active:
+                raise UnauthorizedError("Пользователь не найден", code="invalid_user")
+            if user.age_confirmed_at is not None:
+                user.age_confirmed_at = None
+                await session.commit()
+            return AgeStatusOut(age_confirmed=False, age_confirmed_at=None)
 
     async def bookmarks(self, user_id: uuid.UUID) -> list[BookmarkOut]:
         async with self.session_factory() as session:

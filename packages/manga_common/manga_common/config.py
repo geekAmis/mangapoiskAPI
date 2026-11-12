@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     mangapoisk_cookie: str | None = None
     mangalib_cookie: str | None = None
     remanga_cookie: str | None = None
+    # HentaiLib is disabled by default and may need an operator session for
+    # the reader endpoint.  The value is never logged or sent to clients.
+    hentailib_cookie: str | None = None
 
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None

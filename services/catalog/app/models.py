@@ -38,6 +38,12 @@ class Source(Base, TimestampMixin):
     language: Mapped[str] = mapped_column(String(16), nullable=False, default="ru")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     requires_cookies: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    adult_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    requires_age_confirmation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     capabilities: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
 
 
@@ -52,6 +58,7 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
         Index("ix_manga_last_synced_at", "last_synced_at"),
         Index("ix_manga_enrichment_retry_at", "enrichment_retry_at"),
+        Index("ix_manga_adult_only", "adult_only"),
         # Partial index keeps the "rows still waiting for search indexing"
         # query cheap even with a 100k-row catalogue.
         Index(
@@ -79,6 +86,12 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     rating_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     adult: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    adult_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    requires_age_confirmation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     genres: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     genres_key: Mapped[str | None] = mapped_column(Text, nullable=True, default="")
     # Denormalised, Python-normalised search document.  See ``search.py``:

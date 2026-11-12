@@ -8,15 +8,26 @@ from services.parser.app.settings import ParserSettings
 
 async def test_registry_lists_all_sources(settings, cache, client) -> None:
     registry = build_registry(client, settings, cache)
-    assert registry.codes() == ["mangapoisk", "mangalib", "remanga", "readmanga", "mangadex"]
+    assert registry.codes() == [
+        "mangapoisk",
+        "mangalib",
+        "remanga",
+        "readmanga",
+        "mangadex",
+        "hentailib",
+    ]
     infos = {info.code: info for info in registry.infos()}
     assert infos["mangapoisk"].enabled is True
     assert infos["mangalib"].enabled is True
     assert infos["remanga"].enabled is True
     assert infos["readmanga"].enabled is False
     assert infos["mangadex"].enabled is False
+    assert infos["hentailib"].enabled is False
+    assert infos["hentailib"].adult_only is True
+    assert infos["hentailib"].requires_age_confirmation is True
     assert infos["mangalib"].capabilities.pages is True
     assert infos["mangadex"].capabilities.pages is True
+    assert infos["hentailib"].capabilities.pages is True
 
 
 async def test_registry_requires_enabled_source(settings, cache, client) -> None:

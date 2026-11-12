@@ -18,6 +18,8 @@ export interface SourceOut {
   language: string;
   enabled: boolean;
   requires_cookies: boolean;
+  adult_only?: boolean;
+  requires_age_confirmation?: boolean;
   capabilities: Record<string, boolean>;
 }
 
@@ -40,6 +42,8 @@ export interface ChapterOut {
   page_count: number;
   url: string | null;
   is_external: boolean;
+  adult_only?: boolean;
+  requires_age_confirmation?: boolean;
   /** Перевод/команда, выпустившая главу. Может отсутствовать у старых ответов API. */
   translator?: string | null;
   created_at: string | null;
@@ -83,6 +87,8 @@ export interface MangaOut {
   rating_count: number | null;
   poster_url: string | null;
   adult: boolean;
+  adult_only?: boolean;
+  requires_age_confirmation?: boolean;
   genres: string[];
   genre_slugs?: string[];
   covers?: CoverOut[];
@@ -193,6 +199,12 @@ export interface UserOut {
   display_name: string;
   role: string;
   created_at: string | null;
+  age_confirmed_at?: string | null;
+}
+
+export interface AgeStatusOut {
+  age_confirmed: boolean;
+  age_confirmed_at: string | null;
 }
 
 export interface TokenPair {

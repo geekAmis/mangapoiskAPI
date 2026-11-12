@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../api/client';
 import { api } from '../api/client';
 import { Icon } from '../components/Icon';
@@ -83,6 +83,40 @@ export default function ProfilePage() {
     if (meQuery.data) setUser(meQuery.data);
   }, [meQuery.data, setUser]);
 
+  const queryClient = useQueryClient();
+  const setAgeConfirmedAt = useAuthStore((state) => state.setAgeConfirmedAt);
+  const [ageChecked, setAgeChecked] = useState(false);
+  const ageQuery = useQuery({
+    queryKey: ['profile', 'age-status'],
+    queryFn: ({ signal }) => api.ageStatus(signal),
+    enabled: Boolean(user),
+    retry: false,
+  });
+  const confirmAge = useMutation({
+    mutationFn: () => api.confirmAge(),
+    onSuccess: (status) => {
+      setAgeConfirmedAt(status.age_confirmed_at);
+      void queryClient.invalidateQueries({ queryKey: ['profile', 'age-status'] });
+      void queryClient.invalidateQueries({ queryKey: ['manga'] });
+      void queryClient.invalidateQueries({ queryKey: ['sources'] });
+      toast.success('Возраст 18+ подтверждён');
+    },
+    onError: (error) => toast.error(humanizeError(error, 'Не удалось подтвердить возраст')),
+  });
+  const revokeAge = useMutation({
+    mutationFn: () => api.revokeAge(),
+    onSuccess: () => {
+      setAgeConfirmedAt(null);
+      void queryClient.invalidateQueries({ queryKey: ['profile', 'age-status'] });
+      void queryClient.invalidateQueries({ queryKey: ['manga'] });
+      void queryClient.invalidateQueries({ queryKey: ['library'] });
+      void queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      toast.info('Подтверждение 18+ отозвано');
+    },
+    onError: (error) => toast.error(humanizeError(error, 'Не удалось отозвать подтверждение')),
+  });
+  const ageConfirmed = Boolean(ageQuery.data?.age_confirmed ?? Boolean(user?.age_confirmed_at));
+
   return (
     <div className="page container">
       <div className="page-head">
@@ -132,6 +166,10 @@ export default function ProfilePage() {
             <a href="#notifications">
               <Icon name="bell" size={17} />
               Уведомления
+            </a>
+            <a href="#adult">
+              <Icon name="shield" size={17} />
+              Контент 18+
             </a>
             <a href="#account">
               <Icon name="user" size={17} />
@@ -356,6 +394,75 @@ export default function ProfilePage() {
           </section>
 
           <NotificationSettingsPanel />
+
+          <section className="panel" id="adult" aria-labelledby="adult-title">
+            <div className="panel__head">
+              <div>
+                <h2 className="panel__title" id="adult-title">
+                  <Icon name="shield" size={19} />
+                  Контент 18+
+                </h2>
+                <p className="panel__sub">
+                  Самоподтверждение возраста без документов. Отзыв сразу скрывает
+                  взрослые тайтлы и источник HentaiLib.
+                </p>
+              </div>
+              <span className={`badge ${ageConfirmed ? 'badge--success' : 'badge--muted'}`}>
+                {ageConfirmed ? 'Подтверждён' : 'Не подтверждён'}
+              </span>
+            </div>
+            {ageConfirmed ? (
+              <div className="account-list">
+                <div className="account-list__row">
+                  <span className="account-list__label">Дата подтверждения</span>
+                  <span className="account-list__value">
+                    {formatDate(ageQuery.data?.age_confirmed_at ?? user?.age_confirmed_at)}
+                  </span>
+                </div>
+                <div className="account-list__row">
+                  <span className="account-list__label">Доступ</span>
+                  <span className="account-list__value">
+                    Тайтлы 18+ и HentaiLib видны в каталоге и поиске
+                  </span>
+                </div>
+                <div className="danger-zone__actions" style={{ marginTop: 14 }}>
+                  <button
+                    type="button"
+                    className="btn btn--danger-ghost"
+                    disabled={revokeAge.isPending}
+                    onClick={() => void revokeAge.mutate()}
+                  >
+                    <Icon name="shield" size={17} />
+                    {revokeAge.isPending ? 'Отзываем…' : 'Отозвать подтверждение 18+'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="age-gate age-gate--embedded">
+                <p className="age-gate__text">
+                  Подтвердите, что вам исполнилось 18 лет. Это добровольное
+                  самоподтверждение; мы не запрашиваем паспорт или другие документы.
+                </p>
+                <label className="age-gate__check">
+                  <input
+                    type="checkbox"
+                    checked={ageChecked}
+                    onChange={(event) => setAgeChecked(event.target.checked)}
+                  />
+                  <span>Мне исполнилось 18 лет.</span>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  disabled={!ageChecked || confirmAge.isPending}
+                  onClick={() => void confirmAge.mutate()}
+                >
+                  <Icon name="shield" size={17} />
+                  {confirmAge.isPending ? 'Подтверждаем…' : 'Подтвердить 18+'}
+                </button>
+              </div>
+            )}
+          </section>
 
           <section className="panel" id="account" aria-labelledby="account-title">
             <div className="panel__head">

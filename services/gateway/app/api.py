@@ -23,6 +23,8 @@ from manga_common.errors import (
     ValidationError,
 )
 from manga_common.schemas import (
+    AgeConfirmRequest,
+    AgeStatusOut,
     BookmarkCreate,
     BookmarkOut,
     ChapterDetailOut,
@@ -114,6 +116,28 @@ def _client_ip(request: Request) -> str:
     if real_ip:
         return real_ip
     return request.client.host if request.client else "unknown"
+
+
+async def _viewer_adult_allowed(request: Request, user: UserClaims | None) -> bool:
+    """Resolve the live 18+ confirmation state for the current request.
+
+    The access token carries an ``age_confirmed`` hint, but revocation must hide
+    content immediately.  The library is therefore the source of truth; the
+    claim is only a fallback when the library is unavailable in a degraded
+    deployment or in a focused unit test.
+    """
+
+    if user is None:
+        return False
+    library = getattr(request.app.state, "library", None)
+    checker = getattr(library, "age_status", None)
+    if callable(checker):
+        try:
+            status = await checker(_authorization(request))
+            return bool(getattr(status, "age_confirmed", False))
+        except Exception:
+            logger.debug("age status lookup failed; falling back to JWT claim", exc_info=True)
+    return bool(user.raw.get("age_confirmed")) and bool(user.raw.get("age_confirmed_at"))
 
 
 def _public_chapter(detail: ChapterDetailOut) -> ChapterDetailOut:
@@ -375,11 +399,15 @@ async def health(request: Request) -> dict[str, Any]:
 
 
 @router.get("/sources", response_model=list[SourceOut])
-async def sources(request: Request) -> list[SourceOut]:
+async def sources(
+    request: Request,
+    user: UserClaims | None = Depends(optional_user),
+) -> list[SourceOut]:
     catalog, parser, _, _ = clients(request)
+    adult_allowed = await _viewer_adult_allowed(request, user)
     items: list[SourceOut] = []
     try:
-        items = await catalog.sources()
+        items = await catalog.sources(adult_allowed=adult_allowed)
     except Exception:
         items = []
     if items:
@@ -396,9 +424,12 @@ async def sources(request: Request) -> list[SourceOut]:
             language=source.language,
             enabled=source.enabled,
             requires_cookies=source.requires_cookies,
+            adult_only=source.adult_only,
+            requires_age_confirmation=source.requires_age_confirmation,
             capabilities=source.capabilities.model_dump(),
         )
         for source in info
+        if adult_allowed or not (source.adult_only or source.requires_age_confirmation)
     ]
 
 
@@ -437,6 +468,11 @@ async def public_ads_config(
     """Public ad slots for the current audience; never includes secrets."""
 
     response.headers["Cache-Control"] = "private, max-age=30"
+    # The owner decision is explicit: no advertising on 18+ titles or in the
+    # HentaiLib reader.  This server-side guard is the final line of defence
+    # even if a client forgets to hide the slot.
+    if adult:
+        return []
     try:
         return await control(request).ads_public(
             audience="authenticated" if user is not None else "guest",
@@ -468,9 +504,16 @@ async def manga_list(
     sort: str = Query(default="popular", pattern="^(popular|rating|updated|title|new)$"),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=24, ge=1, le=100),
+    user: UserClaims | None = Depends(optional_user),
 ) -> MangaListResponse:
     catalog, _, _, _ = clients(request)
-    params: dict[str, Any] = {"sort": sort, "page": page, "limit": limit}
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    params: dict[str, Any] = {
+        "sort": sort,
+        "page": page,
+        "limit": limit,
+        "adult_allowed": adult_allowed,
+    }
     if query:
         params["query"] = query
     if source:
@@ -496,11 +539,27 @@ async def home_updates(
 
 
 async def _live_search(
-    request: Request, q: str, source: str | None, page: int, limit: int
+    request: Request,
+    q: str,
+    source: str | None,
+    page: int,
+    limit: int,
+    *,
+    adult_allowed: bool = False,
 ) -> tuple[list[MangaOut], int]:
     catalog, parser, _, _ = clients(request)
     source_codes: list[str] = []
     if source:
+        if not adult_allowed:
+            try:
+                info = await parser.sources()
+                selected = next((item for item in info if item.code == source), None)
+                if selected is not None and (
+                    selected.adult_only or selected.requires_age_confirmation
+                ):
+                    return [], 0
+            except Exception:
+                pass
         source_codes = [source]
     else:
         try:
@@ -508,7 +567,9 @@ async def _live_search(
             source_codes = [
                 item.code
                 for item in info
-                if item.enabled and item.capabilities.search
+                if item.enabled
+                and item.capabilities.search
+                and (adult_allowed or not (item.adult_only or item.requires_age_confirmation))
             ][: request.app.state.settings.live_search_max_sources]
         except Exception:
             source_codes = []
@@ -556,6 +617,7 @@ async def manga_suggest(
     request: Request,
     q: str = Query(min_length=1, max_length=200),
     limit: int = Query(default=6, ge=1, le=12),
+    user: UserClaims | None = Depends(optional_user),
 ) -> SuggestResponse:
     """Instant suggestions from the local index only.
 
@@ -565,7 +627,8 @@ async def manga_suggest(
     """
 
     catalog, _, _, _ = clients(request)
-    return await catalog.suggest(q, limit=limit)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    return await catalog.suggest(q, limit=limit, adult_allowed=adult_allowed)
 
 
 @router.get("/manga/search", response_model=SearchResponse)
@@ -576,9 +639,17 @@ async def manga_search(
     live: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=24, ge=1, le=100),
+    user: UserClaims | None = Depends(optional_user),
 ) -> SearchResponse:
     catalog, _, _, _ = clients(request)
-    local = await catalog.search(q, source=source, page=page, limit=limit)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    local = await catalog.search(
+        q,
+        source=source,
+        page=page,
+        limit=limit,
+        adult_allowed=adult_allowed,
+    )
     if local.items and not live:
         return SearchResponse(
             items=local.items,
@@ -589,7 +660,9 @@ async def manga_search(
             live=False,
         )
     try:
-        live_items, live_total = await _live_search(request, q, source, page, limit)
+        live_items, live_total = await _live_search(
+            request, q, source, page, limit, adult_allowed=adult_allowed
+        )
     except Exception as exc:
         logger.warning("live search failed: %s", exc)
         live_items, live_total = [], 0
@@ -613,11 +686,21 @@ async def manga_search(
 
 
 @router.post("/manga/import", response_model=ImportMangaResponse)
-async def import_manga(request: Request, payload: ImportMangaRequest) -> ImportMangaResponse:
+async def import_manga(
+    request: Request,
+    payload: ImportMangaRequest,
+    user: UserClaims | None = Depends(optional_user),
+) -> ImportMangaResponse:
     catalog, _, _, _ = clients(request)
     if not payload.url and not payload.source_id:
         raise ValidationError("Укажите url или source_id")
-    result = await catalog.import_manga(payload.source, source_id=payload.source_id, url=payload.url)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    result = await catalog.import_manga(
+        payload.source,
+        source_id=payload.source_id,
+        url=payload.url,
+        adult_allowed=adult_allowed,
+    )
     manga = MangaDetailOut.model_validate(result["manga"])
     return ImportMangaResponse(
         manga=manga,
@@ -628,9 +711,14 @@ async def import_manga(request: Request, payload: ImportMangaRequest) -> ImportM
 
 
 @router.get("/manga/{manga_id}/variants", response_model=MangaVariantsOut)
-async def manga_variants(request: Request, manga_id: uuid.UUID) -> MangaVariantsOut:
+async def manga_variants(
+    request: Request,
+    manga_id: uuid.UUID,
+    user: UserClaims | None = Depends(optional_user),
+) -> MangaVariantsOut:
     catalog, _, _, _ = clients(request)
-    return await catalog.variants(str(manga_id))
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    return await catalog.variants(str(manga_id), adult_allowed=adult_allowed)
 
 
 async def _run_prepare_job(
@@ -638,6 +726,8 @@ async def _run_prepare_job(
     catalog: CatalogClient,
     job: _PrepareJob,
     chapters: list[ChapterOut],
+    *,
+    adult_allowed: bool = False,
 ) -> None:
     """Queue media archiving for chapters that are not prepared yet."""
 
@@ -664,7 +754,9 @@ async def _run_prepare_job(
             return
         async with semaphore:
             try:
-                chapter_detail = await catalog.chapter(key)
+                chapter_detail = await catalog.chapter(
+                    key, adult_allowed=adult_allowed
+                )
                 if not chapter_detail.pages:
                     job.errors[key] = "Источник не отдал страницы главы"
                     return
@@ -701,21 +793,25 @@ def _prepare_start_payload(job: _PrepareJob) -> PrepareStartOut:
     )
 
 
-async def _start_prepare(request: Request, manga_id: uuid.UUID) -> tuple[PrepareStartOut, bool]:
+async def _start_prepare(
+    request: Request, manga_id: uuid.UUID, *, adult_allowed: bool = False
+) -> tuple[PrepareStartOut, bool]:
     catalog, _, _, media = clients(request)
     manga_key = str(manga_id)
     active = _prepare_registry.active(manga_key)
     if active is not None:
         return _prepare_start_payload(active), False
 
-    detail = await catalog.manga(manga_key)
+    detail = await catalog.manga(manga_key, adult_allowed=adult_allowed)
     chapters = [chapter for chapter in detail.chapters if not chapter.is_external]
     chapter_ids = [str(chapter.id) for chapter in chapters]
     if not chapter_ids:
         return PrepareStartOut(job_id=str(uuid.uuid4()), total=0, chapter_ids=[]), False
 
     async def runner(job: _PrepareJob) -> None:
-        await _run_prepare_job(media, catalog, job, chapters)
+        await _run_prepare_job(
+            media, catalog, job, chapters, adult_allowed=adult_allowed
+        )
 
     job, created = _prepare_registry.start(manga_key, chapter_ids, runner)
     return _prepare_start_payload(job), created
@@ -735,7 +831,8 @@ async def prepare_manga(
     :func:`prepare_status`.
     """
 
-    result, created = await _start_prepare(request, manga_id)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    result, created = await _start_prepare(request, manga_id, adult_allowed=adult_allowed)
     response.status_code = 202 if created else 200
     return result
 
@@ -756,7 +853,8 @@ async def prepare_status(
 
     catalog, _, _, media = clients(request)
     manga_key = str(manga_id)
-    detail = await catalog.manga(manga_key)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    detail = await catalog.manga(manga_key, adult_allowed=adult_allowed)
     chapters = [chapter for chapter in detail.chapters if not chapter.is_external]
     job = _prepare_registry.active(manga_key)
     summary: dict[str, dict[str, Any]] = {}
@@ -792,7 +890,8 @@ async def warm_manga(
 ) -> dict[str, Any]:
     """Backward-compatible alias for ``/prepare``."""
 
-    result, created = await _start_prepare(request, manga_id)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    result, created = await _start_prepare(request, manga_id, adult_allowed=adult_allowed)
     response.status_code = 202 if created else 200
     return {
         "queued": result.total,
@@ -803,13 +902,25 @@ async def warm_manga(
 
 
 @router.get("/manga/{manga_id}", response_model=MangaDetailOut)
-async def manga_detail(request: Request, manga_id: uuid.UUID) -> MangaDetailOut:
+async def manga_detail(
+    request: Request,
+    response: Response,
+    manga_id: uuid.UUID,
+    user: UserClaims | None = Depends(optional_user),
+) -> MangaDetailOut:
     catalog, _, _, _ = clients(request)
-    detail = await catalog.manga(str(manga_id))
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    detail = await catalog.manga(str(manga_id), adult_allowed=adult_allowed)
+    if detail.adult_only or detail.requires_age_confirmation:
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        response.headers["Cache-Control"] = "private, no-store"
     if not detail.chapters and detail.source_id:
         try:
             result = await catalog.import_manga(
-                detail.source, source_id=detail.source_id, url=detail.url
+                detail.source,
+                source_id=detail.source_id,
+                url=detail.url,
+                adult_allowed=adult_allowed,
             )
             return MangaDetailOut.model_validate(result["manga"])
         except Exception as exc:
@@ -824,10 +935,16 @@ async def manga_chapters(
     query: str | None = Query(default=None, max_length=100),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=200, ge=1, le=500),
+    user: UserClaims | None = Depends(optional_user),
 ) -> Paginated[ChapterOut]:
     catalog, _, _, _ = clients(request)
+    adult_allowed = await _viewer_adult_allowed(request, user)
     items = await catalog.chapters(
-        str(manga_id), page=page, limit=limit, query=query
+        str(manga_id),
+        page=page,
+        limit=limit,
+        query=query,
+        adult_allowed=adult_allowed,
     )
     return Paginated(
         items=items,
@@ -846,19 +963,34 @@ async def manga_chapters(
 @router.get("/chapters/{chapter_id}", response_model=ChapterDetailOut)
 async def chapter_detail(
     request: Request,
+    response: Response,
     chapter_id: uuid.UUID,
     refresh: bool = Query(default=True),
+    user: UserClaims | None = Depends(optional_user),
 ) -> ChapterDetailOut:
     catalog, _, _, _ = clients(request)
-    detail = await catalog.chapter(str(chapter_id), refresh=refresh)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    detail = await catalog.chapter(
+        str(chapter_id), refresh=refresh, adult_allowed=adult_allowed
+    )
+    if detail.adult_only or detail.requires_age_confirmation:
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        response.headers["Cache-Control"] = "private, no-store"
     _schedule_archive(request, detail)
     return _public_chapter(detail)
 
 
 @router.get("/chapters/{chapter_id}/pages", response_model=list[PageOut])
-async def chapter_pages(request: Request, chapter_id: uuid.UUID) -> list[PageOut]:
+async def chapter_pages(
+    request: Request,
+    chapter_id: uuid.UUID,
+    user: UserClaims | None = Depends(optional_user),
+) -> list[PageOut]:
     catalog, _, _, _ = clients(request)
-    detail = await catalog.chapter(str(chapter_id))
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    detail = await catalog.chapter(
+        str(chapter_id), adult_allowed=adult_allowed
+    )
     return _public_chapter(detail).pages
 
 
@@ -873,8 +1005,13 @@ async def chapter_image(
     chapter_id: uuid.UUID,
     number: int,
     w: int | None = Query(default=None),
+    user: UserClaims | None = Depends(optional_user),
 ) -> StreamingResponse:
     catalog, _, _, media = clients(request)
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    # Metadata check happens before the archive lookup so a direct image URL
+    # cannot leak an age-gated page from the media cache.
+    await catalog.chapter_meta(str(chapter_id), adult_allowed=adult_allowed)
     # Reader pages are downscaled to WebP by the media service.  Archives keep
     # the original bytes; only this reader-facing upstream request asks for a
     # variant.  Clients may request a different width within safe bounds.
@@ -897,7 +1034,9 @@ async def chapter_image(
             )
         await response.aread()
         await response.aclose()
-        detail = await catalog.chapter(str(chapter_id))
+        detail = await catalog.chapter(
+            str(chapter_id), adult_allowed=adult_allowed
+        )
         page = next((item for item in detail.pages if item.number == number), None)
         if page is None:
             raise NotFoundError("Страница не найдена")
@@ -929,12 +1068,17 @@ async def create_export(
     request: Request,
     chapter_id: uuid.UUID,
     format: Literal["cbz", "pdf", "html"] = Query(default="cbz"),
+    user: UserClaims | None = Depends(optional_user),
 ) -> ExportJobOut:
     catalog, _, _, media = clients(request)
-    detail = await catalog.chapter(str(chapter_id))
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    await catalog.chapter_meta(str(chapter_id), adult_allowed=adult_allowed)
+    detail = await catalog.chapter(str(chapter_id), adult_allowed=adult_allowed)
     if not detail.pages:
         raise ValidationError("В этой главе нет страниц для экспорта")
-    manga = await catalog.manga(str(detail.manga_id))
+    manga = await catalog.manga(
+        str(detail.manga_id), adult_allowed=adult_allowed
+    )
     payload = {
         "chapter_id": str(chapter_id),
         "manga_title": manga.title,
@@ -961,8 +1105,15 @@ async def export_status(request: Request, job_id: uuid.UUID) -> ExportJobOut:
 
 
 @router.get("/exports/{job_id}/download")
-async def export_download(request: Request, job_id: uuid.UUID) -> StreamingResponse:
-    _, _, _, media = clients(request)
+async def export_download(
+    request: Request,
+    job_id: uuid.UUID,
+    user: UserClaims | None = Depends(optional_user),
+) -> StreamingResponse:
+    catalog, _, _, media = clients(request)
+    job = await media.export(str(job_id))
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    await catalog.chapter_meta(str(job.chapter_id), adult_allowed=adult_allowed)
     response = await media.download(str(job_id))
     if response.status_code >= 400:
         body = await response.aread()
@@ -1033,13 +1184,41 @@ async def me(request: Request, user: UserClaims = Depends(require_user)) -> User
     return await library.me(_authorization(request))
 
 
+@router.get("/profile/age-status", response_model=AgeStatusOut)
+async def profile_age_status(
+    request: Request, user: UserClaims = Depends(require_user)
+) -> AgeStatusOut:
+    _, _, library, _ = clients(request)
+    return await library.age_status(_authorization(request))
+
+
+@router.post("/profile/age-confirm", response_model=AgeStatusOut)
+async def profile_age_confirm(
+    request: Request,
+    payload: AgeConfirmRequest | None = None,
+    user: UserClaims = Depends(require_user),
+) -> AgeStatusOut:
+    if payload is not None and not payload.confirm:
+        raise ValidationError("Подтверждение возраста требует явного согласия")
+    _, _, library, _ = clients(request)
+    return await library.confirm_age(_authorization(request))
+
+
+@router.delete("/profile/age-confirm", response_model=AgeStatusOut)
+async def profile_age_revoke(
+    request: Request, user: UserClaims = Depends(require_user)
+) -> AgeStatusOut:
+    _, _, library, _ = clients(request)
+    return await library.revoke_age(_authorization(request))
+
+
 # ---------------------------------------------------------------------------
 # Library
 # ---------------------------------------------------------------------------
 
 
 async def _enrich_bookmarks(
-    catalog: CatalogClient, items: list[BookmarkOut]
+    catalog: CatalogClient, items: list[BookmarkOut], *, adult_allowed: bool = False
 ) -> list[BookmarkOut]:
     semaphore = asyncio.Semaphore(6)
 
@@ -1048,7 +1227,9 @@ async def _enrich_bookmarks(
             return item
         async with semaphore:
             try:
-                manga = await catalog.manga(str(item.manga_id))
+                manga = await catalog.manga(
+                    str(item.manga_id), adult_allowed=adult_allowed
+                )
                 return item.model_copy(update={"manga": manga})
             except Exception:
                 return item
@@ -1057,7 +1238,10 @@ async def _enrich_bookmarks(
 
 
 async def _enrich_progress(
-    catalog: CatalogClient, items: list[ProgressOut]
+    catalog: CatalogClient,
+    items: list[ProgressOut],
+    *,
+    adult_allowed: bool = False,
 ) -> list[ProgressOut]:
     semaphore = asyncio.Semaphore(6)
 
@@ -1065,9 +1249,13 @@ async def _enrich_progress(
         updates: dict[str, Any] = {}
         async with semaphore:
             with contextlib.suppress(Exception):
-                updates["manga"] = await catalog.manga(str(item.manga_id))
+                updates["manga"] = await catalog.manga(
+                    str(item.manga_id), adult_allowed=adult_allowed
+                )
             with contextlib.suppress(Exception):
-                updates["chapter"] = await catalog.chapter_meta(str(item.chapter_id))
+                updates["chapter"] = await catalog.chapter_meta(
+                    str(item.chapter_id), adult_allowed=adult_allowed
+                )
         return item.model_copy(update=updates) if updates else item
 
     return list(await asyncio.gather(*(enrich(item) for item in items)))
@@ -1078,8 +1266,9 @@ async def list_bookmarks(
     request: Request, user: UserClaims = Depends(require_user)
 ) -> list[BookmarkOut]:
     catalog, _, library, _ = clients(request)
+    adult_allowed = await _viewer_adult_allowed(request, user)
     items = await library.bookmarks(_authorization(request))
-    return await _enrich_bookmarks(catalog, items)
+    return await _enrich_bookmarks(catalog, items, adult_allowed=adult_allowed)
 
 
 @router.post("/library/bookmarks", response_model=BookmarkOut)
@@ -1089,7 +1278,8 @@ async def add_bookmark(
     user: UserClaims = Depends(require_user),
 ) -> BookmarkOut:
     catalog, _, library, _ = clients(request)
-    manga = await catalog.manga(str(payload.manga_id))
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    manga = await catalog.manga(str(payload.manga_id), adult_allowed=adult_allowed)
     bookmark = await library.add_bookmark(_authorization(request), str(payload.manga_id))
     return bookmark.model_copy(update={"manga": manga})
 
@@ -1110,8 +1300,9 @@ async def library_progress(
     request: Request, user: UserClaims = Depends(require_user)
 ) -> list[ProgressOut]:
     catalog, _, library, _ = clients(request)
+    adult_allowed = await _viewer_adult_allowed(request, user)
     items = await library.progress(_authorization(request))
-    return await _enrich_progress(catalog, items)
+    return await _enrich_progress(catalog, items, adult_allowed=adult_allowed)
 
 
 @router.get("/library/history", response_model=list[ProgressOut])
@@ -1121,8 +1312,9 @@ async def library_history(
     user: UserClaims = Depends(require_user),
 ) -> list[ProgressOut]:
     catalog, _, library, _ = clients(request)
+    adult_allowed = await _viewer_adult_allowed(request, user)
     items = await library.history(_authorization(request), limit=limit)
-    return await _enrich_progress(catalog, items)
+    return await _enrich_progress(catalog, items, adult_allowed=adult_allowed)
 
 
 @router.put("/library/progress", response_model=ProgressOut)
@@ -1132,10 +1324,11 @@ async def upsert_progress(
     user: UserClaims = Depends(require_user),
 ) -> ProgressOut:
     catalog, _, library, _ = clients(request)
-    await catalog.manga(str(payload.manga_id))
-    await catalog.chapter_meta(str(payload.chapter_id))
+    adult_allowed = await _viewer_adult_allowed(request, user)
+    await catalog.manga(str(payload.manga_id), adult_allowed=adult_allowed)
+    await catalog.chapter_meta(str(payload.chapter_id), adult_allowed=adult_allowed)
     item = await library.upsert_progress(_authorization(request), payload.model_dump(mode="json"))
-    enriched = await _enrich_progress(catalog, [item])
+    enriched = await _enrich_progress(catalog, [item], adult_allowed=adult_allowed)
     return enriched[0]
 
 

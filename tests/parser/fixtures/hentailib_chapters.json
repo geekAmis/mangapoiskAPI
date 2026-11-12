@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "id": 970839,
+      "index": 1,
+      "item_number": 1,
+      "volume": "1",
+      "number": "1",
+      "number_secondary": "1",
+      "name": "Признание",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 970839,
+          "branch_id": null,
+          "created_at": "2020-10-15T10:14:18.000000Z",
+          "teams": [{"id": 587, "name": "Japit Comics"}],
+          "expired_type": 0
+        }
+      ],
+      "bundle_id": null
+    },
+    {
+      "id": 970840,
+      "index": 2,
+      "item_number": 2,
+      "volume": "1",
+      "number": "2",
+      "number_secondary": "2",
+      "name": "Встреча",
+      "branches_count": 1,
+      "branches": [
+        {
+          "id": 970840,
+          "branch_id": 25610,
+          "created_at": "2020-10-22T10:14:18.000000Z",
+          "teams": [{"id": 587, "name": "Japit Comics"}],
+          "expired_type": 0
+        }
+      ],
+      "bundle_id": null
+    }
+  ]
+}

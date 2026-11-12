@@ -48,9 +48,10 @@ def get_service(request: Request) -> CatalogService:
 
 @router.get("/sources", response_model=list[SourceOut])
 async def sources(
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> list[SourceOut]:
-    rows = await service.source_rows()
+    rows = await service.source_rows(adult_allowed=adult_allowed)
     return [
         SourceOut(
             code=row.code,
@@ -59,6 +60,8 @@ async def sources(
             language=row.language,
             enabled=row.enabled,
             requires_cookies=row.requires_cookies,
+            adult_only=row.adult_only,
+            requires_age_confirmation=row.requires_age_confirmation,
             capabilities=row.capabilities or {},
         )
         for row in rows
@@ -98,6 +101,7 @@ async def manga_list(
     year: int | None = Query(default=None, ge=1900, le=2100),
     status: str | None = Query(default=None, max_length=64),
     include_empty: bool = Query(default=False),
+    adult_allowed: bool = Query(default=False),
     sort: str = Query(default="popular", pattern="^(popular|rating|updated|title|new)$"),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=24, ge=1, le=100),
@@ -113,6 +117,7 @@ async def manga_list(
         year=year,
         status=status,
         include_empty=include_empty,
+        adult_allowed=adult_allowed,
         sort=sort,
         page=page,
         limit=limit,
@@ -123,11 +128,12 @@ async def manga_list(
 async def manga_suggest(
     q: str = Query(min_length=1, max_length=200),
     limit: int = Query(default=6, ge=1, le=12),
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> SuggestResponse:
     """Local-only instant suggestions.  Kept separate from live search."""
 
-    return await service.suggest(q, limit=limit)
+    return await service.suggest(q, limit=limit, adult_allowed=adult_allowed)
 
 
 @router.get("/manga/search", response_model=MangaListResponse)
@@ -137,6 +143,7 @@ async def manga_search(
     genre: str | None = Query(default=None, max_length=64),
     genres: str | None = Query(default=None, max_length=500),
     include_empty: bool = Query(default=False),
+    adult_allowed: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=24, ge=1, le=100),
     service: CatalogService = Depends(get_service),
@@ -149,6 +156,7 @@ async def manga_search(
         genre=genre,
         genres=parse_genre_filter(genres),
         include_empty=include_empty,
+        adult_allowed=adult_allowed,
         page=page,
         limit=limit,
     )
@@ -158,9 +166,10 @@ async def manga_search(
 async def manga_by_source(
     source: str,
     source_id: str,
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> dict:
-    detail = await service.manga_by_source(source, source_id)
+    detail = await service.manga_by_source(source, source_id, adult_allowed=adult_allowed)
     return detail.model_dump(mode="json")
 
 
@@ -219,9 +228,10 @@ async def recommendations(
 @router.get("/manga/{manga_id}/related", response_model=RelatedMangaOut)
 async def related_manga(
     manga_id: uuid.UUID,
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> RelatedMangaOut:
-    return await service.related(manga_id)
+    return await service.related(manga_id, adult_allowed=adult_allowed)
 
 
 @router.put("/manga/{manga_id}/relations", response_model=RelationsOut)
@@ -269,27 +279,33 @@ async def save_crawl_state(
 @router.get("/manga/{manga_id}/variants", response_model=MangaVariantsOut)
 async def manga_variants(
     manga_id: uuid.UUID,
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> MangaVariantsOut:
-    return await service.variants(manga_id)
+    return await service.variants(manga_id, adult_allowed=adult_allowed)
 
 
 @router.get("/manga/{manga_id}")
 async def manga_detail(
     manga_id: uuid.UUID,
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> dict:
-    detail = await service.manga_detail(manga_id)
+    detail = await service.manga_detail(manga_id, adult_allowed=adult_allowed)
     return detail.model_dump(mode="json")
 
 
 @router.post("/manga/import", response_model=ImportResult)
 async def import_manga(
     payload: ImportRequest,
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> ImportResult:
     return await service.import_from_source(
-        payload.source, source_id=payload.source_id, url=payload.url
+        payload.source,
+        source_id=payload.source_id,
+        url=payload.url,
+        adult_allowed=adult_allowed,
     )
 
 
@@ -315,26 +331,37 @@ async def manga_chapters(
     query: str | None = Query(default=None, max_length=100),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=200, ge=1, le=500),
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> list[ChapterOut]:
-    return await service.chapters(manga_id, query=query, page=page, limit=limit)
+    return await service.chapters(
+        manga_id,
+        query=query,
+        page=page,
+        limit=limit,
+        adult_allowed=adult_allowed,
+    )
 
 
 @router.get("/chapters/{chapter_id}/meta", response_model=ChapterOut)
 async def chapter_meta(
     chapter_id: uuid.UUID,
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> ChapterOut:
-    return await service.chapter_meta(chapter_id)
+    return await service.chapter_meta(chapter_id, adult_allowed=adult_allowed)
 
 
 @router.get("/chapters/{chapter_id}", response_model=ChapterDetailInternal)
 async def chapter_detail(
     chapter_id: uuid.UUID,
     refresh: bool = Query(default=True),
+    adult_allowed: bool = Query(default=False),
     service: CatalogService = Depends(get_service),
 ) -> ChapterDetailInternal:
-    return await service.chapter_detail(chapter_id, refresh=refresh)
+    return await service.chapter_detail(
+        chapter_id, refresh=refresh, adult_allowed=adult_allowed
+    )
 
 
 @router.patch("/chapters/{chapter_id}/pages", response_model=ChapterDetailInternal)

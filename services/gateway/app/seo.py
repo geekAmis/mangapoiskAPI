@@ -126,6 +126,11 @@ async def _collect_entries_for_app(app) -> list[tuple[str, str | None]]:  # type
             # exist.  The API can legitimately return zero before an import.
             if (getattr(manga, "chapters_count", 0) or 0) <= 0:
                 continue
+            # Adult-only titles are never public and must never enter a sitemap.
+            if getattr(manga, "adult_only", False) or getattr(
+                manga, "requires_age_confirmation", False
+            ):
+                continue
             lastmod = _lastmod(
                 getattr(manga, "last_chapter_at", None)
             ) or _lastmod(getattr(manga, "updated_at", None))

@@ -4,11 +4,12 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from manga_common.db import create_all, create_engine, create_session_factory, ping
+from manga_common.db import create_engine, create_session_factory, ping
 from manga_common.service import add_ready_check, create_service_app
 
 from .api import router
 from .config import LibrarySettings
+from .migrations import ensure_runtime_schema
 from .service import LibraryService
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ async def lifespan(app: FastAPI):
     settings.validate_production_secrets()
     engine = create_engine(settings.library_dsn, echo=settings.debug)
     session_factory = create_session_factory(engine)
-    await create_all(engine)
+    await ensure_runtime_schema(engine)
     service = LibraryService(settings, session_factory)
     app.state.engine = engine
     app.state.session_factory = session_factory

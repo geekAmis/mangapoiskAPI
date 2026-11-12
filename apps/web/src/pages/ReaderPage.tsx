@@ -10,9 +10,11 @@ import {
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, listItems, resolveApiUrl } from '../api/client';
+import { ApiError, api, listItems, resolveApiUrl } from '../api/client';
 import type { PageOut } from '../api/types';
 import { AdSlot } from '../components/ads/AdSlot';
+import { AdultNotice } from '../components/AdultNotice';
+import { AgeGate } from '../components/AgeGate';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { QueryCacheBridge } from '../components/QueryCacheBridge';
@@ -145,6 +147,13 @@ export default function ReaderPage() {
     enabled: Boolean(chapter?.manga_id),
   });
   const manga = mangaQuery.data;
+  const ageBlocked =
+    (chapterQuery.error instanceof ApiError &&
+      chapterQuery.error.status === 403 &&
+      chapterQuery.error.code === 'age_confirmation_required') ||
+    (mangaQuery.error instanceof ApiError &&
+      mangaQuery.error.status === 403 &&
+      mangaQuery.error.code === 'age_confirmation_required');
 
   const resume = useReadingResume();
 
@@ -189,7 +198,10 @@ export default function ReaderPage() {
         : 'Читалка MangaPoisk Reborn: главы манги и манхвы с удобными режимами чтения.',
     // Chapter pages are not useful landing pages; the title page is canonical.
     canonical: manga ? absoluteUrl(`/manga/${manga.id}`) : null,
-    robots: 'noindex,follow',
+    robots:
+      manga?.adult_only || manga?.requires_age_confirmation || manga?.adult
+        ? 'noindex,nofollow'
+        : 'noindex,follow',
   });
 
   const pages = useMemo(() => {
@@ -782,7 +794,35 @@ export default function ReaderPage() {
     );
   }
 
+  if (
+    chapter &&
+    manga &&
+    (manga.adult_only || manga.requires_age_confirmation) &&
+    !user?.age_confirmed_at
+  ) {
+    return (
+      <>
+        <QueryCacheBridge />
+        <AgeGate
+          signedIn={Boolean(user)}
+          onConfirmed={() => void chapterQuery.refetch()}
+        />
+      </>
+    );
+  }
+
   if (!chapter) {
+    if (ageBlocked) {
+      return (
+        <>
+          <QueryCacheBridge />
+          <AgeGate
+            signedIn={Boolean(user)}
+            onConfirmed={() => void chapterQuery.refetch()}
+          />
+        </>
+      );
+    }
     return (
       <>
         <QueryCacheBridge />
@@ -801,6 +841,9 @@ export default function ReaderPage() {
     return (
       <>
         <QueryCacheBridge />
+        {manga?.adult_only || manga?.requires_age_confirmation || manga?.adult ? (
+          <AdultNotice source={manga?.source} compact />
+        ) : null}
         <div className="reader-empty">
           <div className="reader-empty__card">
             <span className="reader-empty__icon" aria-hidden="true">
@@ -854,6 +897,9 @@ export default function ReaderPage() {
         {manga?.title ?? 'Читалка MangaPoisk Reborn'} — {chapterHeading(chapter)}
       </h1>
       <QueryCacheBridge />
+      {manga?.adult_only || manga?.requires_age_confirmation || manga?.adult ? (
+        <AdultNotice source={manga?.source} compact />
+      ) : null}
       <header className={`reader-header${headerHidden ? ' is-hidden' : ''}`}>
         <div className="reader-header__inner">
           <Link
@@ -1007,7 +1053,9 @@ export default function ReaderPage() {
               />
             ))}
           </div>
-          <AdSlot placement="post-chapter" adult={manga?.adult ?? false} />
+          {manga?.adult_only || manga?.requires_age_confirmation ? null : (
+            <AdSlot placement="post-chapter" adult={manga?.adult ?? false} />
+          )}
         </main>
       ) : (
         <main

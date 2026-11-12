@@ -80,6 +80,8 @@ async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
             language=info.language,
             enabled=info.enabled,
             requires_cookies=info.requires_cookies,
+            adult_only=info.adult_only,
+            requires_age_confirmation=info.requires_age_confirmation,
             capabilities=capabilities,
         )
         session.add(source)
@@ -89,6 +91,8 @@ async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
         source.language = info.language
         source.enabled = info.enabled
         source.requires_cookies = info.requires_cookies
+        source.adult_only = info.adult_only
+        source.requires_age_confirmation = info.requires_age_confirmation
         source.capabilities = capabilities
     return source
 
@@ -351,7 +355,7 @@ async def upsert_manga_detail(
     here: chapters are refreshed separately when somebody opens them.
     """
 
-    await ensure_source(session, detail.source)
+    source = await ensure_source(session, detail.source)
     manga = await find_manga_by_source(session, detail.source, detail.source_id)
     created = manga is None
     if manga is None:
@@ -378,6 +382,10 @@ async def upsert_manga_detail(
     )
     manga.poster_url = detail.poster_url or manga.poster_url
     manga.adult = bool(detail.adult)
+    manga.adult_only = bool(detail.adult_only or source.adult_only)
+    manga.requires_age_confirmation = bool(
+        detail.requires_age_confirmation or source.requires_age_confirmation
+    )
     if detail.genres:
         manga.genres = list(detail.genres)
     manga.url = detail.url or manga.url
@@ -448,7 +456,7 @@ async def upsert_manga_summary(
     fetched lazily when a user opens the title.
     """
 
-    await ensure_source(session, summary.source)
+    source = await ensure_source(session, summary.source)
     manga = await find_manga_by_source(session, summary.source, summary.source_id)
     created = manga is None
     if manga is None:
@@ -474,6 +482,10 @@ async def upsert_manga_summary(
     )
     manga.poster_url = summary.poster_url or manga.poster_url
     manga.adult = bool(summary.adult)
+    manga.adult_only = bool(summary.adult_only or source.adult_only)
+    manga.requires_age_confirmation = bool(
+        summary.requires_age_confirmation or source.requires_age_confirmation
+    )
     if summary.genres:
         manga.genres = list(summary.genres)
     manga.url = summary.url or manga.url
@@ -559,6 +571,21 @@ async def update_chapter_pages(
     return chapter
 
 
+def _adult_conditions(*, adult_allowed: bool = False) -> list[Any]:
+    """Hide age-gated titles unless the caller explicitly allowed them.
+
+    ``adult_only`` is the HentaiLib-style hard gate.  Generic ``adult`` titles
+    from other sources keep their existing blur/18+ behaviour.
+    """
+
+    if adult_allowed:
+        return []
+    return [
+        Manga.adult_only.is_not(True),
+        Manga.requires_age_confirmation.is_not(True),
+    ]
+
+
 def _manga_conditions(
     *,
     source: str | None = None,
@@ -567,8 +594,9 @@ def _manga_conditions(
     year: int | None = None,
     status: str | None = None,
     include_empty: bool = False,
+    adult_allowed: bool = False,
 ) -> list[Any]:
-    conditions: list[Any] = []
+    conditions: list[Any] = [*_adult_conditions(adult_allowed=adult_allowed)]
     if source:
         conditions.append(Manga.source == source)
     requested = (
@@ -713,6 +741,7 @@ async def search_manga(
     year: int | None = None,
     status: str | None = None,
     include_empty: bool = False,
+    adult_allowed: bool = False,
     page: int = 1,
     limit: int = 24,
 ) -> tuple[list[Manga], int]:
@@ -725,6 +754,7 @@ async def search_manga(
         year=year,
         status=status,
         include_empty=include_empty,
+        adult_allowed=adult_allowed,
     )
     search_filter = await _search_filter(session, query)
     if search_filter is None:
@@ -757,13 +787,14 @@ async def suggest_manga(
     raw_query: str,
     *,
     limit: int = 6,
+    adult_allowed: bool = False,
 ) -> list[tuple[Manga, str]]:
     """Top local title suggestions.  This function never touches the parser."""
 
     query = analyze_query(raw_query)
     if query.is_empty:
         return []
-    conditions = _manga_conditions(include_empty=False)
+    conditions = _manga_conditions(include_empty=False, adult_allowed=adult_allowed)
     search_filter = await _search_filter(
         session, query, candidate_limit=SUGGESTION_CANDIDATE_LIMIT
     )
@@ -817,6 +848,7 @@ async def list_manga(
     year: int | None = None,
     status: str | None = None,
     include_empty: bool = False,
+    adult_allowed: bool = False,
     sort: str = "popular",
     page: int = 1,
     limit: int = 24,
@@ -836,6 +868,7 @@ async def list_manga(
             year=year,
             status=status,
             include_empty=include_empty,
+            adult_allowed=adult_allowed,
             page=page,
             limit=limit,
         )
@@ -847,6 +880,7 @@ async def list_manga(
         year=year,
         status=status,
         include_empty=include_empty,
+        adult_allowed=adult_allowed,
     )
     order_map = {
         "popular": (desc(Manga.rating_count), desc(Manga.rating), desc(Manga.updated_at)),
@@ -962,7 +996,9 @@ async def backfill_group_keys(session: AsyncSession) -> int:
     return len(rows)
 
 
-async def manga_variants(session: AsyncSession, manga: Manga) -> list[dict[str, Any]]:
+async def manga_variants(
+    session: AsyncSession, manga: Manga, *, adult_allowed: bool = False
+) -> list[dict[str, Any]]:
     if not manga.group_key:
         manga.group_key = compute_group_key(manga.title)
         await session.flush()
@@ -970,7 +1006,7 @@ async def manga_variants(session: AsyncSession, manga: Manga) -> list[dict[str, 
         (
             await session.scalars(
                 select(Manga)
-                .where(Manga.group_key == manga.group_key)
+                .where(Manga.group_key == manga.group_key, *_adult_conditions(adult_allowed=adult_allowed))
                 .order_by(desc(Manga.chapters_count), Manga.title.asc())
             )
         ).all()
@@ -1154,7 +1190,7 @@ async def latest_updates(
         await session.execute(
             select(Chapter, Manga)
             .join(Manga, Chapter.manga_id == Manga.id)
-            .where(Manga.chapters_count > 0)
+            .where(Manga.chapters_count > 0, *_adult_conditions())
             .order_by(desc(order_at), desc(Chapter.created_at))
             .limit(limit)
         )
@@ -1170,6 +1206,7 @@ async def list_genres(session: AsyncSession) -> list[dict[str, Any]]:
             select(Manga.id, Manga.group_key, Manga.genres_key).where(
                 Manga.chapters_count > 0,
                 exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+                *_adult_conditions(),
             )
         )
     ).all()
@@ -1554,6 +1591,7 @@ async def recommend_manga(
     conditions: list[Any] = [
         Manga.chapters_count > 0,
         exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+        *_adult_conditions(),
     ]
     if excluded_ids:
         conditions.append(Manga.id.notin_(list(excluded_ids)))
@@ -1669,7 +1707,7 @@ async def upsert_relation(
 
 
 async def manga_relations(
-    session: AsyncSession, manga_id: uuid.UUID
+    session: AsyncSession, manga_id: uuid.UUID, *, adult_allowed: bool = False
 ) -> tuple[list[Manga], list[Manga]]:
     """Return explicit series and related titles for one manga page."""
 
@@ -1728,6 +1766,7 @@ async def manga_relations(
                     Manga.id.in_(ids),
                     Manga.chapters_count > 0,
                     exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+                    *_adult_conditions(adult_allowed=adult_allowed),
                 )
                 .order_by(desc(Manga.rating), desc(Manga.rating_count), Manga.title.asc())
             )

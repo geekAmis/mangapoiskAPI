@@ -16,6 +16,7 @@ from manga_common.errors import (
 )
 from manga_common.http import build_client
 from manga_common.schemas import (
+    AgeStatusOut,
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
     BookmarkOut,
@@ -184,8 +185,10 @@ class InternalClient:
 
 class CatalogClient(InternalClient):
     service_code = "catalog"
-    async def sources(self) -> list[SourceOut]:
-        data = await self.request("GET", "/internal/sources")
+    async def sources(self, *, adult_allowed: bool = False) -> list[SourceOut]:
+        data = await self.request(
+            "GET", "/internal/sources", params={"adult_allowed": adult_allowed}
+        )
         return [SourceOut.model_validate(item) for item in data]
 
     async def sitemap_entries(self, *, limit: int = 50_000) -> list[SitemapEntryOut]:
@@ -203,53 +206,104 @@ class CatalogClient(InternalClient):
         return HomeUpdatesOut.model_validate(data)
 
     async def search(
-        self, q: str, *, source: str | None = None, page: int = 1, limit: int = 24
+        self,
+        q: str,
+        *,
+        source: str | None = None,
+        page: int = 1,
+        limit: int = 24,
+        adult_allowed: bool = False,
     ) -> MangaListResponse:
-        params: dict[str, Any] = {"q": q, "page": page, "limit": limit}
+        params: dict[str, Any] = {
+            "q": q,
+            "page": page,
+            "limit": limit,
+            "adult_allowed": adult_allowed,
+        }
         if source:
             params["source"] = source
         data = await self.request("GET", "/internal/manga/search", params=params)
         return MangaListResponse.model_validate(data)
 
-    async def suggest(self, q: str, *, limit: int = 6) -> SuggestResponse:
-        params: dict[str, Any] = {"q": q, "limit": limit}
+    async def suggest(
+        self, q: str, *, limit: int = 6, adult_allowed: bool = False
+    ) -> SuggestResponse:
+        params: dict[str, Any] = {
+            "q": q,
+            "limit": limit,
+            "adult_allowed": adult_allowed,
+        }
         data = await self.request("GET", "/internal/manga/suggest", params=params)
         return SuggestResponse.model_validate(data)
 
-    async def manga(self, manga_id: str) -> MangaDetailOut:
-        data = await self.request("GET", f"/internal/manga/{manga_id}")
+    async def manga(
+        self, manga_id: str, *, adult_allowed: bool = False
+    ) -> MangaDetailOut:
+        data = await self.request(
+            "GET",
+            f"/internal/manga/{manga_id}",
+            params={"adult_allowed": adult_allowed},
+        )
         return MangaDetailOut.model_validate(data)
 
-    async def variants(self, manga_id: str) -> MangaVariantsOut:
-        data = await self.request("GET", f"/internal/manga/{manga_id}/variants")
+    async def variants(
+        self, manga_id: str, *, adult_allowed: bool = False
+    ) -> MangaVariantsOut:
+        data = await self.request(
+            "GET",
+            f"/internal/manga/{manga_id}/variants",
+            params={"adult_allowed": adult_allowed},
+        )
         return MangaVariantsOut.model_validate(data)
 
     async def recommendations(self, payload: dict[str, Any]) -> RecommendationListOut:
         data = await self.request("POST", "/internal/recommendations", json=payload)
         return RecommendationListOut.model_validate(data)
 
-    async def related(self, manga_id: str) -> RelatedMangaOut:
-        data = await self.request("GET", f"/internal/manga/{manga_id}/related")
+    async def related(
+        self, manga_id: str, *, adult_allowed: bool = False
+    ) -> RelatedMangaOut:
+        data = await self.request(
+            "GET",
+            f"/internal/manga/{manga_id}/related",
+            params={"adult_allowed": adult_allowed},
+        )
         return RelatedMangaOut.model_validate(data)
 
     async def link_relations(self, manga_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("PUT", f"/internal/manga/{manga_id}/relations", json=payload)
 
     async def chapters(
-        self, manga_id: str, *, page: int = 1, limit: int = 200, query: str | None = None
+        self,
+        manga_id: str,
+        *,
+        page: int = 1,
+        limit: int = 200,
+        query: str | None = None,
+        adult_allowed: bool = False,
     ) -> list[ChapterOut]:
-        params: dict[str, Any] = {"page": page, "limit": limit}
+        params: dict[str, Any] = {
+            "page": page,
+            "limit": limit,
+            "adult_allowed": adult_allowed,
+        }
         if query:
             params["query"] = query
         data = await self.request("GET", f"/internal/manga/{manga_id}/chapters", params=params)
         return [ChapterOut.model_validate(item) for item in data]
 
     async def import_manga(
-        self, source: str, *, source_id: str | None = None, url: str | None = None
+        self,
+        source: str,
+        *,
+        source_id: str | None = None,
+        url: str | None = None,
+        adult_allowed: bool = False,
     ) -> dict[str, Any]:
         return await self.request(
             "POST",
             "/internal/manga/import",
+            params={"adult_allowed": adult_allowed},
             json={"source": source, "source_id": source_id, "url": url},
         )
 
@@ -259,14 +313,28 @@ class CatalogClient(InternalClient):
         )
         return MangaOut.model_validate(data)
 
-    async def chapter(self, chapter_id: str, *, refresh: bool = True) -> ChapterDetailOut:
+    async def chapter(
+        self,
+        chapter_id: str,
+        *,
+        refresh: bool = True,
+        adult_allowed: bool = False,
+    ) -> ChapterDetailOut:
         data = await self.request(
-            "GET", f"/internal/chapters/{chapter_id}", params={"refresh": refresh}
+            "GET",
+            f"/internal/chapters/{chapter_id}",
+            params={"refresh": refresh, "adult_allowed": adult_allowed},
         )
         return ChapterDetailOut.model_validate(data)
 
-    async def chapter_meta(self, chapter_id: str) -> ChapterOut:
-        data = await self.request("GET", f"/internal/chapters/{chapter_id}/meta")
+    async def chapter_meta(
+        self, chapter_id: str, *, adult_allowed: bool = False
+    ) -> ChapterOut:
+        data = await self.request(
+            "GET",
+            f"/internal/chapters/{chapter_id}/meta",
+            params={"adult_allowed": adult_allowed},
+        )
         return ChapterOut.model_validate(data)
 
     async def stats(self) -> dict[str, Any]:
@@ -344,6 +412,18 @@ class LibraryClient(InternalClient):
     async def me(self, authorization: str) -> UserOut:
         data = await self._auth("GET", "/internal/auth/me", authorization)
         return UserOut.model_validate(data)
+
+    async def age_status(self, authorization: str) -> AgeStatusOut:
+        data = await self._auth("GET", "/internal/me/age-status", authorization)
+        return AgeStatusOut.model_validate(data)
+
+    async def confirm_age(self, authorization: str) -> AgeStatusOut:
+        data = await self._auth("POST", "/internal/me/age-confirm", authorization)
+        return AgeStatusOut.model_validate(data)
+
+    async def revoke_age(self, authorization: str) -> AgeStatusOut:
+        data = await self._auth("DELETE", "/internal/me/age-confirm", authorization)
+        return AgeStatusOut.model_validate(data)
 
     async def bookmarks(self, authorization: str) -> list[BookmarkOut]:
         data = await self._auth("GET", "/internal/me/bookmarks", authorization)

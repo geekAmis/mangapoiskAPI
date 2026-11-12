@@ -52,7 +52,14 @@ def test_sources_requires_internal_token(settings) -> None:
         response = client.get("/internal/sources", headers=TOKEN_HEADERS)
         assert response.status_code == 200
         sources = {item["code"]: item for item in response.json()}
-        assert set(sources) == {"mangapoisk", "mangalib", "remanga", "readmanga", "mangadex"}
+        assert set(sources) == {
+            "mangapoisk",
+            "mangalib",
+            "remanga",
+            "readmanga",
+            "mangadex",
+            "hentailib",
+        }
         assert sources["mangapoisk"]["enabled"] is True
         assert sources["remanga"]["enabled"] is True
         assert sources["remanga"]["capabilities"]["search"] is True

@@ -177,39 +177,53 @@ class SourceCookieStore:
     ) -> list[str]:
         """Seed initial cookies from the environment when the store is empty.
 
-        Only the Remanga credential has a documented env fallback.  The value is
-        accepted from the typed setting (``REMANGA_COOKIE``) and from the
-        historical spellings ``REMANGACOOKIE`` / ``REMAGA_COOKIE``.  Environment
+        Remanga and HentaiLib credentials have documented env fallbacks.  Values
+        are accepted from typed settings and historical spellings.  Environment
         values never override an existing store entry.
         """
 
         self._ensure_loaded()
-        if self.is_configured("remanga"):
-            return []
-
         env = environ if environ is not None else os.environ
-        candidates = [
-            getattr(settings, "remanga_cookie", None),
-            env.get("REMANGACOOKIE"),
-            env.get("REMAGA_COOKIE"),
-            env.get("REManga_COOKIE"),
-            env.get("REMANGA_COOKIE"),
-        ]
-        value = next(
-            (str(item).strip() for item in candidates if item and str(item).strip()),
-            None,
+        seeded: list[str] = []
+
+        def seed(code: str, candidates: list[object]) -> None:
+            if self.is_configured(code):
+                return
+            value = next(
+                (str(item).strip() for item in candidates if item and str(item).strip()),
+                None,
+            )
+            if not value:
+                return
+            try:
+                self.set_sync(code, value)
+            except OSError as exc:
+                logger.warning("cookie_store_seed_unwritable: %s", type(exc).__name__)
+                # Keep the credential available for this process even when the
+                # configured path is read-only (for example a missing volume).
+                self._records[code] = CookieRecord(value=value, updated_at=_utc_now())
+            logger.info("cookie_store_seeded: source=%s origin=environment", code)
+            seeded.append(code)
+
+        seed(
+            "remanga",
+            [
+                getattr(settings, "remanga_cookie", None),
+                env.get("REMANGACOOKIE"),
+                env.get("REMANGACOOKIE"),
+                env.get("REMAGA_COOKIE"),
+                env.get("REManga_COOKIE"),
+                env.get("REMANGA_COOKIE"),
+            ],
         )
-        if not value:
-            return []
-        try:
-            self.set_sync("remanga", value)
-        except OSError as exc:
-            logger.warning("cookie_store_seed_unwritable: %s", type(exc).__name__)
-            # Keep the credential available for this process even when the
-            # configured path is read-only (for example a missing volume).
-            self._records["remanga"] = CookieRecord(value=value, updated_at=_utc_now())
-        logger.info("cookie_store_seeded: source=remanga origin=environment")
-        return ["remanga"]
+        seed(
+            "hentailib",
+            [
+                getattr(settings, "hentailib_cookie", None),
+                env.get("HENTAILIB_COOKIE"),
+            ],
+        )
+        return seeded
 
     # ------------------------------------------------------------------
     # Persistence
