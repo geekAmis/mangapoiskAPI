@@ -145,6 +145,13 @@ changing a live database.
 - The in-process gateway rate limiter is per replica.  For strict global
   limits, move it to Redis.
 
+## Production operations
+
+The production runbooks are in [`docs/OPS.md`](OPS.md): UFW rules and rollback,
+encrypted off-host restic backups and the restore drill, swap, and the
+`mangapoisk-control` memory guardrail.  Read them before changing production
+networking, storage or memory limits.
+
 ## Health and observability
 
 - `GET /health` on every service.
