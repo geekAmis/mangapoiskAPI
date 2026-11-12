@@ -191,52 +191,61 @@ class CatalogService:
             return _manga_out(manga, covers)
 
     async def chapter_meta(self, chapter_id: uuid.UUID) -> ChapterOut:
-        async with self.session_factory() as session:
-            chapter = await get_chapter(session, chapter_id)
-            if chapter is None:
-                raise NotFoundError("Chapter not found")
-            return _chapter_out(chapter)
+        async def read() -> ChapterOut:
+            async with self.session_factory() as session:
+                chapter = await get_chapter(session, chapter_id)
+                if chapter is None:
+                    raise NotFoundError("Chapter not found")
+                return _chapter_out(chapter)
+
+        return await retry_on_locked(read)
 
     async def variants(self, manga_id: uuid.UUID) -> MangaVariantsOut:
         from .repository import manga_variants
 
-        async with self.session_factory() as session:
-            manga = await find_manga(session, manga_id)
-            if manga is None:
-                raise NotFoundError("Manga not found")
-            rows = await manga_variants(session, manga)
-            return MangaVariantsOut(
-                primary_id=manga.id,
-                items=[
-                    MangaVariantOut(
-                        id=row["id"],
-                        title=row["title"],
-                        source=row["source"],
-                        source_id=row["source_id"],
-                        poster_url=row["poster_url"],
-                        rating=row["rating"],
-                        chapters_count=row["chapters_count"],
-                        translators=[
-                            TranslatorOut(name=item["name"], count=item["count"])
-                            for item in row["translators"]
-                        ],
-                    )
-                    for row in rows
-                ],
-            )
+        async def read() -> MangaVariantsOut:
+            async with self.session_factory() as session:
+                manga = await find_manga(session, manga_id)
+                if manga is None:
+                    raise NotFoundError("Manga not found")
+                rows = await manga_variants(session, manga)
+                return MangaVariantsOut(
+                    primary_id=manga.id,
+                    items=[
+                        MangaVariantOut(
+                            id=row["id"],
+                            title=row["title"],
+                            source=row["source"],
+                            source_id=row["source_id"],
+                            poster_url=row["poster_url"],
+                            rating=row["rating"],
+                            chapters_count=row["chapters_count"],
+                            translators=[
+                                TranslatorOut(name=item["name"], count=item["count"])
+                                for item in row["translators"]
+                            ],
+                        )
+                        for row in rows
+                    ],
+                )
+
+        return await retry_on_locked(read)
 
     async def manga_detail(self, manga_id: uuid.UUID) -> MangaDetailOut:
-        async with self.session_factory() as session:
-            manga = await find_manga(session, manga_id)
-            if manga is None:
-                raise NotFoundError("Manga not found")
-            chapters = await get_manga_chapters(session, manga_id, limit=2000)
-            covers = await covers_for_group(session, manga.group_key)
-            manga_out = _manga_out(manga, covers)
-            return MangaDetailOut(
-                **manga_out.model_dump(),
-                chapters=[_chapter_out(chapter) for chapter in chapters],
-            )
+        async def read() -> MangaDetailOut:
+            async with self.session_factory() as session:
+                manga = await find_manga(session, manga_id)
+                if manga is None:
+                    raise NotFoundError("Manga not found")
+                chapters = await get_manga_chapters(session, manga_id, limit=2000)
+                covers = await covers_for_group(session, manga.group_key)
+                manga_out = _manga_out(manga, covers)
+                return MangaDetailOut(
+                    **manga_out.model_dump(),
+                    chapters=[_chapter_out(chapter) for chapter in chapters],
+                )
+
+        return await retry_on_locked(read)
 
     async def recommendations(self, payload: RecommendationRequest) -> RecommendationResult:
         key = recommendation_cache_key(
@@ -249,32 +258,39 @@ class CatalogService:
         cached = recommendation_cache.get(key)
         if cached is not None:
             return cached
-        async with self.session_factory() as session:
-            rows, strategy = await recommend_manga(
-                session,
-                seed_manga_id=payload.seed_manga_id,
-                history_ids=payload.history_ids,
-                bookmark_ids=payload.bookmark_ids,
-                exclude_ids=payload.exclude_ids,
-                limit=payload.limit,
-            )
-            result = RecommendationResult(
-                items=[_manga_out(row) for row in rows],
-                strategy=strategy,  # type: ignore[arg-type]
-            )
+
+        async def read() -> RecommendationResult:
+            async with self.session_factory() as session:
+                rows, strategy = await recommend_manga(
+                    session,
+                    seed_manga_id=payload.seed_manga_id,
+                    history_ids=payload.history_ids,
+                    bookmark_ids=payload.bookmark_ids,
+                    exclude_ids=payload.exclude_ids,
+                    limit=payload.limit,
+                )
+                return RecommendationResult(
+                    items=[_manga_out(row) for row in rows],
+                    strategy=strategy,  # type: ignore[arg-type]
+                )
+
+        result = await retry_on_locked(read)
         recommendation_cache.set(key, result)
         return result
 
     async def related(self, manga_id: uuid.UUID) -> RelatedMangaOut:
-        async with self.session_factory() as session:
-            manga = await find_manga(session, manga_id)
-            if manga is None:
-                raise NotFoundError("Manga not found")
-            series, related = await manga_relations(session, manga_id)
-            return RelatedMangaOut(
-                series=[_manga_out(row) for row in series],
-                related=[_manga_out(row) for row in related],
-            )
+        async def read() -> RelatedMangaOut:
+            async with self.session_factory() as session:
+                manga = await find_manga(session, manga_id)
+                if manga is None:
+                    raise NotFoundError("Manga not found")
+                series, related = await manga_relations(session, manga_id)
+                return RelatedMangaOut(
+                    series=[_manga_out(row) for row in series],
+                    related=[_manga_out(row) for row in related],
+                )
+
+        return await retry_on_locked(read)
 
     async def link_relations(
         self, manga_id: uuid.UUID, payload: RelationsIn
@@ -304,17 +320,20 @@ class CatalogService:
     async def manga_by_source(self, source: str, source_id: str) -> MangaDetailOut:
         from .repository import find_manga_by_source
 
-        async with self.session_factory() as session:
-            manga = await find_manga_by_source(session, source, source_id)
-            if manga is None:
-                raise NotFoundError("Manga not found")
-            chapters = await get_manga_chapters(session, manga.id, limit=2000)
-            covers = await covers_for_group(session, manga.group_key)
-            manga_out = _manga_out(manga, covers)
-            return MangaDetailOut(
-                **manga_out.model_dump(),
-                chapters=[_chapter_out(chapter) for chapter in chapters],
-            )
+        async def read() -> MangaDetailOut:
+            async with self.session_factory() as session:
+                manga = await find_manga_by_source(session, source, source_id)
+                if manga is None:
+                    raise NotFoundError("Manga not found")
+                chapters = await get_manga_chapters(session, manga.id, limit=2000)
+                covers = await covers_for_group(session, manga.group_key)
+                manga_out = _manga_out(manga, covers)
+                return MangaDetailOut(
+                    **manga_out.model_dump(),
+                    chapters=[_chapter_out(chapter) for chapter in chapters],
+                )
+
+        return await retry_on_locked(read)
 
     async def list(
         self,
@@ -380,18 +399,21 @@ class CatalogService:
     async def chapters(
         self, manga_id: uuid.UUID, *, query: str | None = None, page: int = 1, limit: int = 200
     ) -> list[ChapterOut]:
-        async with self.session_factory() as session:
-            manga = await find_manga(session, manga_id)
-            if manga is None:
-                raise NotFoundError("Manga not found")
-            chapters = await get_manga_chapters(
-                session,
-                manga_id,
-                limit=limit,
-                offset=(page - 1) * limit,
-                query=query,
-            )
-            return [_chapter_out(chapter) for chapter in chapters]
+        async def read() -> list[ChapterOut]:
+            async with self.session_factory() as session:
+                manga = await find_manga(session, manga_id)
+                if manga is None:
+                    raise NotFoundError("Manga not found")
+                chapters = await get_manga_chapters(
+                    session,
+                    manga_id,
+                    limit=limit,
+                    offset=(page - 1) * limit,
+                    query=query,
+                )
+                return [_chapter_out(chapter) for chapter in chapters]
+
+        return await retry_on_locked(read)
 
     async def chapter_detail(
         self, chapter_id: uuid.UUID, *, refresh: bool = True
@@ -556,59 +578,77 @@ class CatalogService:
         return await retry_on_locked(read)
 
     async def search_backfill(self) -> SearchBackfillStats | None:
-        async with self.session_factory() as session:
-            return await search_backfill_stats(session)
+        async def read() -> SearchBackfillStats | None:
+            async with self.session_factory() as session:
+                return await search_backfill_stats(session)
+
+        return await retry_on_locked(read)
 
     async def genres(self) -> GenreListOut:
-        async with self.session_factory() as session:
-            rows = await list_genres(session)
-            items = [GenreOut(**row) for row in rows]
-            return GenreListOut(items=items, total=len(items))
+        async def read() -> GenreListOut:
+            async with self.session_factory() as session:
+                rows = await list_genres(session)
+                items = [GenreOut(**row) for row in rows]
+                return GenreListOut(items=items, total=len(items))
+
+        return await retry_on_locked(read)
 
     async def home_updates(self, *, limit: int = 25) -> HomeUpdatesOut:
-        async with self.session_factory() as session:
-            rows = await latest_updates(session, limit=limit)
-            items = [
-                HomeUpdateOut(
-                    manga_id=manga.id,
-                    manga_title=manga.title,
-                    poster_url=manga.poster_url,
-                    source=chapter.source,
-                    chapter_id=chapter.id,
-                    chapter_number=chapter.number,
-                    chapter_volume=chapter.volume,
-                    chapter_title=chapter.title,
-                    published_at=chapter.published_at,
-                    added_at=chapter.created_at,
-                )
-                for chapter, manga in rows
-            ]
-            return HomeUpdatesOut(items=items, total=len(items))
+        async def read() -> HomeUpdatesOut:
+            async with self.session_factory() as session:
+                rows = await latest_updates(session, limit=limit)
+                items = [
+                    HomeUpdateOut(
+                        manga_id=manga.id,
+                        manga_title=manga.title,
+                        poster_url=manga.poster_url,
+                        source=chapter.source,
+                        chapter_id=chapter.id,
+                        chapter_number=chapter.number,
+                        chapter_volume=chapter.volume,
+                        chapter_title=chapter.title,
+                        published_at=chapter.published_at,
+                        added_at=chapter.created_at,
+                    )
+                    for chapter, manga in rows
+                ]
+                return HomeUpdatesOut(items=items, total=len(items))
+
+        return await retry_on_locked(read)
 
     async def pending_enrichment(self, *, source: str, limit: int = 50) -> PendingEnrichmentListOut:
-        async with self.session_factory() as session:
-            rows = await pending_enrichment(session, source=source, limit=limit)
-            items = [
-                PendingEnrichmentOut(
-                    manga_id=row.id,
-                    source=row.source,
-                    source_id=row.source_id,
-                    title=row.title,
-                    url=row.url,
-                )
-                for row in rows
-            ]
-            return PendingEnrichmentListOut(items=items, total=len(items))
+        async def read() -> PendingEnrichmentListOut:
+            async with self.session_factory() as session:
+                rows = await pending_enrichment(session, source=source, limit=limit)
+                items = [
+                    PendingEnrichmentOut(
+                        manga_id=row.id,
+                        source=row.source,
+                        source_id=row.source_id,
+                        title=row.title,
+                        url=row.url,
+                    )
+                    for row in rows
+                ]
+                return PendingEnrichmentListOut(items=items, total=len(items))
+
+        return await retry_on_locked(read)
 
     async def crawl_states(self, *, source: str | None = None) -> list[CrawlStateOut]:
-        async with self.session_factory() as session:
-            rows = await list_crawl_states(session, source=source)
-            return [_crawl_state_out(row) for row in rows]
+        async def read() -> list[CrawlStateOut]:
+            async with self.session_factory() as session:
+                rows = await list_crawl_states(session, source=source)
+                return [_crawl_state_out(row) for row in rows]
+
+        return await retry_on_locked(read)
 
     async def crawl_state(self, source: str, mode: str = "full") -> CrawlStateOut | None:
-        async with self.session_factory() as session:
-            row = await get_crawl_state(session, source, mode)
-            return _crawl_state_out(row) if row is not None else None
+        async def read() -> CrawlStateOut | None:
+            async with self.session_factory() as session:
+                row = await get_crawl_state(session, source, mode)
+                return _crawl_state_out(row) if row is not None else None
+
+        return await retry_on_locked(read)
 
     async def record_enrichment_failure(
         self, manga_id: uuid.UUID, payload: EnrichmentFailureRequest
@@ -636,13 +676,16 @@ class CatalogService:
     async def enrichment_stats(
         self, *, rate_per_minute: int = 36, requests_per_title: int = 2
     ) -> EnrichmentStats:
-        async with self.session_factory() as session:
-            payload = await enrichment_stats(
-                session,
-                rate_per_minute=rate_per_minute,
-                requests_per_title=requests_per_title,
-            )
-            return EnrichmentStats(**payload)
+        async def read() -> EnrichmentStats:
+            async with self.session_factory() as session:
+                payload = await enrichment_stats(
+                    session,
+                    rate_per_minute=rate_per_minute,
+                    requests_per_title=requests_per_title,
+                )
+                return EnrichmentStats(**payload)
+
+        return await retry_on_locked(read)
 
     async def rotate_enrichment(
         self, *, source: str | None = None, limit: int = 500
@@ -669,8 +712,11 @@ class CatalogService:
             return _crawl_state_out(row)
 
     async def chapter_label(self, chapter_id: uuid.UUID) -> str:
-        async with self.session_factory() as session:
-            chapter = await get_chapter(session, chapter_id)
-            if chapter is None:
-                raise NotFoundError("Chapter not found")
-            return chapter_label(chapter)
+        async def read() -> str:
+            async with self.session_factory() as session:
+                chapter = await get_chapter(session, chapter_id)
+                if chapter is None:
+                    raise NotFoundError("Chapter not found")
+                return chapter_label(chapter)
+
+        return await retry_on_locked(read)

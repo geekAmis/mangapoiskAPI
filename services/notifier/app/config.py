@@ -11,6 +11,10 @@ class NotifierSettings(Settings):
     service_name: str = "notifier"
     port: int = 8006
 
+    # Separate channel for operational alerts.  Falls back to TELEGRAM_CHAT_ID
+    # so existing single-channel deployments keep working.
+    alert_chat_id: str | None = None
+
     # Local SQLite by default; production may point this at PostgreSQL.
     notifier_database_url: str | None = None
 

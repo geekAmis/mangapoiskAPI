@@ -1,0 +1,19 @@
+[Unit]
+Description=MangaPoisk Reborn observability watchdog
+Documentation=file:/opt/mangapoisk-reborn/docs/OBSERVABILITY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=mangapoisk
+Group=mangapoisk
+EnvironmentFile=-/opt/mangapoisk-reborn/.env
+Environment=PYTHONPATH=/opt/mangapoisk-reborn/src/packages:/opt/mangapoisk-reborn/src
+Environment=WATCHDOG_STATE_FILE=/var/lib/mangapoisk-watchdog/state.json
+Environment=WATCHDOG_BACKUP_STATUS_FILE=/var/lib/mangapoisk-backup/status.json
+StateDirectory=mangapoisk-watchdog
+StateDirectoryMode=0750
+ExecStart=/opt/mangapoisk-reborn/venv/bin/python /usr/local/sbin/mangapoisk-watchdog.py
+TimeoutStartSec=5min
+Nice=10

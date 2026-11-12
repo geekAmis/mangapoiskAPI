@@ -13,13 +13,18 @@ drill is also installed on `jump-83` for disaster recovery.
 | `mangapoisk-restore-drill.service` | `/etc/systemd/system/mangapoisk-restore-drill.service` |
 | `mangapoisk-backup.logrotate` | `/etc/logrotate.d/mangapoisk-backup` |
 | `mangapoisk-control-memory.conf` | `/etc/systemd/system/mangapoisk-control.service.d/memory.conf` |
+| `mangapoisk-watchdog.py` | `/usr/local/sbin/mangapoisk-watchdog.py` |
+| `mangapoisk-watchdog.service` | `/etc/systemd/system/mangapoisk-watchdog.service` |
+| `mangapoisk-watchdog.timer` | `/etc/systemd/system/mangapoisk-watchdog.timer` |
+| `mangapoisk-alert@.service` | `/etc/systemd/system/mangapoisk-alert@.service` |
+| `mangapoisk-onfailure.conf` | `/etc/systemd/system/mangapoisk-<service>.service.d/10-onfailure.conf` |
 
 ## Prerequisites
 
 On `primary-85` and `jump-83`:
 
 ```bash
-apt-get install -y restic sqlite3
+apt-get install -y restic sqlite3 python3
 ```
 
 `sqlite3` must be **3.27 or newer** for `VACUUM INTO` (production runs 3.46.1).
@@ -41,6 +46,26 @@ install -m 644 mangapoisk-backup.logrotate /etc/logrotate.d/mangapoisk-backup
 systemctl daemon-reload
 systemctl enable --now mangapoisk-backup.timer
 ```
+
+Install the observability watchdog and failed-unit hook:
+
+```bash
+install -m 755 mangapoisk-watchdog.py /usr/local/sbin/
+install -m 644 mangapoisk-watchdog.service mangapoisk-watchdog.timer \
+  mangapoisk-alert@.service /etc/systemd/system/
+install -d -o mangapoisk -g mangapoisk -m 750 /var/lib/mangapoisk-watchdog
+systemctl daemon-reload
+systemctl enable --now mangapoisk-watchdog.timer
+
+# Repeat for every long-running mangapoisk-<service>.service.
+install -d /etc/systemd/system/mangapoisk-gateway.service.d
+install -m 644 mangapoisk-onfailure.conf \
+  /etc/systemd/system/mangapoisk-gateway.service.d/10-onfailure.conf
+systemctl daemon-reload
+```
+
+Full metric/alert documentation and the runbook live in
+[`docs/OBSERVABILITY.md`](../../docs/OBSERVABILITY.md).
 
 Create the repository once from `primary-85`:
 

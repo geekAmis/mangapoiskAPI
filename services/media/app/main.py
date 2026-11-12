@@ -11,6 +11,7 @@ from .archive import ArchiveManager
 from .cache import MediaCache
 from .config import MediaSettings
 from .exporter import ExportManager
+from .observability import MediaMetricsCollector
 
 logger = logging.getLogger(__name__)
 settings = MediaSettings()
@@ -42,6 +43,8 @@ async def lifespan(app: FastAPI):
 
     add_ready_check(app, "storage", storage_ready)
     add_ready_check(app, "archives", archives.ready)
+    metrics_collector = MediaMetricsCollector(cache, archives)
+    app.state.metrics_collectors.append(metrics_collector.collect)
     await archives.startup()
     await archives.prune()
     await cache.prune()

@@ -155,14 +155,17 @@ async def send(
     text: str,
     parse_mode: str | None = "HTML",
     disable_preview: bool = True,
+    *,
+    chat_id: str | None = None,
 ) -> dict[str, Any]:
     settings: NotifierSettings = request.app.state.settings
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+    target = chat_id or settings.telegram_chat_id
+    if not settings.telegram_bot_token or not target:
         logger.info("telegram is not configured; dropping notification")
         return {"sent": False, "reason": "telegram_not_configured"}
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
     payload = {
-        "chat_id": settings.telegram_chat_id,
+        "chat_id": target,
         "text": text[:4096],
         "disable_web_page_preview": disable_preview,
     }
@@ -183,6 +186,24 @@ async def send(
 @router.post("/notify")
 async def notify(request: Request, payload: NotifyRequest) -> dict[str, Any]:
     return await send(request, payload.text, payload.parse_mode, payload.disable_preview)
+
+
+@router.post("/notify/alert")
+async def notify_alert(request: Request, payload: NotifyRequest) -> dict[str, Any]:
+    """Operational alerts use a dedicated chat when ALERT_CHAT_ID is set.
+
+    The watchdog composes the text; the notifier never echoes the bot token or
+    any other secret in the response.
+    """
+
+    settings: NotifierSettings = request.app.state.settings
+    return await send(
+        request,
+        payload.text,
+        payload.parse_mode,
+        payload.disable_preview,
+        chat_id=settings.alert_chat_id or settings.telegram_chat_id,
+    )
 
 
 @router.post("/notify/new-chapters")

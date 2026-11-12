@@ -291,6 +291,110 @@ export interface AdminCrawlerStatus {
   warnings: string[];
 }
 
+export interface AdminObservabilityWindow {
+  window: string;
+  requests: number;
+  errors_5xx: number;
+  error_rate: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  sampled: number;
+  dropped: number;
+}
+
+export interface AdminObservabilityAlert {
+  key: string;
+  severity: 'info' | 'warning' | 'high' | 'critical' | string;
+  summary: string;
+  details?: string;
+  value?: number | string | null;
+  threshold?: number | string | null;
+}
+
+export interface AdminObservabilityCrawlerSource {
+  source: string;
+  mode: string;
+  status: string;
+  page: number;
+  total_pages: number | null;
+  progress_percent: number | null;
+  eta_seconds: number | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_error: string | null;
+  stalled: boolean;
+}
+
+export interface AdminObservability {
+  generated_at: string;
+  http: {
+    total: number;
+    errors_5xx: number;
+    error_rate: number;
+    windows: Record<string, AdminObservabilityWindow>;
+  };
+  db: {
+    errors_total: number;
+    retries_total: number;
+    exhausted_total: number;
+    recovered_total: number;
+    errors_1m: number;
+    errors_5m: number;
+    retries_5m: number;
+    per_minute_5m: number;
+    by_service?: Record<
+      string,
+      {
+        errors_total: number;
+        retries_total: number;
+        exhausted_total: number;
+        recovered_total: number;
+        errors_1m: number;
+        errors_5m: number;
+        retries_5m: number;
+        per_minute_5m: number;
+      }
+    >;
+  };
+  services: Record<string, boolean>;
+  crawler: {
+    backlog: number;
+    backlog_by_source: Record<string, number>;
+    sources: AdminObservabilityCrawlerSource[];
+    stalled: string[];
+    failed: Array<{ source: string; mode: string; last_error: string | null }>;
+  };
+  media: {
+    archive_usage_percent: number;
+    archive_done_bytes: number;
+    archive_cap_bytes: number;
+    archive_done: number;
+    archive_failed: number;
+    archive_pending: number;
+    image_cache_bytes: number;
+    image_cache_usage_percent: number;
+    image_cache_files: number;
+    warnings: string[];
+  };
+  backup: {
+    configured: boolean;
+    status: string;
+    last_success_at: string | null;
+    last_attempt_at: string | null;
+    age_seconds: number | null;
+    last_error: string | null;
+    path?: string | null;
+  };
+  disk: {
+    path?: string;
+    used_percent?: number | null;
+    free_bytes?: number | null;
+    total_bytes?: number | null;
+  };
+  alerts: AdminObservabilityAlert[];
+}
+
 export type AdminStorageLevel = 'ok' | 'warning' | 'critical' | 'unbounded';
 
 export interface AdminImageCacheStats {
@@ -531,6 +635,8 @@ export const adminApi = {
     adminRequest<AdminMediaStats>('/media/stats', { signal }),
   getCrawlerStatus: (signal?: AbortSignal) =>
     adminRequest<AdminCrawlerStatus>('/crawl', { signal }),
+  getObservability: (signal?: AbortSignal) =>
+    adminRequest<AdminObservability>('/observability', { signal }),
 
   listServers: (signal?: AbortSignal) => adminRequest<AdminServer[]>('/servers', { signal }),
 
