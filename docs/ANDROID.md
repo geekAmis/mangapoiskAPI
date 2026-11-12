@@ -274,12 +274,13 @@ are unused.
   on every request, so changing servers needs no restart.
 - **Debug default: `http://127.0.0.1:8000/api/v1/`**, intended for
   `adb reverse tcp:8000 tcp:8000` on a physical device or emulator.
+- **Release default: `https://85.192.37.58.nip.io:8443/api/v1/`** (HTTPS).
 - **Current demo:** `https://85.192.37.58.nip.io:8443/api/v1/` (HTTPS; the
   release build can use this URL or your own HTTPS domain).
 - Emulator alternative: `http://10.0.2.2:8000/api/v1/` (host loopback alias).
 - Physical device on the same LAN: `http://<host-lan-ip>:8000/api/v1/`.
-- Production/release: HTTPS only. The release build keeps the emulator default
-  as a build-time fallback and must be pointed at the real gateway in Settings.
+- Production/release: HTTPS only. The release build defaults to the HTTPS
+  gateway; a custom server must also be HTTPS.
 - `MediaUrlResolver` converts relative poster/page paths to absolute gateway
   URLs. Absolute URLs are left untouched.
 - Coil has a dedicated `ImageLoader` with a browser-like User-Agent and a
@@ -336,7 +337,7 @@ API 26+ emulator/device, and run `app`.
 
 ```powershell
 cd apps/android
-$env:JAVA_HOME = "D:\tools\jdk-17\jdk-17.0.20.1+1"
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.21.9-hotspot" # adjust to your JDK 17
 $env:ANDROID_HOME = "D:\Android\sdk"
 $env:ANDROID_SDK_ROOT = "D:\Android\sdk"
 .\gradlew.bat assembleDebug
@@ -355,12 +356,123 @@ export ANDROID_HOME=/path/to/android-sdk
 workspace path contains Cyrillic characters; AGP otherwise refuses to configure
 on Windows. It is harmless elsewhere.
 
+### Capacitor APK (`ru.mangapoisk.reborn`)
+
+The QA-blocked 1.0 APK was the Node/Capacitor build, not the Kotlin client. It
+was built with `server.androidScheme: "http"`, cleartext enabled,
+`android.allowMixedContent: true` and an HTTP API base. The production
+Capacitor build now uses:
+
+| Setting | Required value |
+|---|---|
+| API base | `https://85.192.37.58.nip.io:8443/api/v1` |
+| `server.androidScheme` | `https` |
+| `server.cleartext` | `false` |
+| `android.allowMixedContent` | `false` (or omitted) |
+| `android:usesCleartextTraffic` | `false` |
+| Network security config | `cleartextTrafficPermitted="false"` |
+
+These live in `apps/mobile/capacitor.config.json`,
+`apps/mobile/android/app/src/main/AndroidManifest.xml` and
+`apps/mobile/android/app/src/main/res/xml/network_security_config.xml`.
+
+#### Build commands (Windows PowerShell)
+
+```powershell
+cd apps/mobile
+npm install
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.21.9-hotspot" # adjust to your JDK 17
+$env:ANDROID_HOME = "D:\Android\sdk"
+$env:ANDROID_SDK_ROOT = "D:\Android\sdk"
+
+# Optional: override the HTTPS production API base.
+# The default is already https://85.192.37.58.nip.io:8443/api/v1
+# $env:CAPACITOR_API_BASE = "https://85.192.37.58.nip.io:8443/api/v1"
+
+npm run sync
+cd android
+.\gradlew.bat assembleDebug
+.\gradlew.bat assembleRelease
+```
+
+Linux/macOS uses `./gradlew assembleDebug` / `./gradlew assembleRelease`.
+
+Outputs:
+
+- `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk` — debug-signed,
+  installable with `adb install -r`; still uses the HTTPS production API unless
+  `CAPACITOR_API_BASE` was overridden for local development.
+- `apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk`
+  — release, **unsigned** because the repository has no signing config.
+
+`apps/mobile/scripts/build-www.mjs` bakes the API base into the JS bundle and
+refuses arbitrary plain-HTTP URLs. Only `https://` and local development hosts
+(`localhost`, `127.0.0.1`, `10.0.2.2`) are accepted, so a release build cannot
+silently fall back to HTTP.
+
+#### Signing notes
+
+The release APK must be signed before it can be published as a release asset or
+installed over an existing release build:
+
+```powershell
+keytool -genkeypair -v -keystore mangapoisk-release.jks -alias mangapoisk `
+  -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Configure `signingConfigs.release` in `apps/mobile/android/app/build.gradle`
+(or sign the unsigned APK with `apksigner`), keep the keystore and passwords
+outside the repository, and use the same signing key for every update. A debug
+APK is signed with the local debug keystore and is suitable only for device QA,
+not for the release asset.
+
+#### Static verification (no device required)
+
+```powershell
+# 1. APK hash
+Get-FileHash .\app\build\outputs\apk\release\app-release-unsigned.apk -Algorithm SHA256
+
+# 2. Inspect the packaged JS and Capacitor config
+tar -xf .\app\build\outputs\apk\release\app-release-unsigned.apk `
+  -C $env:TEMP\apk-check assets/public assets/capacitor.config.json
+Select-String -Path $env:TEMP\apk-check\assets\public\assets\*.js `
+  -Pattern '85\.192\.37\.58|api/v1'
+Get-Content $env:TEMP\apk-check\assets\capacitor.config.json
+```
+
+Expected: the only API base is
+`https://85.192.37.58.nip.io:8443/api/v1`; `http://85.192.37.58:8088` is absent;
+the packaged config has `"androidScheme": "https"`, `"cleartext": false` and
+`"allowMixedContent": false`.
+
+#### On-device QA checklist (when the phone reconnects)
+
+1. `adb devices` shows the TECNO KL6; install the debug build with
+   `adb install -r app-debug.apk` (or the signed release build once available).
+2. Confirm package metadata: `adb shell dumpsys package ru.mangapoisk.reborn`
+   shows the expected `versionName`/`versionCode`; the debug build is
+   `debuggable=true`, a release build must not be.
+3. Launch with `adb logcat` open. Verify requests go to
+   `https://85.192.37.58.nip.io:8443/api/v1` and no request contains
+   `85.192.37.58:8088`.
+4. Verify the WebView origin is `https://localhost` (Capacitor
+   `androidScheme: "https"`), not `http://localhost`.
+5. Smoke-test home, catalogue/search, manga detail, reader, library and
+   login/refresh. A stale session may produce one 401 on `/auth/refresh`; the
+   app must recover or ask for login, not crash.
+6. Enable airplane mode and check downloaded chapters/library still open.
+7. If the device clock is wrong, Let's Encrypt validation can fail; check the
+   certificate chain and device date before filing an API bug.
+8. Record the installed APK SHA-256 and repeat the same checks for the signed
+   release artifact.
+
 ### Verification performed
 
 | Check | Result |
 |---|---|
 | `assembleDebug` | **SUCCESS** — `app/build/outputs/apk/debug/app-debug.apk` |
 | `assembleRelease` (R8/resources shrink) | **SUCCESS** — `app/build/outputs/apk/release/app-release-unsigned.apk` |
+| Capacitor `assembleDebug` / `assembleRelease` | **SUCCESS** — `ru.mangapoisk.reborn` 1.1.0 (versionCode 2); bundle/API config verified HTTPS-only; release APK unsigned |
 | Kotlin compile | Success (Kotlin 2.0.21, JVM 17) |
 | Resource/manifest validation | Success (AAPT2 via assemble) |
 | Lint | `lintDebug` passes with no errors after the `NewApi` style fix |

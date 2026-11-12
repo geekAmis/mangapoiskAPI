@@ -21,7 +21,7 @@ android {
         buildConfigField(
             "String",
             "DEFAULT_API_BASE_URL",
-            "\"http://10.0.2.2:8000/api/v1/\"",
+            "\"https://85.192.37.58.nip.io:8443/api/v1/\"",
         )
     }
 

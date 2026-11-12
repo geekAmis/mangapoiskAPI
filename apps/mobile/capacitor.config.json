@@ -3,11 +3,11 @@
   "appName": "MangaPoisk",
   "webDir": "www",
   "server": {
-    "androidScheme": "http",
-    "cleartext": true
+    "androidScheme": "https",
+    "cleartext": false
   },
   "android": {
-    "allowMixedContent": true
+    "allowMixedContent": false
   },
   "plugins": {
     "CapacitorHttp": {
