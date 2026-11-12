@@ -203,6 +203,54 @@ export interface AdminAuditEntry {
   created_at: string | null;
 }
 
+export interface AdminCrawlState {
+  source: string;
+  mode: 'full' | 'incremental';
+  status: 'pending' | 'running' | 'completed' | 'failed' | string;
+  page: number;
+  total_pages: number | null;
+  items_seen: number;
+  items_imported: number;
+  eta_seconds: number | null;
+  last_error: string | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+}
+
+export interface AdminCrawlerSource {
+  source: string;
+  manga: number;
+  chapters: number;
+  pending: number;
+  full: AdminCrawlState | null;
+  incremental: AdminCrawlState | null;
+  progress_percent: number | null;
+  eta_seconds: number | null;
+}
+
+export interface AdminCrawlerArchive {
+  total: number;
+  done: number;
+  failed: number;
+  pending: number;
+  done_bytes: number;
+  db_bytes: number;
+  cap_bytes: number;
+  usage_percent: number;
+}
+
+export interface AdminCrawlerStatus {
+  generated_at: string;
+  catalog_manga: number;
+  catalog_chapters: number;
+  enrichment_pending: number;
+  sources: AdminCrawlerSource[];
+  archive: AdminCrawlerArchive;
+  image_cache_bytes: number;
+  image_cache_files: number;
+  warnings: string[];
+}
+
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -333,6 +381,9 @@ export const adminApi = {
     }),
 
   me: (signal?: AbortSignal) => adminRequest<AdminMe>('/me', { signal }),
+
+  getCrawlerStatus: (signal?: AbortSignal) =>
+    adminRequest<AdminCrawlerStatus>('/crawl', { signal }),
 
   listServers: (signal?: AbortSignal) => adminRequest<AdminServer[]>('/servers', { signal }),
 

@@ -50,6 +50,12 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
             )
+            result = await connection.execute(text("PRAGMA table_info(crawl_state)"))
+            crawl_columns = {row[1] for row in result.fetchall()}
+            if "eta_seconds" not in crawl_columns:
+                await connection.execute(
+                    text("ALTER TABLE crawl_state ADD COLUMN eta_seconds INTEGER")
+                )
         else:
             await connection.execute(
                 text("ALTER TABLE chapters ADD COLUMN IF NOT EXISTS translator VARCHAR(255)")
@@ -68,6 +74,9 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
+            )
+            await connection.execute(
+                text("ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS eta_seconds INTEGER")
             )
 
         # Backfill filter keys.  Genres used to be indexed by their raw source

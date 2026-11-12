@@ -51,11 +51,13 @@ class SourceStats(BaseModel):
     source: str
     manga: int
     chapters: int
+    pending: int = 0
 
 
 class CatalogStats(BaseModel):
     manga: int
     chapters: int
+    pending: int = 0
     sources: list[SourceStats]
 
 
@@ -74,6 +76,7 @@ class CrawlStateIn(BaseModel):
     items_seen: int = Field(default=0, ge=0)
     items_imported: int = Field(default=0, ge=0)
     last_run_at: datetime | None = None
+    eta_seconds: int | None = Field(default=None, ge=0)
 
 
 class CrawlStateOut(CrawlStateIn):

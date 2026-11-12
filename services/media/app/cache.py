@@ -9,6 +9,7 @@ import logging
 import mimetypes
 import os
 import socket
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +58,12 @@ class MediaFile:
     etag: str
 
 
+@dataclass(slots=True)
+class MediaCacheStats:
+    bytes: int
+    files: int
+
+
 class MediaCache:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -73,6 +80,8 @@ class MediaCache:
             for host in (os.getenv("MEDIA_ALLOWED_HOSTS") or "").split(",")
             if host.strip()
         }
+        self._stats_cache: MediaCacheStats | None = None
+        self._stats_cached_at = 0.0
 
     async def _validate_url(self, url: str) -> None:
         parsed = urlparse(url)
@@ -377,6 +386,34 @@ class MediaCache:
         return MediaFile(
             path=destination, content_type=media.content_type, size=media.size, etag=media.etag
         )
+
+    async def stats(self) -> MediaCacheStats:
+        """Return the on-disk image cache footprint.
+
+        The directory can contain hundreds of thousands of files, so the scan is
+        cached for a minute and runs in a worker thread.  It is read-only and
+        never changes eviction behaviour.
+        """
+
+        now = time.monotonic()
+        if self._stats_cache is not None and now - self._stats_cached_at < 60:
+            return self._stats_cache
+        result = await asyncio.to_thread(self._scan_stats)
+        self._stats_cache = result
+        self._stats_cached_at = now
+        return result
+
+    def _scan_stats(self) -> MediaCacheStats:
+        total_bytes = 0
+        files = 0
+        for root, _dirs, names in os.walk(self.root):
+            for name in names:
+                try:
+                    total_bytes += (Path(root) / name).stat().st_size
+                    files += 1
+                except OSError:
+                    continue
+        return MediaCacheStats(bytes=total_bytes, files=files)
 
     async def close(self) -> None:
         await self.client.aclose()

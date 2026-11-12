@@ -104,6 +104,7 @@ def _crawl_state_out(state) -> CrawlStateOut:  # type: ignore[no-untyped-def]
         items_seen=state.items_seen,
         items_imported=state.items_imported,
         last_run_at=state.last_run_at,
+        eta_seconds=state.eta_seconds,
         created_at=state.created_at,
         updated_at=state.updated_at,
     )

@@ -74,6 +74,39 @@ async def api(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_stats_reports_enrichment_backlog(api) -> None:
+    response = await api.get("/internal/stats")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["manga"] == 3
+    assert payload["pending"] == 1
+    source = next(item for item in payload["sources"] if item["source"] == "mangapoisk")
+    assert source["pending"] == 1
+
+
+@pytest.mark.asyncio
+async def test_crawl_state_round_trips_eta(api) -> None:
+    payload = {
+        "source": "mangapoisk",
+        "mode": "full",
+        "page": 42,
+        "status": "running",
+        "total_pages": 100,
+        "items_seen": 420,
+        "items_imported": 400,
+        "eta_seconds": 360,
+    }
+    saved = await api.put("/internal/crawl-state/mangapoisk", json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["eta_seconds"] == 360
+
+    loaded = await api.get("/internal/crawl-state/mangapoisk")
+    assert loaded.status_code == 200
+    assert loaded.json()["page"] == 42
+    assert loaded.json()["eta_seconds"] == 360
+
+
+@pytest.mark.asyncio
 async def test_public_list_hides_empty_and_supports_include_empty(api) -> None:
     default = await api.get("/internal/manga")
     assert default.status_code == 200

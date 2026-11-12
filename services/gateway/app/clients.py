@@ -243,6 +243,10 @@ class CatalogClient(InternalClient):
     async def stats(self) -> dict[str, Any]:
         return await self.request("GET", "/internal/stats")
 
+    async def crawl_states(self) -> list[dict[str, Any]]:
+        data = await self.request("GET", "/internal/crawl-state")
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
 
 class ParserClient(InternalClient):
     service_code = "parser"
@@ -411,6 +415,9 @@ class ControlClient(InternalClient):
 
 class MediaClient(InternalClient):
     service_code = "media"
+
+    async def stats(self) -> dict[str, Any]:
+        return await self.request("GET", "/internal/stats")
 
     async def archive_chapter(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("POST", "/internal/archives/chapters", json=payload, timeout=30.0)

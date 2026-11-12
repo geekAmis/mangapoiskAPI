@@ -169,4 +169,5 @@ class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     items_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     items_imported: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

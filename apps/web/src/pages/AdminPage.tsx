@@ -27,6 +27,7 @@ import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
 import { AdminLogin } from '../components/admin/AdminLogin';
 import { AdminServerCard } from '../components/admin/AdminServerCard';
+import { CrawlerStatusPanel } from '../components/admin/CrawlerStatusPanel';
 import { DeployModal } from '../components/admin/DeployModal';
 import { ServerFormModal } from '../components/admin/ServerFormModal';
 import { formatDateTime, formatInt } from '../lib/format';
@@ -752,6 +753,8 @@ export default function AdminPage() {
             <small>последние 100 записей</small>
           </div>
         </div>
+
+        <CrawlerStatusPanel />
 
         <section className="admin-panel" aria-labelledby="admin-servers-title">
           <div className="admin-panel__head">

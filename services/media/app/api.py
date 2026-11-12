@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from manga_common.errors import NotFoundError, ValidationError
 from manga_common.schemas import ExportJobOut, OkResponse
 from manga_common.security import require_internal_token
+from pydantic import BaseModel
 
 from .archive import ArchiveManager, ArchiveRequest, ArchiveState, ArchiveSummary
 from .cache import MediaCache, resolve_width
@@ -30,6 +31,48 @@ def get_exports(request: Request) -> ExportManager:
 
 def get_archives(request: Request) -> ArchiveManager:
     return request.app.state.archives
+
+
+class ArchiveStatsOut(BaseModel):
+    total: int
+    done: int
+    failed: int
+    pending: int
+    done_bytes: int
+    db_bytes: int
+    cap_bytes: int
+    usage_percent: float
+
+
+class MediaStatsOut(BaseModel):
+    archives: ArchiveStatsOut
+    image_cache_bytes: int
+    image_cache_files: int
+
+
+@router.get("/stats", response_model=MediaStatsOut)
+async def stats(
+    cache: MediaCache = Depends(get_cache),
+    archives: ArchiveManager = Depends(get_archives),
+) -> MediaStatsOut:
+    archive_stats = await archives.stats()
+    cache_stats = await cache.stats()
+    cap = max(0, archives.max_bytes)
+    usage = round(archive_stats.done_bytes / cap * 100, 1) if cap else 0.0
+    return MediaStatsOut(
+        archives=ArchiveStatsOut(
+            total=archive_stats.total,
+            done=archive_stats.done,
+            failed=archive_stats.failed,
+            pending=archive_stats.pending,
+            done_bytes=archive_stats.done_bytes,
+            db_bytes=archive_stats.db_bytes,
+            cap_bytes=cap,
+            usage_percent=usage,
+        ),
+        image_cache_bytes=cache_stats.bytes,
+        image_cache_files=cache_stats.files,
+    )
 
 
 @router.get("/image")

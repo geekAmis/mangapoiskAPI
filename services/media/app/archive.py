@@ -114,6 +114,16 @@ class ArchiveSummary(BaseModel):
 
 
 @dataclass(slots=True)
+class ArchiveStats:
+    total: int
+    done: int
+    failed: int
+    pending: int
+    done_bytes: int
+    db_bytes: int
+
+
+@dataclass(slots=True)
 class ArchivedPage:
     data: bytes
     content_type: str
@@ -365,6 +375,32 @@ class ArchiveManager:
 
     async def ready(self) -> bool:
         return await asyncio.to_thread(self._ready_sync)
+
+    async def stats(self) -> ArchiveStats:
+        return await asyncio.to_thread(self._stats_sync)
+
+    def _stats_sync(self) -> ArchiveStats:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT status, COUNT(*) AS count, COALESCE(SUM(total_bytes), 0) AS bytes
+                FROM chapter_archives
+                GROUP BY status
+                """
+            ).fetchall()
+        counts = {str(row["status"]): int(row["count"]) for row in rows}
+        done_bytes = int(
+            next((row["bytes"] for row in rows if row["status"] == "done"), 0) or 0
+        )
+        db_bytes = self.db_path.stat().st_size if self.db_path.exists() else 0
+        return ArchiveStats(
+            total=sum(counts.values()),
+            done=counts.get("done", 0),
+            failed=counts.get("failed", 0),
+            pending=counts.get("queued", 0) + counts.get("running", 0),
+            done_bytes=done_bytes,
+            db_bytes=db_bytes,
+        )
 
     async def close(self) -> None:
         tasks = list(self._tasks.values())
