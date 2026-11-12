@@ -58,10 +58,12 @@ backlog is below the configured threshold.
   `next` link to page 1000, but requesting page 1000 returns HTTP 422
   (`detail.loc=["page"]`, `type="less_than"`).  The adapter declares
   `max_catalogue_pages = 999` and reports `has_next=false` when `next` would be
-  1000 or later.  It also converts exactly that page-limit 422 into
-  end-of-catalogue, so a cursor already persisted at page 1000 completes on the
-  next run without a manual reset.  Other 422 responses (bad `ordering`,
-  `count`, page 1, …) still fail normally and never mark the crawl complete.
+  1000 or later.  A cursor already persisted at page 1000 is answered with an
+  empty final page without an upstream request; in addition, exactly the
+  page-limit 422 is converted into end-of-catalogue.  The crawl therefore
+  completes on the next run without a manual page/status reset.  Other 422
+  responses (bad `ordering`, `count`, page 1, …) still fail normally and never
+  mark the crawl complete.
   Because the scheduler sees a normal successful page, it records
   `status=completed`, clears `last_error`, resets `health` to `ok` and does not
   open the circuit.
