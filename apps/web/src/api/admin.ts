@@ -276,6 +276,79 @@ export interface AdminMediaStats {
   warnings: string[];
 }
 
+export type AdProviderType =
+  | 'yandex'
+  | 'adfox'
+  | 'google'
+  | 'custom_html'
+  | 'custom_script';
+
+export type AdPlacement =
+  | 'header'
+  | 'sidebar'
+  | 'in-feed'
+  | 'post-chapter'
+  | 'mobile-sticky';
+
+export type AdAudience = 'guest' | 'authenticated' | 'both';
+
+export interface AdminAdSecret {
+  name: string;
+  configured: boolean;
+  hint: string;
+  updated_at: string | null;
+}
+
+export interface AdminAdProvider {
+  id: string;
+  name: string;
+  type: AdProviderType;
+  enabled: boolean;
+  priority: number;
+  placement: AdPlacement;
+  audience: AdAudience;
+  frequency_cap: number;
+  format: string;
+  width: number | null;
+  height: number | null;
+  schedule_days: number[];
+  schedule_start: string;
+  schedule_end: string;
+  timezone: string;
+  config: Record<string, unknown>;
+  custom_html: string;
+  custom_script: string;
+  exclude_adult: boolean;
+  hide_for_donors: boolean;
+  require_consent: boolean;
+  secrets: AdminAdSecret[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminAdProviderInput {
+  name: string;
+  type: AdProviderType;
+  enabled: boolean;
+  priority: number;
+  placement: AdPlacement;
+  audience: AdAudience;
+  frequency_cap: number;
+  format: string;
+  width: number | null;
+  height: number | null;
+  schedule_days: number[];
+  schedule_start: string;
+  schedule_end: string;
+  timezone: string;
+  config: Record<string, unknown>;
+  custom_html: string;
+  custom_script: string;
+  exclude_adult: boolean;
+  hide_for_donors: boolean;
+  require_consent: boolean;
+}
+
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -495,6 +568,32 @@ export const adminApi = {
 
   getAudit: (limit = 100, signal?: AbortSignal) =>
     adminRequest<AdminAuditEntry[]>(`/audit?limit=${encodeURIComponent(String(limit))}`, { signal }),
+
+  listAds: (signal?: AbortSignal) => adminRequest<AdminAdProvider[]>('/ads', { signal }),
+
+  createAd: (payload: AdminAdProviderInput) =>
+    adminRequest<AdminAdProvider>('/ads', { method: 'POST', body: payload }),
+
+  updateAd: (id: string, payload: Partial<AdminAdProviderInput>) =>
+    adminRequest<AdminAdProvider>(`/ads/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
+
+  deleteAd: (id: string) =>
+    adminRequest<{ ok: boolean }>(`/ads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  setAdSecret: (id: string, name: string, value: string) =>
+    adminRequest<AdminAdSecret>(
+      `/ads/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`,
+      { method: 'PUT', body: { value } },
+    ),
+
+  deleteAdSecret: (id: string, name: string) =>
+    adminRequest<{ ok: boolean }>(
+      `/ads/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`,
+      { method: 'DELETE' },
+    ),
 };
 
 export function adminErrorMessage(error: unknown, fallback = 'Не удалось выполнить действие.'): string {

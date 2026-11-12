@@ -52,6 +52,7 @@ from manga_common.schemas import (
 from manga_common.security import (
     UserClaims,
     admin_auth_version,
+    optional_user,
     require_admin,
     require_internal_token,
     require_user,
@@ -397,6 +398,55 @@ async def sources(request: Request) -> list[SourceOut]:
         )
         for source in info
     ]
+
+
+# ---------------------------------------------------------------------------
+# Advertising
+# ---------------------------------------------------------------------------
+
+
+def _is_donor(user: UserClaims | None) -> bool:
+    """Best-effort entitlement check for the current account.
+
+    The library service does not expose a billing model yet.  Donor/Pro roles
+    and flags are read from the JWT claims so a future entitlement service can
+    activate them without changing the ads API.
+    """
+
+    if user is None:
+        return False
+    if user.role.lower() in {"pro", "donor", "supporter", "subscriber"}:
+        return True
+    raw = user.raw or {}
+    for key in ("is_donor", "donor", "is_pro", "pro", "subscription_active"):
+        if bool(raw.get(key)):
+            return True
+    return False
+
+
+@router.get("/ads/config")
+async def public_ads_config(
+    request: Request,
+    response: Response,
+    adult: bool = Query(default=False),
+    consent: bool = Query(default=False),
+    user: UserClaims | None = Depends(optional_user),
+) -> list[dict[str, Any]]:
+    """Public ad slots for the current audience; never includes secrets."""
+
+    response.headers["Cache-Control"] = "private, max-age=30"
+    try:
+        return await control(request).ads_public(
+            audience="authenticated" if user is not None else "guest",
+            donor=_is_donor(user),
+            adult=adult,
+            consent=consent,
+        )
+    except Exception as exc:
+        # Ads are optional: a control outage must not break a page or log a
+        # browser-visible error.
+        logger.debug("advertising config unavailable: %s", exc)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -1445,6 +1495,68 @@ async def admin_failover(
     registry = await control(request).refresh_registry()
     updated = await _apply_registry(request, registry)
     return {"updated": updated, "registry": registry}
+
+
+@router.get("/admin/ads")
+async def admin_ads(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> list[dict[str, Any]]:
+    return await control(request).ads()
+
+
+@router.post("/admin/ads")
+async def admin_create_ad(
+    request: Request,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).create_ad(payload)
+
+
+@router.patch("/admin/ads/{provider_id}")
+async def admin_update_ad(
+    request: Request,
+    provider_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).update_ad(str(provider_id), payload)
+
+
+@router.delete("/admin/ads/{provider_id}")
+async def admin_delete_ad(
+    request: Request,
+    provider_id: uuid.UUID,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    await control(request).delete_ad(str(provider_id))
+    return {"ok": True}
+
+
+class AdSecretIn(BaseModel):
+    value: str = Field(min_length=1, max_length=20_000)
+
+
+@router.put("/admin/ads/{provider_id}/secrets/{name}")
+async def admin_set_ad_secret(
+    request: Request,
+    provider_id: uuid.UUID,
+    name: str,
+    payload: AdSecretIn,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    return await control(request).set_ad_secret(str(provider_id), name, payload.value)
+
+
+@router.delete("/admin/ads/{provider_id}/secrets/{name}")
+async def admin_delete_ad_secret(
+    request: Request,
+    provider_id: uuid.UUID,
+    name: str,
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    await control(request).delete_ad_secret(str(provider_id), name)
+    return {"ok": True}
 
 
 @router.get("/admin/audit")

@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, listItems, resolveApiUrl } from '../api/client';
 import { notificationsApi } from '../api/notifications';
 import type { ChapterOut, MangaDetailOut, MangaVariantOut } from '../api/types';
+import { AdSlot } from '../components/ads/AdSlot';
 import { ChapterRow } from '../components/ChapterRow';
 import { CommentsSection } from '../components/CommentsSection';
 import { EmptyState } from '../components/EmptyState';
@@ -1273,6 +1274,8 @@ export default function MangaPage() {
             </div>
           )}
         </section>
+
+        <AdSlot placement="sidebar" adult={viewManga.adult} />
       </div>
 
       <RelatedShelf mangaId={id} />

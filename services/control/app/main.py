@@ -9,6 +9,7 @@ from manga_common.db import create_all, create_engine, create_session_factory, p
 from manga_common.service import add_ready_check, create_service_app
 from sqlalchemy import text, update
 
+from .ads import AdsService
 from .api import router
 from .config import ControlSettings
 from .models import DeploymentJob
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
     service = ControlService(settings, session_factory)
     app.state.engine = engine
     app.state.service = service
+    app.state.ads = AdsService(settings, session_factory, box=service.box)
 
     async def db_ready() -> bool:
         return await ping(engine)

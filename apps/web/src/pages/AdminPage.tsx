@@ -27,6 +27,7 @@ import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
 import { AdminLogin } from '../components/admin/AdminLogin';
 import { AdminServerCard } from '../components/admin/AdminServerCard';
+import { AdsPanel } from '../components/admin/AdsPanel';
 import { DeployModal } from '../components/admin/DeployModal';
 import { MediaStoragePanel } from '../components/admin/MediaStoragePanel';
 import { ServerFormModal } from '../components/admin/ServerFormModal';
@@ -62,6 +63,11 @@ const AUDIT_LABELS: Record<string, string> = {
   'registry.sync': 'Маршруты синхронизированы',
   'failover.applied': 'Failover выполнен',
   'health.checked': 'Health-check',
+  'ads.provider_created': 'Добавлена рекламная интеграция',
+  'ads.provider_updated': 'Обновлена рекламная интеграция',
+  'ads.provider_deleted': 'Удалена рекламная интеграция',
+  'ads.secret_set': 'Рекламный ключ сохранён',
+  'ads.secret_deleted': 'Рекламный ключ удалён',
 };
 
 function detailsSummary(entry: AdminAuditEntry): string {
@@ -1006,6 +1012,8 @@ export default function AdminPage() {
         </section>
 
         <CommentModerationPanel />
+
+        <AdsPanel />
 
         <section className="admin-panel" aria-labelledby="admin-audit-title">
           <div className="admin-panel__head">

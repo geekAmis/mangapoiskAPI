@@ -1,0 +1,150 @@
+/* Reserved advertising slots.  The height is fixed before a creative loads
+   so a slow network, adblock or a broken banner cannot shift the page. */
+.ad-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: min(100%, var(--ad-slot-width, 728px));
+  min-height: var(--ad-slot-height, 90px);
+  margin: 14px auto;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  contain: layout paint;
+}
+
+.ad-slot__label {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  z-index: 1;
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.ad-slot__content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--ad-slot-height, 90px);
+}
+
+.ad-slot__content img,
+.ad-slot__content picture,
+.ad-slot__content source {
+  max-width: 100%;
+  height: auto;
+}
+
+.ad-slot__content a {
+  color: var(--accent);
+}
+
+.ad-slot__frame {
+  display: block;
+  width: 100%;
+  height: var(--ad-slot-height, 90px);
+  border: 0;
+  background: transparent;
+}
+
+.ad-slot__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--ad-slot-height, 90px);
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.ad-slot--header {
+  margin-block: 10px 4px;
+}
+
+.ad-slot--in-feed {
+  margin-block: 18px;
+}
+
+.ad-slot--sidebar {
+  margin-block: 0 20px;
+}
+
+.ad-slot--post-chapter {
+  width: calc(100% - 32px);
+  margin: 20px auto;
+}
+
+@media (max-width: 767px) {
+  .ad-slot {
+    margin-block: 10px;
+  }
+
+  .ad-slot--sidebar {
+    display: none;
+  }
+
+  .ad-slot--post-chapter {
+    width: calc(100% - 16px);
+  }
+
+  .ad-slot--mobile-sticky {
+    position: fixed;
+    right: 8px;
+    bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 8px);
+    left: 8px;
+    z-index: 80;
+    width: auto;
+    max-width: none;
+    min-height: var(--ad-slot-height, 50px);
+    margin: 0;
+    padding: 4px 8px;
+    border-style: solid;
+    background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .ad-slot--mobile-sticky .ad-slot__content,
+  .ad-slot--mobile-sticky .ad-slot__placeholder,
+  .ad-slot--mobile-sticky .ad-slot__frame {
+    min-height: var(--ad-slot-height, 50px);
+    height: var(--ad-slot-height, 50px);
+  }
+
+  body.has-apk-banner .ad-slot--mobile-sticky {
+    bottom: calc(
+      var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) +
+        var(--apk-banner-height, 64px) + 20px
+    );
+  }
+
+  body.has-mobile-ad .site-main {
+    padding-bottom: calc(
+      var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 86px
+    );
+  }
+
+  body.has-mobile-ad.has-apk-banner .site-main {
+    padding-bottom: calc(
+      var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) +
+        var(--apk-banner-height, 64px) + 98px
+    );
+  }
+}
+
+@media (min-width: 768px) {
+  .ad-slot--mobile-sticky {
+    display: none;
+  }
+}

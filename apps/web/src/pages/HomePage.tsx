@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { AdSlot } from '../components/ads/AdSlot';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
@@ -190,6 +191,8 @@ export default function HomePage() {
             />
           )}
         </section>
+
+        <AdSlot placement="in-feed" />
 
         <section className="ml-panel" aria-labelledby="ml-continue-title">
           <header className="ml-panel__head">
