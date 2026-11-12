@@ -1,10 +1,11 @@
 # Catalogue ingestion and metadata
 
 This document is the operational contract for the resumable MangaPoisk /
-MangaLib catalogue crawler.  Code lives in:
+MangaLib / Remanga catalogue crawler.  Code lives in:
 
 - `services/parser/app/adapters/mangapoisk.py` — `catalogue()` / `catalog()`
 - `services/parser/app/adapters/mangalib.py` — `catalogue()` / `catalog()`
+- `services/parser/app/adapters/remanga.py` — `catalogue()`
 - `services/catalog/app/{models,repository,service,api}.py`
 - `services/scheduler/app/catalogue.py`
 
@@ -14,6 +15,7 @@ MangaLib catalogue crawler.  Code lives in:
 | --- | --- | --- | --- |
 | MangaPoisk | `GET /manga?page=N&sortBy=…` (Inertia JSON) | 40 | `meta.total` / `meta.last_page` |
 | MangaLib | `GET https://api.lib.social/api/manga?site_id[]=1&page=N&limit=60&sort_by=…` | 60 | no total; follow `meta.has_next_page` |
+| Remanga | `GET https://api.remanga.org/api/v2/search/catalog/?page=N&count=30&ordering=…` | 30 | hard cap: page 999 is the last valid page (`page=1000` → HTTP 422) |
 
 Supported adapter sort names: `popular`, `updated`, `new`, `rating`, `title`,
 `chapters`.  MangaPoisk maps them to `sortBy` values; MangaLib maps them to
@@ -52,6 +54,17 @@ backlog is below the configured threshold.
 - A documented catalogue end is a successful response with no items and
   `has_next=false` (MangaLib page 698 in the current API; MangaPoisk's last
   page).  That is recorded as `completed`.
+- Remanga publishes a hard API cap.  Page 999 is valid and still advertises a
+  `next` link to page 1000, but requesting page 1000 returns HTTP 422
+  (`detail.loc=["page"]`, `type="less_than"`).  The adapter declares
+  `max_catalogue_pages = 999` and reports `has_next=false` when `next` would be
+  1000 or later.  It also converts exactly that page-limit 422 into
+  end-of-catalogue, so a cursor already persisted at page 1000 completes on the
+  next run without a manual reset.  Other 422 responses (bad `ordering`,
+  `count`, page 1, …) still fail normally and never mark the crawl complete.
+  Because the scheduler sees a normal successful page, it records
+  `status=completed`, clears `last_error`, resets `health` to `ok` and does not
+  open the circuit.
 - A `404`/`403`/timeout/5xx on one page is retried up to
   `CATALOGUE_PAGE_RETRIES` times with jittered backoff.  It is **not** treated
   as end-of-catalogue: during the reliability audit MangaLib pages 200/201/202

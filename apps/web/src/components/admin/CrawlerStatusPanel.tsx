@@ -90,7 +90,13 @@ function SourceCard({
         <div>
           <span>Страница</span>
           <strong>{formatInt(page)}</strong>
-          <small>{total ? `из ${formatInt(total)}` : 'всего неизвестно'}</small>
+          <small>
+            {full?.status === 'completed'
+              ? 'источник исчерпан'
+              : total
+                ? `из ${formatInt(total)}`
+                : 'всего неизвестно'}
+          </small>
         </div>
         <div>
           <span>ETA</span>

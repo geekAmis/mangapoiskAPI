@@ -168,6 +168,7 @@ def make_crawler(
     sleep_calls: list[float] | None = None,
     clock=lambda: NOW,  # type: ignore[no-untyped-def]
     scheduler_settings: SchedulerSettings | None = None,
+    source_name: str = "mangapoisk",
 ) -> CatalogueCrawler:
     sleep_calls = sleep_calls if sleep_calls is not None else []
 
@@ -175,7 +176,7 @@ def make_crawler(
         sleep_calls.append(seconds)
 
     def factory(source: str, client: httpx.AsyncClient, cache: Any) -> FakeAdapter:
-        assert source == "mangapoisk"
+        assert source == source_name
         return adapter
 
     return CatalogueCrawler(
@@ -344,6 +345,112 @@ async def test_documented_empty_end_page_completes_normally() -> None:
     health = api.states[("mangapoisk", "health")]
     assert health["status"] == "ok"
     assert health["last_success_at"]
+    await crawler.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_full_crawl_completes_at_source_page_cap_without_retry() -> None:
+    api = CatalogAPI()
+    api.states[("remanga", "full")] = {
+        "id": "state-1",
+        "source": "remanga",
+        "mode": "full",
+        "page": 999,
+        "status": "failed",
+        "last_error": "UpstreamError: Upstream returned HTTP 422",
+        "total_pages": 999,
+        "items_seen": 29890,
+        "items_imported": 24707,
+        "failure_count": 1,
+    }
+    api.states[("remanga", "health")] = {
+        "id": "state-health",
+        "source": "remanga",
+        "mode": "health",
+        "status": "blocked",
+        "last_error": "UpstreamError: Upstream returned HTTP 422",
+        "failure_count": 1,
+        "failure_kind": "error",
+    }
+    adapter = FakeAdapter(
+        {
+            (999, "popular"): SourceSearchResult(
+                source="remanga",
+                items=[summary("r1")],
+                page=999,
+                has_next=False,
+                total_pages=999,
+                per_page=30,
+            )
+        }
+    )
+    sleeps: list[float] = []
+    crawler = make_crawler(api, adapter, source_name="remanga", sleep_calls=sleeps)
+
+    report = await crawler.full_crawl("remanga", adapter)
+
+    assert report.completed is True
+    assert adapter.catalogue_calls == [(999, "popular")]
+    assert sleeps == []
+    state = api.states[("remanga", "full")]
+    assert state["status"] == "completed"
+    assert state["page"] == 999
+    assert state["last_error"] is None
+    assert state["failure_count"] == 0
+    assert state["items_seen"] == 29891
+    assert state["items_imported"] == 24708
+    assert state["next_run_at"]
+    health = api.states[("remanga", "health")]
+    assert health["status"] == "ok"
+    assert health["failure_count"] == 0
+    assert health["last_error"] is None
+    await crawler.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_full_crawl_recovers_persisted_cursor_past_source_cap() -> None:
+    """Production cursor is already at page=1000; the next tick must finish it."""
+
+    api = CatalogAPI()
+    api.states[("remanga", "full")] = {
+        "id": "state-1",
+        "source": "remanga",
+        "mode": "full",
+        "page": 1000,
+        "status": "failed",
+        "last_error": "UpstreamError: Upstream returned HTTP 422",
+        "total_pages": 999,
+        "items_seen": 29890,
+        "items_imported": 24707,
+        "failure_count": 1,
+    }
+    api.states[("remanga", "health")] = {
+        "id": "state-health",
+        "source": "remanga",
+        "mode": "health",
+        "status": "blocked",
+        "last_error": "UpstreamError: Upstream returned HTTP 422",
+        "failure_count": 1,
+        "failure_kind": "error",
+    }
+    adapter = FakeAdapter({})
+    sleeps: list[float] = []
+    crawler = make_crawler(api, adapter, source_name="remanga", sleep_calls=sleeps)
+
+    report = await crawler.full_crawl("remanga", adapter)
+
+    assert report.completed is True
+    assert adapter.catalogue_calls == [(1000, "popular")]
+    assert sleeps == []
+    state = api.states[("remanga", "full")]
+    assert state["status"] == "completed"
+    assert state["page"] == 1000
+    assert state["last_error"] is None
+    assert state["failure_count"] == 0
+    assert state["next_run_at"]
+    health = api.states[("remanga", "health")]
+    assert health["status"] == "ok"
+    assert health["last_error"] is None
     await crawler.client.aclose()
 
 
