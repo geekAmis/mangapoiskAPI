@@ -413,12 +413,37 @@ refuses arbitrary plain-HTTP URLs. Only `https://` and local development hosts
 silently fall back to HTTP. The Android shell still enforces HTTPS in every
 build type, so localhost HTTP is only useful for the browser web build.
 
+#### 1.3.0 release (current)
+
+The 1.3.0 Capacitor release is built from branch `release/android-1.3.0`
+(base `fix/android-signing` `b6f5ec0`). Version metadata lives in
+`apps/mobile/package.json` (`1.3.0`) and
+`apps/mobile/android/app/build.gradle` (`versionCode 3`,
+`versionName "1.3.0"`); the package id stays `ru.mangapoisk.reborn`.
+
+Build with `npm run sync` and `.\gradlew.bat assembleRelease`, then sign the
+unsigned APK with the production key using the steps below. The signed 1.3.0
+artifact is `mangapoisk-reborn-1.3.0-release.apk`:
+
+| Field | Value |
+|---|---|
+| Size | 7 379 905 bytes |
+| SHA-256 | `ea4ec2102e5b8fc2b51c6e576b1d16b6fc6e1b4509820d3959379ed71f38c514` |
+| Package | `ru.mangapoisk.reborn` |
+| versionName / versionCode | `1.3.0` / `3` |
+| Certificate SHA-256 | `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74` |
+| Signature schemes | v1, v2 and v3 all `true` |
+
+1.3.0 uses the same production key as 1.1.0, so it installs in place over the
+production-signed 1.1.0 (versionCode 2). Keep app data during the update test;
+only uninstall if a debug-signed build is installed.
+
 #### Release signing (production)
 
 The release APK is signed outside Gradle with the production keystore; the
 repository intentionally contains no signing config and no keystore.
 
-Current 1.1.0 certificate:
+Signing certificate (1.1.0 and 1.3.0):
 
 | Field | Value |
 |---|---|
@@ -447,7 +472,7 @@ renamed or all users are told to uninstall.
   `keystore.properties` or the password in git, issue comments, chat, CI logs
   or shell history.
 
-**Generate the keystore (one-time; already done for 1.1.0)**
+**Generate the keystore (one-time; already done for 1.1.0, reused for 1.3.0)**
 
 Run on production as root. `keytool` is part of the JDK 17 installation.
 
@@ -497,7 +522,7 @@ apksigner sign \
   --v1-signing-enabled true \
   --v2-signing-enabled true \
   --v3-signing-enabled true \
-  --out mangapoisk-reborn-1.1.0-release.apk \
+  --out mangapoisk-reborn-1.3.0-release.apk \
   app-release-unsigned.apk
 
 unset storePassword keyPassword
@@ -521,18 +546,18 @@ $env:keyPassword = $props['keyPassword']
 apksigner sign --ks "$KS_DIR\mangapoisk-release.jks" --ks-type PKCS12 `
   --ks-key-alias mangapoisk --ks-pass env:storePassword --key-pass env:keyPassword `
   --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true `
-  --out mangapoisk-reborn-1.1.0-release.apk app-release-unsigned.apk
+  --out mangapoisk-reborn-1.3.0-release.apk app-release-unsigned.apk
 Remove-Item Env:storePassword, Env:keyPassword
 ```
 
 **Verify the signature**
 
 ```bash
-apksigner verify --verbose --print-certs mangapoisk-reborn-1.1.0-release.apk
-sha256sum mangapoisk-reborn-1.1.0-release.apk
+apksigner verify --verbose --print-certs mangapoisk-reborn-1.3.0-release.apk
+sha256sum mangapoisk-reborn-1.3.0-release.apk
 ```
 
-Expected for 1.1.0:
+Expected for 1.3.0:
 
 - `Verifies`
 - `Verified using v1 scheme (JAR signing): true`
@@ -543,8 +568,13 @@ Expected for 1.1.0:
   `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`
   and `RSA 4096`.
 - APK SHA-256
-  `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`
-  (7 355 329 bytes).
+  `ea4ec2102e5b8fc2b51c6e576b1d16b6fc6e1b4509820d3959379ed71f38c514`
+  (7 379 905 bytes).
+
+The 1.1.0 artifact remains
+`b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`
+(7 355 329 bytes) for update-path comparison; both releases use the same
+certificate.
 
 `apksigner` may warn that `META-INF/*.version` entries are not protected by the
 v1 JAR signature. This is expected for AndroidX metadata; v2/v3 protect the
@@ -589,7 +619,7 @@ Run these checks against the signed release APK (the unsigned build has the same
 assets):
 
 ```bash
-APK=mangapoisk-reborn-1.1.0-release.apk
+APK=mangapoisk-reborn-1.3.0-release.apk
 sha256sum "$APK"
 apksigner verify --verbose --print-certs "$APK"
 
@@ -607,18 +637,22 @@ Expected: the only API base is
 `https://85.192.37.58.nip.io:8443/api/v1`; `http://85.192.37.58:8088` is absent;
 the packaged config has `"androidScheme": "https"`, `"cleartext": false` and
 `"allowMixedContent": false`; the manifest has
-`usesCleartextTraffic=false`, `versionName="1.1.0"`, `versionCode=2` and
-`package="ru.mangapoisk.reborn"`. On Windows, use `tar -xf` instead of `unzip`.
+`usesCleartextTraffic=false`, `versionName="1.3.0"`, `versionCode=3` and
+`package="ru.mangapoisk.reborn"`; the APK SHA-256 is
+`ea4ec2102e5b8fc2b51c6e576b1d16b6fc6e1b4509820d3959379ed71f38c514`.
+On Windows, use `tar -xf` instead of `unzip`.
 
 #### On-device QA checklist (TECNO KL6, Android 14)
 
 Do not publish the draft release until every item passes. Record results in
-issue #35.
+the 1.3.0 release QA issue.
 
 1. **Preconditions.** Phone unlocked, USB debugging enabled, `adb devices`
-   shows the device as `device` (not `unauthorized`). The 1.0 build on the QA
-   phone is debug-signed, so the production-signed APK cannot install over it.
-   Uninstall once (this wipes app data on the QA phone):
+   shows the device as `device` (not `unauthorized`). The QA phone currently
+   has the production-signed 1.1.0 (versionCode 2). 1.3.0 uses the same key, so
+   install it as an in-place update and keep app data. Only if the installed
+   build is debug-signed (for example the old 1.0 debug build) uninstall once
+   first; this wipes app data on the QA phone:
 
    ```bash
    adb uninstall ru.mangapoisk.reborn
@@ -627,7 +661,7 @@ issue #35.
 2. **Install the signed release.**
 
    ```bash
-   adb install -r mangapoisk-reborn-1.1.0-release.apk
+   adb install -r mangapoisk-reborn-1.3.0-release.apk
    ```
 
    Expected `Success`. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means an old
@@ -640,8 +674,9 @@ issue #35.
      grep -E 'versionName|versionCode|firstInstallTime|lastUpdateTime|flags='
    ```
 
-   Expected `versionName=1.1.0`, `versionCode=2`, and **no** `DEBUGGABLE` in
-   `flags=`.
+   Expected `versionName=1.3.0`, `versionCode=3`, and **no** `DEBUGGABLE` in
+   `flags=`. When updating over 1.1.0, `firstInstallTime` must stay the same and
+   `lastUpdateTime` must change.
 
 4. **Installed binary signature.** Pull the installed base APK and verify it,
    not just the file you uploaded:
@@ -656,7 +691,7 @@ issue #35.
    Expected certificate SHA-256
    `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`;
    record the installed APK SHA-256 (it should equal
-   `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`).
+   `ea4ec2102e5b8fc2b51c6e576b1d16b6fc6e1b4509820d3959379ed71f38c514`).
 
 5. **Launch with logcat and check the API host.**
 
@@ -677,7 +712,9 @@ issue #35.
    same logcat, or open `chrome://inspect` on the workstation and inspect the
    `ru.mangapoisk.reborn` WebView.
 
-7. **Smoke matrix.** Mark each item pass/fail in #35:
+7. **Smoke matrix.** Mark each item pass/fail in the 1.3.0 QA issue:
+   - update-in-place: install over 1.1.0 without uninstalling; bookmarks,
+     history, reader settings and downloaded chapters survive;
    - cold start: home renders (hero, continue reading, popular, sources strip);
    - catalogue: pagination, source filter, sort;
    - search: query returns results, open a manga from results;
@@ -685,6 +722,8 @@ issue #35.
    - reader: open a chapter, next/previous chapter, vertical and horizontal
      modes, page progress persists after back/reopen;
    - library: bookmark appears, continue reading and history work;
+   - notifications: the in-app bell opens and new-chapter entries render; Web
+     Push stays disabled on Android with the native explanation;
    - auth: login, kill and reopen the app, refresh succeeds; a stale session may
      return one 401 on `/auth/refresh`, but the app must recover or ask to log
      in, not crash;
@@ -711,8 +750,8 @@ issue #35.
    `85.192.37.58`.
 
 10. **Sign-off.** Attach the installed APK SHA-256, certificate fingerprint,
-    logcat excerpt and the pass/fail matrix to #35. Only then publish the draft
-    release and verify
+    logcat excerpt and the pass/fail matrix to the 1.3.0 QA issue. Only then
+    publish the draft release and verify
     `https://github.com/geekAmis/mangapoiskAPI/releases/latest/download/mangapoisk-reborn.apk`
     downloads the same SHA-256. On any failure, keep the release in draft and
     attach the exact failing logcat lines.
@@ -724,8 +763,11 @@ issue #35.
 | `assembleDebug` | **SUCCESS** — `app/build/outputs/apk/debug/app-debug.apk` |
 | `assembleRelease` (R8/resources shrink) | **SUCCESS** — `app/build/outputs/apk/release/app-release-unsigned.apk` |
 | Capacitor `assembleDebug` / `assembleRelease` | **SUCCESS** — `ru.mangapoisk.reborn` 1.1.0 (versionCode 2); bundle/API config verified HTTPS-only; release APK built unsigned, then signed with the production key |
+| Capacitor `assembleDebug` / `assembleRelease` (1.3.0) | **SUCCESS** — `ru.mangapoisk.reborn` 1.3.0 (versionCode 3); `npm run sync` baked only the HTTPS API base; release APK built unsigned, then signed with the production key |
 | `apksigner verify` (signed 1.1.0) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8` |
+| `apksigner verify` (signed 1.3.0) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `ea4ec2102e5b8fc2b51c6e576b1d16b6fc6e1b4509820d3959379ed71f38c514` (7 379 905 bytes) |
 | Draft release asset | **UPLOADED** — `mangapoisk-reborn.apk` on draft `MangaPoisk Reborn 1.1.0`; not published pending on-device QA |
+| 1.3.0 release asset | **PENDING** — signed APK staged for the lead; not uploaded or published pending on-device QA |
 | Kotlin compile | Success (Kotlin 2.0.21, JVM 17) |
 | Resource/manifest validation | Success (AAPT2 via assemble) |
 | Lint | `lintDebug` passes with no errors after the `NewApi` style fix |
@@ -760,9 +802,11 @@ rule and then succeeded.
    `blur_adult_posters` server setting is not consumed.
 9. **Chapter list pagination** beyond `MangaDetailOut.chapters` (capped at 500
    by the API) is not implemented.
-10. **Release APK signing is manual.** The 1.1.0 APK is signed with the
-    production key outside Gradle and uploaded to the draft release, but
-    publication is blocked on the on-device QA checklist above.
+10. **Release APK signing is manual.** The 1.3.0 APK is signed with the
+    production key outside Gradle; the lead installs it and uploads it to the
+    draft release, but publication is blocked on the on-device QA checklist
+    above. The production-signed 1.1.0 remains the last published build until
+    then.
 11. **No offline catalogue/home.** Offline support covers downloaded chapters,
     local bookmarks, history and settings.
 12. **No localization beyond Russian.** All strings are externalized, so adding
