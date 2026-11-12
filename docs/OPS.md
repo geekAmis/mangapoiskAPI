@@ -300,10 +300,14 @@ longer and depends on OS/package installation.
 The pre-change configuration for each node is stored under
 `/root/backups/ops-20261112/<host>/` and copied off-host:
 
-* `primary-85` → `jump-83:/srv/mangapoisk-backups/ops-20261112/primary-85/`
+* `primary-85` → `jump-83:/root/backups/ops-20261112/offhost/primary-85/`
 * `jump-83` → `primary-85:/root/backups/ops-20261112/jump-83-offhost/`
 * `aeza-2` → `primary-85:/root/backups/ops-20261112/aeza-2/` and
-  `jump-83:/srv/mangapoisk-backups/ops-20261112/aeza-2/`
+  `jump-83:/root/backups/ops-20261112/offhost/aeza-2/`
+
+These directories are root-only (0700).  The unencrypted configuration tars
+must never live in `/srv/mangapoisk-backups` (the `mpbackup` home); only the
+encrypted restic repository belongs there.
 
 Each directory contains UFW state, iptables/ip6tables, listening sockets,
 systemd unit list, `/etc/fstab`, sysctl, SSH config and the app config tar
