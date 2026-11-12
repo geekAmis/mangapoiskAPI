@@ -122,6 +122,7 @@ def _crawl_state_out(state) -> CrawlStateOut:  # type: ignore[no-untyped-def]
         last_success_at=state.last_success_at,
         failure_count=state.failure_count,
         failure_kind=state.failure_kind,
+        eta_seconds=state.eta_seconds,
         created_at=state.created_at,
         updated_at=state.updated_at,
     )

@@ -83,6 +83,24 @@ class CrawlReport:
     error: str | None = None
 
 
+def estimate_eta_seconds(
+    *, page: int, total_pages: int | None, pages_this_run: int, elapsed_seconds: float
+) -> int | None:
+    """Estimate the remaining full-crawl time from the current page rate.
+
+    The crawler persists this in the crawl state so the admin dashboard shows an
+    ETA immediately after a restart, without needing two client-side samples.
+    """
+
+    if total_pages is None or pages_this_run <= 0 or elapsed_seconds <= 0:
+        return None
+    remaining = max(0, int(total_pages) - int(page))
+    rate = pages_this_run / elapsed_seconds
+    if rate <= 0:
+        return None
+    return max(0, round(remaining / rate))
+
+
 def _as_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         if value.tzinfo is None:
@@ -612,6 +630,7 @@ class CatalogueCrawler:
             total_pages=total_pages,
             items_seen=items_seen,
             items_imported=imported,
+            eta_seconds=None,
         )
 
         while not stop.is_set():
@@ -638,6 +657,7 @@ class CatalogueCrawler:
                     items_imported=imported,
                     failure_count=failure_count,
                     failure_kind=self._failure_kind(exc),
+                    eta_seconds=None,
                 )
                 report.error = error
                 return report
@@ -668,6 +688,12 @@ class CatalogueCrawler:
             rate = pages_this_run / elapsed
             remaining = (
                 max(0, int(total_pages) - page) if total_pages is not None else None
+            )
+            eta_seconds = estimate_eta_seconds(
+                page=page,
+                total_pages=total_pages,
+                pages_this_run=pages_this_run,
+                elapsed_seconds=elapsed,
             )
             eta = f"{remaining / rate / 60:.1f} min" if remaining is not None and rate else "unknown"
             logger.info(
@@ -700,6 +726,7 @@ class CatalogueCrawler:
                     total_pages=total_pages,
                     items_seen=items_seen,
                     items_imported=imported,
+                    eta_seconds=eta_seconds,
                 )
                 await self._sleep(self.crawl_delay)
                 continue
@@ -718,6 +745,7 @@ class CatalogueCrawler:
                     failure_count=0,
                     failure_kind=None,
                     last_success_at=self._clock().isoformat(),
+                    eta_seconds=None,
                 )
                 report.completed = True
                 logger.info(
@@ -742,6 +770,7 @@ class CatalogueCrawler:
                 total_pages=total_pages,
                 items_seen=items_seen,
                 items_imported=imported,
+                eta_seconds=eta_seconds,
             )
             await self._sleep(self.crawl_delay)
 
@@ -797,6 +826,7 @@ class CatalogueCrawler:
                 failure_count=0,
                 failure_kind=None,
                 last_success_at=now.isoformat(),
+                eta_seconds=None,
             )
             logger.info(
                 "catalogue incremental %s: pages=%s items=%s imported=%s next_run_at=%s",
@@ -827,6 +857,7 @@ class CatalogueCrawler:
                 items_imported=report.imported,
                 failure_count=failure_count,
                 failure_kind=self._failure_kind(exc),
+                eta_seconds=None,
             )
             report.error = error
         return report

@@ -95,6 +95,28 @@ export function formatInt(value: number | null | undefined): string {
   return numberFormatter.format(value);
 }
 
+export function formatBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return '0 Б';
+  const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+  const exponent = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
+  const scaled = value / 1024 ** exponent;
+  const digits = scaled >= 10 || exponent === 0 ? 0 : 1;
+  return `${scaled.toFixed(digits).replace('.', ',')} ${units[exponent]}`;
+}
+
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return '—';
+  if (seconds < 60) return 'меньше минуты';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `~${minutes} мин`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours < 24) return rest ? `~${hours} ч ${rest} мин` : `~${hours} ч`;
+  const days = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  return restHours ? `~${days} д ${restHours} ч` : `~${days} д`;
+}
+
 export function formatRating(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   return value.toFixed(1).replace('.', ',');

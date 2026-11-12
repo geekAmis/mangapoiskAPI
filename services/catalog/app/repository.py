@@ -917,6 +917,7 @@ async def upsert_crawl_state(session: AsyncSession, values: dict[str, Any]) -> C
         "last_success_at",
         "failure_count",
         "failure_kind",
+        "eta_seconds",
     ):
         if field in values:
             setattr(state, field, values[field])
@@ -1056,16 +1057,32 @@ async def stats(session: AsyncSession) -> CatalogStats:
             select(
                 Manga.source,
                 func.count(Manga.id),
-                func.coalesce(func.sum(Manga.chapters_count), 0),
+                func.coalesce(
+                    func.sum(case((Manga.last_synced_at.is_(None), 1), else_=0)), 0
+                ),
             ).group_by(Manga.source)
         )
     ).all()
+    chapter_rows = (
+        await session.execute(
+            select(Chapter.source, func.count(Chapter.id)).group_by(Chapter.source)
+        )
+    ).all()
+    chapters_by_source = {str(row[0]): int(row[1]) for row in chapter_rows}
     sources = [
-        SourceStats(source=row[0], manga=int(row[1]), chapters=int(row[2])) for row in rows
+        SourceStats(
+            source=row[0],
+            manga=int(row[1]),
+            chapters=chapters_by_source.get(str(row[0]), 0),
+            pending=int(row[2] or 0),
+        )
+        for row in rows
     ]
+    source_pending_total = sum(item.pending for item in sources)
     return CatalogStats(
         manga=manga_total,
         chapters=chapter_total,
+        pending=source_pending_total,
         sources=sources,
         pending_enrichment=pending_total,
         retrying_enrichment=retrying_total,

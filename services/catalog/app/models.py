@@ -185,6 +185,7 @@ class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     )
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class MangaRelation(Base, UUIDPrimaryKey, TimestampMixin):

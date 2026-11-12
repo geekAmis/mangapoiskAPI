@@ -94,6 +94,36 @@ async def test_small_chapter_uses_db_blobs(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_archive_stats_reports_usage(tmp_path: Path) -> None:
+    cache = FakeCache(tmp_path / "cache")
+    manager = ArchiveManager(
+        cache,
+        db_path=tmp_path / "archives.db",
+        archive_dir=tmp_path / "chapter-archives",
+        threshold_bytes=1024 * 1024,
+        max_bytes=25 * 1024 * 1024 * 1024,
+    )
+    request = ArchiveRequest(
+        chapter_id=uuid.uuid4(),
+        source="test-source",
+        pages=_pages(),
+    )
+    try:
+        await manager.create(request)
+        await _wait(manager, request.chapter_id)
+        stats = await manager.stats()
+        assert stats.total == 1
+        assert stats.done == 1
+        assert stats.failed == 0
+        assert stats.pending == 0
+        assert stats.done_bytes > 0
+        assert stats.db_bytes > 0
+        assert manager.max_bytes == 25 * 1024 * 1024 * 1024
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
 async def test_large_chapter_uses_zip(tmp_path: Path) -> None:
     cache = FakeCache(tmp_path / "cache")
     manager = ArchiveManager(

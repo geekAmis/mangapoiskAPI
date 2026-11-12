@@ -51,11 +51,13 @@ class SourceStats(BaseModel):
     source: str
     manga: int
     chapters: int
+    pending: int = 0
 
 
 class CatalogStats(BaseModel):
     manga: int
     chapters: int
+    pending: int = 0
     sources: list[SourceStats]
     pending_enrichment: int = 0
     retrying_enrichment: int = 0
@@ -81,6 +83,7 @@ class CrawlStateIn(BaseModel):
     last_success_at: datetime | None = None
     failure_count: int = Field(default=0, ge=0)
     failure_kind: str | None = Field(default=None, max_length=32)
+    eta_seconds: int | None = Field(default=None, ge=0)
 
 
 class CrawlStateOut(CrawlStateIn):

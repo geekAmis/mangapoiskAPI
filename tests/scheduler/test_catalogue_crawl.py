@@ -15,7 +15,7 @@ from manga_common.source_models import (
     MangaSummary,
     SourceSearchResult,
 )
-from services.scheduler.app.catalogue import CatalogueCrawler
+from services.scheduler.app.catalogue import CatalogueCrawler, estimate_eta_seconds
 from services.scheduler.app.main import SchedulerSettings
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -615,6 +615,33 @@ async def test_enrichment_imports_detail_and_retries_failures() -> None:
         is False
     )
     await crawler.client.aclose()
+
+
+def test_estimate_eta_seconds_uses_page_rate() -> None:
+    assert (
+        estimate_eta_seconds(
+            page=10, total_pages=100, pages_this_run=10, elapsed_seconds=60
+        )
+        == 540
+    )
+    assert (
+        estimate_eta_seconds(
+            page=100, total_pages=100, pages_this_run=100, elapsed_seconds=600
+        )
+        == 0
+    )
+    assert (
+        estimate_eta_seconds(
+            page=10, total_pages=None, pages_this_run=10, elapsed_seconds=60
+        )
+        is None
+    )
+    assert (
+        estimate_eta_seconds(
+            page=10, total_pages=100, pages_this_run=0, elapsed_seconds=60
+        )
+        is None
+    )
 
 
 def test_default_crawl_settings_are_polite() -> None:
