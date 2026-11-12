@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import shlex
+import socket
 import uuid
 from datetime import UTC, datetime
 from urllib.parse import urlparse
@@ -298,6 +299,11 @@ class ControlService:
             parsed = urlparse(url)
             if parsed.hostname:
                 hosts.add(parsed.hostname)
+                try:
+                    for info in socket.getaddrinfo(parsed.hostname, None):
+                        hosts.add(str(info[4][0]).split("%", 1)[0])
+                except OSError:
+                    pass
         return hosts
 
     def _endpoint(self, server: Server, service) -> RegistryEndpoint:  # type: ignore[no-untyped-def]
