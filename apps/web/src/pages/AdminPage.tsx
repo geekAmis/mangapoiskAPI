@@ -30,6 +30,7 @@ import { AdminServerCard } from '../components/admin/AdminServerCard';
 import { DeployModal } from '../components/admin/DeployModal';
 import { ServerFormModal } from '../components/admin/ServerFormModal';
 import { formatDateTime, formatInt } from '../lib/format';
+import { extractHarCookie } from '../lib/har';
 import { useDocumentTitle } from '../lib/hooks';
 import { toast } from '../stores/toast';
 import '../styles/admin.css';
@@ -107,13 +108,38 @@ function SourceCookieRow({ source }: { source: SourceOut }) {
     onError: (error) => toast.error(adminErrorMessage(error, 'Не удалось сохранить cookie')),
   });
   const harMutation = useMutation({
-    mutationFn: (file: File) => adminApi.importSourceCookieHar(source.code, file),
+    mutationFn: async (file: File) => {
+      let text: string;
+      try {
+        text = await file.text();
+      } catch {
+        throw new Error('Не удалось прочитать HAR-файл. Проверьте доступ к файлу и его размер.');
+      }
+      const result = extractHarCookie(text, source.code);
+      if (result.status === 'invalid-har') {
+        throw new Error(
+          'Файл не является корректным HAR. Сохраните его заново: DevTools → Network → Save all as HAR.',
+        );
+      }
+      if (result.status === 'no-cookie') {
+        throw new Error(
+          'В HAR не нашлись cookie для этого источника. Откройте сайт, авторизуйтесь и сохраните HAR заново.',
+        );
+      }
+      return adminApi.setSourceCookie(source.code, result.cookie);
+    },
     onSuccess: (next) => {
       setValue('');
       queryClient.setQueryData(['admin', 'source-cookie', source.code], next);
       toast.success('Cookie из HAR сохранён');
     },
-    onError: (error) => toast.error(adminErrorMessage(error, 'В HAR не нашлись подходящие cookie')),
+    onError: (error) => {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Не удалось прочитать HAR-файл',
+      );
+    },
   });
 
   return (
@@ -187,7 +213,7 @@ function SourceCookieRow({ source }: { source: SourceOut }) {
           <p className="admin-cookie-row__note">
             {state?.updated_at
               ? `Обновлён ${formatDateTime(state.updated_at)}. Значение хранится на сервере и никогда не возвращается в браузер.`
-              : 'Можно вставить заголовок Cookie вручную или загрузить HAR — сервер сам найдёт cookie источника.'}
+              : 'Можно вставить заголовок Cookie вручную или загрузить HAR — браузер извлечёт cookie локально, на сервер уйдёт только заголовок Cookie.'}
           </p>
         </>
       )}
