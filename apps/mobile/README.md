@@ -33,9 +33,10 @@ plain-HTTP URLs; only `https://` and local development hosts
 (`localhost`, `127.0.0.1`, `10.0.2.2`) are accepted:
 
 ```powershell
-# Physical device with adb reverse
+# Web-only local API for browser development.
+# The packaged Android shell still enforces HTTPS and will block cleartext.
 $env:CAPACITOR_API_BASE = "http://127.0.0.1:8000/api/v1"
-npm run sync
+npm run build:www
 ```
 
 For a physical device on the same network, use the server IP. For the emulator,

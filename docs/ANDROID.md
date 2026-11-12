@@ -408,7 +408,8 @@ Outputs:
 `apps/mobile/scripts/build-www.mjs` bakes the API base into the JS bundle and
 refuses arbitrary plain-HTTP URLs. Only `https://` and local development hosts
 (`localhost`, `127.0.0.1`, `10.0.2.2`) are accepted, so a release build cannot
-silently fall back to HTTP.
+silently fall back to HTTP. The Android shell still enforces HTTPS in every
+build type, so localhost HTTP is only useful for the browser web build.
 
 #### Signing notes
 
