@@ -377,7 +377,7 @@ Group={user}
 WorkingDirectory={paths}
 EnvironmentFile=-{root}/.env
 EnvironmentFile=-{root}/env/{code}.env
-Environment=PYTHONPATH={root}/src/packages
+Environment=PYTHONPATH={root}/src/packages:{root}/src
 ExecStart={command}
 Restart=always
 RestartSec=3
