@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, listItems, resolveApiUrl } from '../api/client';
-import type { ChapterOut, MangaVariantOut } from '../api/types';
+import type { ChapterOut, MangaDetailOut, MangaVariantOut } from '../api/types';
 import { ChapterRow } from '../components/ChapterRow';
 import { CommentsSection } from '../components/CommentsSection';
 import { EmptyState } from '../components/EmptyState';
@@ -33,7 +33,14 @@ import {
   sourceLabel,
   statusLabel,
 } from '../lib/format';
-import { useDocumentTitle } from '../lib/hooks';
+import {
+  absoluteUrl,
+  buildBreadcrumbJsonLd,
+  buildComicStoryJsonLd,
+  jsonLdGraph,
+  metaDescription,
+  useSeo,
+} from '../lib/seo';
 import { useOfflineTitle } from '../lib/offlineHooks';
 import { formatBytes, jobPercent, offlineTitleStats, type DownloadJobStatus } from '../lib/offlineTypes';
 import { queryKeys } from '../lib/queryClient';
@@ -89,6 +96,23 @@ function compareChapters(a: ChapterOut, b: ChapterOut): number {
   const byVolume = (a.volume ?? '').localeCompare(b.volume ?? '', 'ru', { numeric: true });
   if (byVolume !== 0) return byVolume;
   return a.number.localeCompare(b.number, 'ru', { numeric: true });
+}
+
+function mangaMetaDescription(
+  manga: MangaDetailOut | undefined,
+  title: string | undefined,
+): string {
+  const name = title?.trim() || 'Тайтл';
+  const raw = manga?.description?.trim() || manga?.description_fallback?.trim();
+  if (raw) return metaDescription(raw);
+
+  const facts = [
+    manga?.year ? String(manga.year) : null,
+    manga?.genres?.slice(0, 3).join(', ') || null,
+  ].filter(Boolean);
+  return metaDescription(
+    `${name} — читать онлайн на русском.${facts.length > 0 ? ` ${facts.join(' · ')}.` : ''} Описание, список глав и читалка MangaPoisk Reborn.`,
+  );
 }
 
 export default function MangaPage() {
@@ -215,7 +239,53 @@ export default function MangaPage() {
   });
 
   const viewTitle = activeVariant?.title ?? manga?.title;
-  useDocumentTitle(viewTitle ? `${viewTitle} — читать онлайн` : 'Тайтл — MangaPoisk Reborn');
+  const seoTitle = viewTitle
+    ? `${viewTitle} — читать онлайн на русском`
+    : 'Тайтл — MangaPoisk Reborn';
+  const seoCover =
+    manga?.covers?.find((cover) => cover.is_primary)?.url ??
+    manga?.poster_url ??
+    activeVariant?.poster_url ??
+    null;
+  const seoCanonical = manga
+    ? absoluteUrl(`/manga/${manga.id}`)
+    : mangaQuery.isError
+      ? null
+      : undefined;
+  const seoJsonLd = manga
+    ? jsonLdGraph(
+        buildComicStoryJsonLd({
+          name: manga.title,
+          url: absoluteUrl(`/manga/${manga.id}`) ?? '',
+          description: manga.description || manga.description_fallback,
+          image: seoCover,
+          alternateNames: [manga.title_en, manga.title_alt],
+          genres: manga.genres,
+          year: manga.year,
+          adult: manga.adult,
+          rating: manga.rating,
+          ratingCount: manga.rating_count,
+          sameAs: manga.url,
+          dateModified: manga.updated_at,
+        }),
+        buildBreadcrumbJsonLd([
+          { name: 'Главная', url: '/' },
+          { name: 'Каталог', url: '/catalogue' },
+          { name: viewTitle ?? manga.title, url: `/manga/${manga.id}` },
+        ]),
+      )
+    : null;
+
+  useSeo({
+    title: seoTitle,
+    description: mangaMetaDescription(manga, viewTitle),
+    canonical: seoCanonical,
+    robots: mangaQuery.isError ? 'noindex,follow' : 'index,follow,max-image-preview:large',
+    image: seoCover,
+    imageAlt: viewTitle ? `Обложка «${viewTitle}»` : undefined,
+    type: 'book',
+    jsonLd: seoJsonLd,
+  });
 
   const bookmarks = listItems(bookmarksQuery.data);
   const isBookmarked = bookmarks.some((bookmark) => bookmark.manga_id === id);

@@ -26,7 +26,8 @@ import {
   pagesLabel,
   progressPercent,
 } from '../lib/format';
-import { useDocumentTitle, useReducedMotion } from '../lib/hooks';
+import { useReducedMotion } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 import { useOfflineTitle } from '../lib/offlineHooks';
 import { getOfflinePageUrl, getOfflineProgress, saveOfflineProgress } from '../lib/offlineStorage';
 import {
@@ -82,11 +83,15 @@ export default function OfflineReaderPage() {
     };
   }, []);
 
-  useDocumentTitle(
-    chapter && title
-      ? `${chapterHeading(chapter)} — ${title.title} | офлайн`
-      : 'Офлайн-читалка — MangaPoisk Reborn',
-  );
+  useSeo({
+    title:
+      chapter && title
+        ? `${chapterHeading(chapter)} — ${title.title} | офлайн`
+        : 'Офлайн-читалка — MangaPoisk Reborn',
+    description: 'Офлайн-чтение скачанных глав MangaPoisk Reborn на этом устройстве.',
+    canonical: null,
+    robots: 'noindex,nofollow',
+  });
 
   if (loading) {
     return (
@@ -688,6 +693,9 @@ function OfflineReader({
 
   return (
     <div className={readerClass} style={{ ['--reader-gap' as string]: `${gap}px` }}>
+      <h1 className="sr-only">
+        {title} — {chapterHeading(chapter)}
+      </h1>
       <header className={`reader-header${headerHidden ? ' is-hidden' : ''}`}>
         <div className="reader-header__inner">
           <Link

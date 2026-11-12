@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/layout/AppLayout';
+import { AdminSeo } from './components/AdminSeo';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PageLoader, ReaderFallback } from './components/PageLoader';
 import HomePage from './pages/HomePage';
@@ -42,9 +43,12 @@ export default function App() {
       <Route
         path="admin"
         element={
-          <Suspense fallback={<div style={{ minHeight: '100dvh', background: '#07080b' }} />}>
-            <AdminPage />
-          </Suspense>
+          <>
+            <AdminSeo />
+            <Suspense fallback={<div style={{ minHeight: '100dvh', background: '#07080b' }} />}>
+              <AdminPage />
+            </Suspense>
+          </>
         }
       />
 

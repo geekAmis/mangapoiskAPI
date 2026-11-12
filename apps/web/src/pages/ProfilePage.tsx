@@ -7,7 +7,8 @@ import { InlineError } from '../components/ErrorState';
 import { ThemePicker } from '../components/ThemeSwitcher';
 import { humanizeError } from '../lib/errors';
 import { formatDate, initials } from '../lib/format';
-import { useDocumentTitle, useReducedMotion } from '../lib/hooks';
+import { useReducedMotion } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 import { useLogout } from '../lib/useLogout';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -49,7 +50,13 @@ function roleLabel(role: string | undefined): string {
 }
 
 export default function ProfilePage() {
-  useDocumentTitle('Профиль и настройки — MangaPoisk Reborn');
+  useSeo({
+    title: 'Профиль и настройки — MangaPoisk Reborn',
+    description:
+      'Настройки профиля MangaPoisk Reborn: тема оформления, режим читалки, размер страниц и параметры аккаунта.',
+    canonical: null,
+    robots: 'noindex,nofollow',
+  });
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const logout = useLogout();

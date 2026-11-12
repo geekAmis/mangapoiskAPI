@@ -29,7 +29,8 @@ import {
   progressPercent,
   sourceLabel,
 } from '../lib/format';
-import { useDebouncedCallback, useDocumentTitle, useReducedMotion } from '../lib/hooks';
+import { useDebouncedCallback, useReducedMotion } from '../lib/hooks';
+import { absoluteUrl, useSeo } from '../lib/seo';
 import { queryKeys } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -173,9 +174,18 @@ export default function ReaderPage() {
     };
   }, []);
 
-  useDocumentTitle(
-    chapter ? `${chapterHeading(chapter)} — ${manga?.title ?? 'чтение'} | MangaPoisk` : 'Читалка — MangaPoisk Reborn',
-  );
+  useSeo({
+    title: chapter
+      ? `${chapterHeading(chapter)} — ${manga?.title ?? 'чтение'} | MangaPoisk`
+      : 'Читалка — MangaPoisk Reborn',
+    description:
+      chapter && manga
+        ? `${manga.title}: ${chapterHeading(chapter)} — читать онлайн на русском в MangaPoisk Reborn.`
+        : 'Читалка MangaPoisk Reborn: главы манги и манхвы с удобными режимами чтения.',
+    // Chapter pages are not useful landing pages; the title page is canonical.
+    canonical: manga ? absoluteUrl(`/manga/${manga.id}`) : null,
+    robots: 'noindex,follow',
+  });
 
   const pages = useMemo(() => {
     if (!chapter) return [];
@@ -774,6 +784,9 @@ export default function ReaderPage() {
 
   return (
     <div className={readerClass} style={{ ['--reader-gap' as string]: `${gap}px` }}>
+      <h1 className="sr-only">
+        {manga?.title ?? 'Читалка MangaPoisk Reborn'} — {chapterHeading(chapter)}
+      </h1>
       <QueryCacheBridge />
       <header className={`reader-header${headerHidden ? ' is-hidden' : ''}`}>
         <div className="reader-header__inner">

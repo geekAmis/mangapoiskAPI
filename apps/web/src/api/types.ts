@@ -86,6 +86,8 @@ export interface MangaOut {
   genres: string[];
   genre_slugs?: string[];
   covers?: CoverOut[];
+  /** Public page of the title on its source, when known. */
+  url?: string | null;
   chapters_count: number;
   last_chapter_at: string | null;
   last_synced_at: string | null;
