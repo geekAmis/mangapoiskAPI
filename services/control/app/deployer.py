@@ -15,7 +15,7 @@ from .ssh import SSHRunner, SSHTarget
 
 logger = logging.getLogger(__name__)
 
-HTTP_SERVICE_CODES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica"}
+HTTP_SERVICE_CODES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica", "comments"}
 ALL_SERVICE_CODES = HTTP_SERVICE_CODES | {"scheduler"}
 DEFAULT_PORTS = {
     "parser": 8101,
@@ -26,6 +26,7 @@ DEFAULT_PORTS = {
     "gateway": 8100,
     "notifier": 8106,
     "replica": 8108,
+    "comments": 8109,
 }
 
 
@@ -278,6 +279,7 @@ fi
             f"CATALOG_DATABASE_URL=sqlite+aiosqlite:///{root}/data/catalog.db",
             f"LIBRARY_DATABASE_URL=sqlite+aiosqlite:///{root}/data/library.db",
             f"CONTROL_DATABASE_URL=sqlite+aiosqlite:///{root}/data/control.db",
+            f"COMMENTS_DATABASE_URL=sqlite+aiosqlite:///{root}/data/comments.db",
             f"MEDIA_CACHE_DIR={root}/data/media-cache",
             f"REPLICA_DIR={root}/data/replica",
             f"REPLICA_DATA_ROOT={root}/data",
@@ -287,9 +289,9 @@ fi
             f"EXPORT_DIR={root}/data/exports",
             "EXPORT_TTL_HOURS=48",
             "REDIS_URL=",
-            f"PUBLIC_WEB_URL=http://{public_host}:8088",
-            f"PUBLIC_API_URL=http://{public_host}:8088",
-            f"CORS_ORIGINS=http://{public_host}:8088,http://localhost:5173,http://localhost:8080,capacitor://localhost,https://localhost",
+            f"PUBLIC_WEB_URL={self.settings.public_web_url.rstrip('/')}",
+            f"PUBLIC_API_URL={self.settings.public_api_url.rstrip('/')}",
+            f"CORS_ORIGINS={self.settings.public_web_url.rstrip('/')},http://{public_host}:8088,http://localhost:5173,http://localhost:8080,capacitor://localhost,https://localhost",
             "SCRAPER_REQUESTS_PER_MINUTE=20",
             "SCRAPER_CACHE_TTL_SECONDS=600",
             "MEDIA_ALLOWED_HOSTS=static2.mangapoisk.me,img2.imglib.info,img3.cdnlibs.org",
@@ -298,7 +300,7 @@ fi
             "CATALOGUE_IMPORT_INTERVAL_SECONDS=21600",
             f"CONTROL_URL={self.settings.control_public_url}",
         ]
-        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica"):
+        for code in ("parser", "catalog", "library", "media", "gateway", "notifier", "control", "replica", "comments"):
             if code in urls:
                 lines.append(f"{code.upper()}_URL={urls[code]}")
         return "\n".join(lines) + "\n"

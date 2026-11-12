@@ -7,9 +7,9 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 ServiceCode = Literal[
-    "parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica", "scheduler"
+    "parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica", "comments", "scheduler"
 ]
-HTTP_SERVICES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica"}
+HTTP_SERVICES = {"parser", "catalog", "library", "media", "control", "gateway", "notifier", "replica", "comments"}
 
 _HOST_RE = r"^[A-Za-z0-9._:\-\[\]]+$"
 

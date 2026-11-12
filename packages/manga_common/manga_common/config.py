@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     library_url: str = "http://localhost:8003"
     media_url: str = "http://localhost:8004"
     control_url: str = "http://localhost:8005"
+    comments_url: str = "http://localhost:8109"
     notifier_url: str = "http://localhost:8006"
 
     # Admin panel / server manager.  Change these in production.

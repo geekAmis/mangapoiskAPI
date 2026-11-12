@@ -114,7 +114,7 @@ class EndpointPool:
         if not available:
             return []
 
-        if method.upper() != "GET" or service in {"library", "control"}:
+        if method.upper() != "GET" or service in {"library", "control", "comments"}:
             return available[:3]
 
         preferred = [item for item in available if not item.is_fallback] or available

@@ -10,6 +10,8 @@ from manga_common.service import add_ready_check, create_service_app
 
 from .api import _apply_registry, router
 from .clients import CatalogClient, ControlClient, LibraryClient, MediaClient, ParserClient
+from .comments_api import router as comments_router
+from .comments_client import CommentsClient
 from .config import GatewaySettings
 from .middleware import RateLimitMiddleware
 from .routing import EndpointPool, reset_client_key, set_client_key
@@ -27,12 +29,14 @@ async def lifespan(app: FastAPI):
     library = LibraryClient(settings, settings.library_url, pool=pool)
     media = MediaClient(settings, settings.media_url, pool=pool)
     control = ControlClient(settings, settings.control_url, pool=pool)
+    comments = CommentsClient(settings, settings.comments_url, pool=pool)
     app.state.pool = pool
     app.state.catalog = catalog
     app.state.parser = parser
     app.state.library = library
     app.state.media = media
     app.state.control = control
+    app.state.comments = comments
 
     async def health_check(client) -> bool:  # type: ignore[no-untyped-def]
         try:
@@ -45,6 +49,7 @@ async def lifespan(app: FastAPI):
     add_ready_check(app, "parser", lambda: health_check(parser))
     add_ready_check(app, "library", lambda: health_check(library))
     add_ready_check(app, "media", lambda: health_check(media))
+    add_ready_check(app, "comments", lambda: health_check(comments))
 
     async def registry_sync() -> None:
         # The control service is optional: without it the gateway keeps the
@@ -67,6 +72,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(sync_task, return_exceptions=True)
         await asyncio.gather(
             catalog.close(), parser.close(), library.close(), media.close(), control.close(),
+            comments.close(),
             return_exceptions=True,
         )
 
@@ -117,6 +123,7 @@ async def client_identity(request, call_next):  # type: ignore[no-untyped-def]
 
 
 app.include_router(router)
+app.include_router(comments_router)
 
 
 if __name__ == "__main__":

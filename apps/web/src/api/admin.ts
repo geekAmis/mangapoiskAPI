@@ -12,6 +12,7 @@ export type AdminServiceCode =
   | 'gateway'
   | 'notifier'
   | 'replica'
+  | 'comments'
   | 'scheduler';
 
 export const ADMIN_SERVICES: Array<{ code: AdminServiceCode; label: string; defaultPort: number; http: boolean }> = [
@@ -23,6 +24,7 @@ export const ADMIN_SERVICES: Array<{ code: AdminServiceCode; label: string; defa
   { code: 'gateway', label: 'Gateway', defaultPort: 8100, http: true },
   { code: 'notifier', label: 'Notifier', defaultPort: 8106, http: true },
   { code: 'replica', label: 'Replica', defaultPort: 8108, http: true },
+  { code: 'comments', label: 'Comments', defaultPort: 8109, http: true },
   { code: 'scheduler', label: 'Scheduler', defaultPort: 8107, http: false },
 ];
 
