@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom';
+import { openAdsConsentBanner } from '../../api/ads';
+import { LEGAL_PAGES } from '../../lib/legal';
 import { Brand } from '../Brand';
 
 export function Footer() {
@@ -25,6 +27,14 @@ export function Footer() {
             <Link to="/register">Регистрация</Link>
             <Link to="/profile">Настройки</Link>
           </div>
+          <div>
+            <span className="site-footer__heading">Документы</span>
+            {LEGAL_PAGES.map((page) => (
+              <Link key={page.path} to={page.path}>
+                {page.label}
+              </Link>
+            ))}
+          </div>
         </nav>
       </div>
       <div className="site-footer__legal">
@@ -33,6 +43,9 @@ export function Footer() {
           Каталог хранит метаданные и ссылки на страницы. Права на произведения принадлежат их
           авторам и правообладателям.
         </span>
+        <button type="button" className="site-footer__cookie" onClick={openAdsConsentBanner}>
+          Настройки cookie
+        </button>
       </div>
     </footer>
   );

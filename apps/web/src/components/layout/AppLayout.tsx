@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { useProgressSync } from '../../lib/useReading';
 import { AdSlot } from '../ads/AdSlot';
+import { ConsentBanner } from '../ConsentBanner';
 import { OfflineBanner } from '../OfflineBanner';
 import { QueryCacheBridge } from '../QueryCacheBridge';
 import { AndroidApkBanner } from './AndroidApkBanner';
@@ -28,6 +29,7 @@ export function AppLayout() {
       <AdSlot placement="mobile-sticky" />
       <MobileNav />
       <AndroidApkBanner />
+      <ConsentBanner />
     </div>
   );
 }

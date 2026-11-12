@@ -10,6 +10,7 @@ import { CommentsSection } from '../components/CommentsSection';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
+import { AgeNotice } from '../components/legal/AgeNotice';
 import { DancingSpinner } from '../components/DancingLoader';
 import { Modal } from '../components/Modal';
 import { Poster } from '../components/Poster';
@@ -645,6 +646,8 @@ export default function MangaPage() {
         <Icon name="chevron-right" size={13} />
         <span aria-current="page">{displayTitle}</span>
       </nav>
+
+      {viewManga.adult ? <AgeNotice /> : null}
 
       {mangaQuery.isError ? (
         <div className="manga-inline-error">

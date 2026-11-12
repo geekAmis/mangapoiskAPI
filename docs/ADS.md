@@ -197,8 +197,16 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style
   согласие. Ключ согласия на фронтенде: `localStorage['mp-ads-consent'] =
   'granted'` (хелперы `setAdsConsent`/`hasAdsConsent` в
   `apps/web/src/api/ads.ts`).
-- Пока CMP не внедрён, для production-сетей оставляйте `require_consent=true`;
-  для синтетических QA-баннеров можно `false`.
+- Первопартийный баннер `ConsentBanner` показывает «Принять» / «Отклонить»,
+  пишет `granted`/`denied` и не блокирует чтение (это не modal). Отказ не
+  скрывает слоты без `require_consent`, поэтому для production-сетей
+  оставляйте `require_consent=true`; для синтетических QA-баннеров можно
+  `false`.
+- `AdSlot` подписан на изменение согласия (`useAdsConsent`) и включает
+  consent в query key, поэтому после accept/reject конфиг перезапрашивается,
+  а `require_consent`-слоты появляются/исчезают без перезагрузки.
+- Изменить выбор можно на `/privacy` (блок «Реклама и cookie») или по ссылке
+  «Настройки cookie» в футере.
 - Не передавайте в `config`, `custom_html` и `custom_script` значения, которые
   нельзя показывать пользователю: эти поля публичны.
 - Для 18+ тайтлов `exclude_adult=true` по умолчанию. Включать рекламу на таких

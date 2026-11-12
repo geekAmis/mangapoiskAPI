@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Brand } from './Brand';
+import { ConsentBanner } from './ConsentBanner';
 import { Icon } from './Icon';
 
 export function AuthLayout({ children }: { children: ReactNode }) {
@@ -23,10 +24,14 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           {children}
           <p className="auth-legal">
             MangaPoisk Reborn хранит только email, имя и настройки чтения. Пароль защищён
-            Argon2id на сервере, токены — в этом браузере.
+            Argon2id на сервере, токены — в этом браузере. Используя сервис, вы принимаете{' '}
+            <Link to="/terms">Пользовательское соглашение</Link> и{' '}
+            <Link to="/privacy">Политику конфиденциальности</Link>. Сервис предназначен для
+            пользователей <Link to="/age">18+</Link>.
           </p>
         </div>
       </div>
+      <ConsentBanner />
     </div>
   );
 }

@@ -65,6 +65,11 @@ Google рекомендует по возможности задавать canon
 | `/manga/:id` | {title} — читать онлайн на русском | `/manga/:id` | index,follow,max-image-preview:large; noindex при ошибке |
 | `/reader/:chapterId`, `/read/:chapterId` | {chapter} — {title} | `/manga/:mangaId` после загрузки | noindex,follow |
 | `/sources` | Источники манги и манхвы | `/sources` | index,follow |
+| `/terms` | Пользовательское соглашение — MangaPoisk Reborn | `/terms` | index,follow |
+| `/privacy` | Политика конфиденциальности — MangaPoisk Reborn | `/privacy` | index,follow |
+| `/dmca` | Правообладателям и DMCA — MangaPoisk Reborn | `/dmca` | index,follow |
+| `/contacts` | Контакты и реквизиты — MangaPoisk Reborn | `/contacts` | index,follow |
+| `/age` | Возрастное ограничение 18+ — MangaPoisk Reborn | `/age` | index,follow (видимое предупреждение 18+) |
 | `/library`, `/profile`, `/login`, `/register`, `/admin`, `/offline/*` | свои title | нет | noindex,nofollow |
 | `/404` и `*` | Страница не найдена | нет | noindex,follow |
 
@@ -107,6 +112,17 @@ Google рекомендует по возможности задавать canon
 отдельного rich result для `ComicStory`; разметка помогает понять сущность
 и улучшает breadcrumb-навигацию.
 
+### Юридические страницы
+
+Каждый из маршрутов `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age`
+добавляет один JSON-LD `WebPage`:
+
+- `name`, `description`, `url` (self-canonical), `inLanguage: ru`,
+  `dateModified` (дата редакции);
+- `isPartOf` → `WebSite` MangaPoisk Reborn;
+- `publisher` → `Organization` только если `LEGAL_OWNER_NAME` заполнен;
+  вымышленные реквизиты не выводятся.
+
 ### Остальные маршруты
 
 JSON-LD намеренно не добавляется: каталог/поиск/читалка не дают
@@ -140,6 +156,9 @@ Sitemap: https://85.192.37.58.nip.io:8443/sitemap.xml
 
 - маршрут `GET /sitemap.xml` (и alias `GET /api/v1/sitemap.xml`);
 - статические страницы: `/`, `/catalogue`, `/sources`;
+- юридические страницы: `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age`
+  с датой редакции в `lastmod`. `/age` включён осознанно: это содержательная
+  публичная политика с видимым предупреждением 18+, а не doorway-страница;
 - все тайтлы каталога с `chapters_count > 0`, `lastmod` из
   `last_chapter_at`/`updated_at`;
 - лимит 50 000 URL (протокол sitemaps: 50 000 URL / 50 MB), при

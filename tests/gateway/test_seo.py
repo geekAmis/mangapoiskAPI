@@ -89,10 +89,16 @@ def test_sitemap_lists_only_titles_with_chapters_and_caches() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/xml")
     assert "<loc>https://example.test/</loc>" in response.text
+    assert "<loc>https://example.test/terms</loc>" in response.text
+    assert "<loc>https://example.test/privacy</loc>" in response.text
+    assert "<loc>https://example.test/dmca</loc>" in response.text
+    assert "<loc>https://example.test/contacts</loc>" in response.text
+    assert "<loc>https://example.test/age</loc>" in response.text
     assert "<loc>https://example.test/manga/with-chapters</loc>" in response.text
     assert "<loc>https://example.test/manga/second-page</loc>" in response.text
     assert "empty-title" not in response.text
     assert "<lastmod>2026-01-02</lastmod>" in response.text
+    assert "<lastmod>2026-11-13</lastmod>" in response.text
 
     catalog = client.app.state.catalog
     calls_after_first_request = catalog.calls
@@ -170,7 +176,7 @@ def test_sitemap_cold_generation_uses_one_catalog_query_and_is_bounded() -> None
     assert catalog.page_calls == 0
     assert cold_seconds < 5.0
     root = ElementTree.fromstring(response.text)
-    assert len(root.findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url")) == 6_503
+    assert len(root.findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url")) == 6_508
 
     started = time.perf_counter()
     warm = client.get("/sitemap.xml")
