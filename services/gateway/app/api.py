@@ -1184,6 +1184,18 @@ async def admin_me(user: UserClaims = Depends(require_admin)) -> AdminMe:
     return AdminMe(username=str(user.raw.get("username", "admin")), role=user.role)
 
 
+@router.get("/admin/catalogue")
+async def admin_catalogue(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> dict[str, Any]:
+    catalog, _, _, _ = clients(request)
+    return {
+        "stats": await catalog.stats(),
+        "enrichment": await catalog.enrichment_stats(),
+        "crawl_states": await catalog.crawl_states(),
+    }
+
+
 @router.get("/admin/servers")
 async def admin_servers(
     request: Request, user: UserClaims = Depends(require_admin)

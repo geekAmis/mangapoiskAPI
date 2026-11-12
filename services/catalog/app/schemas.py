@@ -57,6 +57,8 @@ class CatalogStats(BaseModel):
     manga: int
     chapters: int
     sources: list[SourceStats]
+    pending_enrichment: int = 0
+    retrying_enrichment: int = 0
 
 
 class SourceSyncRequest(BaseModel):
@@ -65,8 +67,10 @@ class SourceSyncRequest(BaseModel):
 
 class CrawlStateIn(BaseModel):
     source: str = Field(min_length=1, max_length=64)
-    mode: str = Field(default="full", pattern="^(full|incremental)$")
-    page: int = Field(default=1, ge=1)
+    mode: str = Field(
+        default="full", pattern="^(full|incremental|health|enrichment)$"
+    )
+    page: int = Field(default=1, ge=0)
     status: str = Field(default="pending", max_length=24)
     last_error: str | None = Field(default=None, max_length=4000)
     next_run_at: datetime | None = None
@@ -74,12 +78,43 @@ class CrawlStateIn(BaseModel):
     items_seen: int = Field(default=0, ge=0)
     items_imported: int = Field(default=0, ge=0)
     last_run_at: datetime | None = None
+    last_success_at: datetime | None = None
+    failure_count: int = Field(default=0, ge=0)
+    failure_kind: str | None = Field(default=None, max_length=32)
 
 
 class CrawlStateOut(CrawlStateIn):
     id: UUID
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class EnrichmentSourceStats(BaseModel):
+    source: str
+    total: int = 0
+    pending: int = 0
+    retrying: int = 0
+    failed: int = 0
+    last_success_at: datetime | None = None
+
+
+class EnrichmentStats(BaseModel):
+    total: int = 0
+    pending: int = 0
+    retrying: int = 0
+    failed: int = 0
+    oldest_pending_at: datetime | None = None
+    last_success_at: datetime | None = None
+    requests_per_title: int = 2
+    rate_per_minute: int = 36
+    estimated_seconds: int = 0
+    sources: list[EnrichmentSourceStats] = Field(default_factory=list)
+
+
+class EnrichmentFailureRequest(BaseModel):
+    error: str = Field(default="", max_length=4000)
+    kind: str = Field(default="transient", max_length=32)
+    permanent: bool = False
 
 
 class GenreOut(BaseModel):

@@ -576,5 +576,5 @@ def test_defaults_are_safe(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.catalogue_import_interval_seconds == 21600
     assert settings.catalogue_import_per_source_limit == 60
     assert settings.catalogue_enrichment_enabled is True
-    assert settings.catalogue_enrichment_concurrency == 2
+    assert settings.catalogue_enrichment_concurrency == 3
     assert settings.catalogue_enrichment_limit == 30

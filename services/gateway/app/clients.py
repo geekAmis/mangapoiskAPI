@@ -243,6 +243,13 @@ class CatalogClient(InternalClient):
     async def stats(self) -> dict[str, Any]:
         return await self.request("GET", "/internal/stats")
 
+    async def enrichment_stats(self) -> dict[str, Any]:
+        return await self.request("GET", "/internal/enrichment/stats")
+
+    async def crawl_states(self) -> list[dict[str, Any]]:
+        data = await self.request("GET", "/internal/crawl-state")
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
 
 class ParserClient(InternalClient):
     service_code = "parser"

@@ -195,6 +195,46 @@ export interface AdminCommentReport {
   comment: AdminComment | null;
 }
 
+export interface AdminCatalogueState {
+  source: string;
+  mode: string;
+  page: number;
+  status: string;
+  last_error: string | null;
+  next_run_at: string | null;
+  last_success_at: string | null;
+  failure_count: number;
+  failure_kind: string | null;
+}
+
+export interface AdminCatalogueHealth {
+  stats: {
+    manga: number;
+    chapters: number;
+    pending_enrichment: number;
+    retrying_enrichment: number;
+    sources: Array<{ source: string; manga: number; chapters: number }>;
+  };
+  enrichment: {
+    total: number;
+    pending: number;
+    retrying: number;
+    failed: number;
+    oldest_pending_at: string | null;
+    last_success_at: string | null;
+    estimated_seconds: number;
+    sources: Array<{
+      source: string;
+      total: number;
+      pending: number;
+      retrying: number;
+      failed: number;
+      last_success_at: string | null;
+    }>;
+  };
+  crawl_states: AdminCatalogueState[];
+}
+
 export interface AdminAuditEntry {
   id: string;
   action: string;
@@ -372,6 +412,9 @@ export const adminApi = {
     }),
 
   getRegistry: (signal?: AbortSignal) => adminRequest<AdminRegistry>('/registry', { signal }),
+
+  getCatalogueHealth: (signal?: AbortSignal) =>
+    adminRequest<AdminCatalogueHealth>('/catalogue', { signal }),
 
   getSourceCookie: (code: string, signal?: AbortSignal) =>
     adminRequest<AdminSourceCookie>(`/sources/${encodeURIComponent(code)}/cookie`, { signal }),

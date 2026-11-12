@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 import pytest
+from manga_common.errors import NotFoundError, UpstreamError
 from manga_common.source_models import (
     ChapterSummary,
     MangaDetail,
@@ -91,6 +92,9 @@ class CatalogAPI:
         self.pending: list[dict[str, Any]] = []
         self.pending_calls = 0
         self.reset_calls = 0
+        self.rotate_calls: list[dict[str, Any]] = []
+        self.enrichment_stats = {"pending": 0, "retrying": 0}
+        self.failure_calls: list[dict[str, Any]] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -119,6 +123,23 @@ class CatalogAPI:
         if path == "/internal/maintenance/reset-enrichment":
             self.reset_calls += 1
             return httpx.Response(200, json={"queued": 1})
+        if path == "/internal/maintenance/rotate-enrichment":
+            self.rotate_calls.append(dict(request.url.params))
+            return httpx.Response(200, json={"queued": 1})
+        if path == "/internal/enrichment/stats":
+            return httpx.Response(200, json=self.enrichment_stats)
+        if path.startswith("/internal/manga/") and path.endswith("/enrichment-failure"):
+            payload = json.loads(request.content)
+            payload["manga_id"] = path.split("/")[3]
+            self.failure_calls.append(payload)
+            return httpx.Response(
+                200,
+                json={
+                    "manga_id": payload["manga_id"],
+                    "attempts": len(self.failure_calls),
+                    "retry_at": (NOW + timedelta(minutes=10)).isoformat(),
+                },
+            )
         return httpx.Response(404, json={"detail": "unexpected"})
 
     def client(self) -> httpx.AsyncClient:
@@ -254,29 +275,60 @@ async def test_full_crawl_resumes_at_saved_page() -> None:
 
 
 @pytest.mark.asyncio
-async def test_weekly_full_refresh_requeues_metadata() -> None:
+async def test_incremental_queues_bounded_metadata_rotation() -> None:
     api = CatalogAPI()
-    api.states[("mangapoisk", "full")] = {
-        "id": "state-1",
-        "source": "mangapoisk",
-        "mode": "full",
-        "page": 1,
-        "status": "completed",
-        "last_error": None,
-        "next_run_at": (NOW - timedelta(days=1)).isoformat(),
-        "total_pages": 1,
-        "items_seen": 1,
-        "items_imported": 1,
-    }
+    api.enrichment_stats = {"pending": 10, "retrying": 0}
+    adapter = FakeAdapter(
+        {
+            (1, "updated"): SourceSearchResult(
+                source="mangapoisk", items=[summary("1")], page=1, has_next=False
+            ),
+            (1, "popular"): SourceSearchResult(
+                source="mangapoisk", items=[summary("1")], page=1, has_next=False
+            ),
+        }
+    )
+    crawler = make_crawler(api, adapter)
+
+    report = await crawler.incremental_refresh("mangapoisk", adapter)
+
+    assert report.completed is True
+    assert api.rotate_calls == [{"source": "mangapoisk", "limit": "100"}]
+    state = api.states[("mangapoisk", "incremental")]
+    assert state["status"] == "completed"
+    await crawler.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_incremental_rotation_deferred_when_backlog_large() -> None:
+    api = CatalogAPI()
+    api.enrichment_stats = {"pending": 6000, "retrying": 0}
+    adapter = FakeAdapter(
+        {
+            (1, "updated"): SourceSearchResult(
+                source="mangapoisk", items=[summary("1")], page=1, has_next=False
+            ),
+            (1, "popular"): SourceSearchResult(
+                source="mangapoisk", items=[summary("1")], page=1, has_next=False
+            ),
+        }
+    )
+    crawler = make_crawler(api, adapter)
+
+    report = await crawler.incremental_refresh("mangapoisk", adapter)
+
+    assert report.completed is True
+    assert api.rotate_calls == []
+    await crawler.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_documented_empty_end_page_completes_normally() -> None:
+    api = CatalogAPI()
     adapter = FakeAdapter(
         {
             (1, "popular"): SourceSearchResult(
-                source="mangapoisk",
-                items=[summary("1")],
-                page=1,
-                total=1,
-                has_next=False,
-                total_pages=1,
+                source="mangapoisk", items=[], page=1, has_next=False
             )
         }
     )
@@ -285,10 +337,193 @@ async def test_weekly_full_refresh_requeues_metadata() -> None:
     report = await crawler.full_crawl("mangapoisk", adapter)
 
     assert report.completed is True
-    assert api.reset_calls == 1
-    assert adapter.catalogue_calls == [(1, "popular")]
+    assert report.error is None
     state = api.states[("mangapoisk", "full")]
-    assert state["page"] == 1
+    assert state["status"] == "completed"
+    assert state["failure_count"] == 0
+    health = api.states[("mangapoisk", "health")]
+    assert health["status"] == "ok"
+    assert health["last_success_at"]
+    await crawler.client.aclose()
+
+
+class FlakyAdapter(FakeAdapter):
+    def __init__(self, failures: list[Exception], success: SourceSearchResult) -> None:
+        super().__init__({})
+        self.failures = list(failures)
+        self.success = success
+        self.calls = 0
+
+    async def catalogue(self, page: int = 1, *, sort: str = "popular", limit: int = 60):
+        self.calls += 1
+        if self.failures:
+            raise self.failures.pop(0)
+        return self.success
+
+
+@pytest.mark.asyncio
+async def test_transient_404_then_success_does_not_open_circuit() -> None:
+    api = CatalogAPI()
+    adapter = FlakyAdapter(
+        [NotFoundError("MangaLib: resource not found", code="not_found")],
+        SourceSearchResult(
+            source="mangapoisk",
+            items=[summary("1")],
+            page=1,
+            has_next=False,
+            total_pages=1,
+        ),
+    )
+    sleeps: list[float] = []
+    crawler = make_crawler(api, adapter, sleep_calls=sleeps)
+
+    report = await crawler.full_crawl("mangapoisk", adapter)
+
+    assert report.completed is True
+    assert adapter.calls == 2
+    assert sleeps and sleeps[0] >= 2.0
+    health = api.states[("mangapoisk", "health")]
+    assert health["failure_count"] == 0
+    assert health["status"] == "ok"
+    await crawler.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_transient_403_then_success_does_not_open_circuit() -> None:
+    api = CatalogAPI()
+    blocked = UpstreamError(
+        "Upstream returned HTTP 403", details={"status_code": 403}
+    )
+    adapter = FlakyAdapter(
+        [blocked, blocked],
+        SourceSearchResult(
+            source="mangapoisk",
+            items=[summary("1")],
+            page=1,
+            has_next=False,
+            total_pages=1,
+        ),
+    )
+    sleeps: list[float] = []
+    crawler = make_crawler(api, adapter, sleep_calls=sleeps)
+
+    report = await crawler.full_crawl("mangapoisk", adapter)
+
+    assert report.completed is True
+    assert adapter.calls == 3
+    assert len(sleeps) >= 2
+    assert api.states[("mangapoisk", "health")]["failure_count"] == 0
+    await crawler.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_persistent_404_opens_circuit_and_success_closes_it() -> None:
+    api = CatalogAPI()
+    current = [NOW]
+
+    class ToggleAdapter(FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__({})
+            self.fail = True
+            self.calls = 0
+
+        async def catalogue(self, page: int = 1, *, sort: str = "popular", limit: int = 60):
+            self.calls += 1
+            if self.fail:
+                raise NotFoundError("MangaLib: resource not found", code="not_found")
+            return SourceSearchResult(
+                source="mangapoisk",
+                items=[summary("1")],
+                page=1,
+                has_next=False,
+                total_pages=1,
+            )
+
+    adapter = ToggleAdapter()
+    crawler = make_crawler(
+        api,
+        adapter,
+        clock=lambda: current[0],
+        scheduler_settings=settings(
+            catalogue_page_retries=0,
+            catalogue_failure_threshold=2,
+            catalogue_circuit_base_seconds=60,
+            catalogue_circuit_max_seconds=600,
+        ),
+    )
+
+    first = await crawler.full_crawl("mangapoisk", adapter)
+    assert first.completed is False
+    assert api.states[("mangapoisk", "health")]["failure_count"] == 1
+    assert await crawler._blocked_until("mangapoisk") is not None
+
+    current[0] = NOW + timedelta(seconds=61)
+    assert await crawler._blocked_until("mangapoisk") is None
+    second = await crawler.full_crawl("mangapoisk", adapter)
+    assert second.completed is False
+    health = api.states[("mangapoisk", "health")]
+    assert health["failure_count"] == 2
+    assert health["status"] == "blocked"
+    assert health["failure_kind"] == "not_found"
+    assert await crawler._blocked_until("mangapoisk") is not None
+
+    current[0] = NOW + timedelta(seconds=61 + 121)
+    assert await crawler._blocked_until("mangapoisk") is None
+    adapter.fail = False
+    third = await crawler.full_crawl("mangapoisk", adapter)
+    assert third.completed is True
+    health = api.states[("mangapoisk", "health")]
+    assert health["status"] == "ok"
+    assert health["failure_count"] == 0
+    assert health["last_success_at"]
+    await crawler.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_incremental_403_opens_circuit_and_blocks_retry_loop() -> None:
+    api = CatalogAPI()
+    current = [NOW]
+
+    class ToggleAdapter(FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__({})
+            self.fail = True
+
+        async def catalogue(self, page: int = 1, *, sort: str = "popular", limit: int = 60):
+            if self.fail:
+                raise UpstreamError(
+                    "Upstream returned HTTP 403", details={"status_code": 403}
+                )
+            return SourceSearchResult(
+                source="mangapoisk", items=[summary("1")], page=1, has_next=False
+            )
+
+    adapter = ToggleAdapter()
+    crawler = make_crawler(
+        api,
+        adapter,
+        clock=lambda: current[0],
+        scheduler_settings=settings(
+            catalogue_page_retries=0,
+            catalogue_failure_threshold=1,
+            catalogue_circuit_base_seconds=60,
+        ),
+    )
+
+    report = await crawler.incremental_refresh("mangapoisk", adapter)
+    assert report.completed is False
+    state = api.states[("mangapoisk", "incremental")]
+    assert state["status"] == "blocked"
+    assert state["failure_kind"] == "forbidden"
+    assert await crawler._blocked_until("mangapoisk") is not None
+
+    current[0] = NOW + timedelta(seconds=61)
+    adapter.fail = False
+    report = await crawler.incremental_refresh("mangapoisk", adapter)
+    assert report.completed is True
+    health = api.states[("mangapoisk", "health")]
+    assert health["status"] == "ok"
+    assert health["failure_count"] == 0
     await crawler.client.aclose()
 
 

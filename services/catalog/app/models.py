@@ -46,6 +46,8 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         Index("ix_manga_group_key", "group_key"),
         Index("ix_manga_rating", "rating"),
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
+        Index("ix_manga_last_synced_at", "last_synced_at"),
+        Index("ix_manga_enrichment_retry_at", "enrichment_retry_at"),
     )
 
     source: Mapped[str] = mapped_column(
@@ -72,6 +74,14 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    enrichment_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    enrichment_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    enrichment_last_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    enrichment_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONType, nullable=False, default=dict
     )
@@ -169,4 +179,9 @@ class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     items_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     items_imported: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
 

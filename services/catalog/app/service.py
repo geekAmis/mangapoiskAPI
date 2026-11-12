@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from manga_common.errors import NotFoundError, UpstreamError
 from manga_common.schemas import (
@@ -27,6 +28,7 @@ from .repository import (
     DESCRIPTION_FALLBACK,
     chapter_label,
     covers_for_group,
+    enrichment_stats,
     find_manga,
     get_chapter,
     get_crawl_state,
@@ -37,6 +39,8 @@ from .repository import (
     list_manga,
     ordered_chapter_ids,
     pending_enrichment,
+    record_enrichment_failure,
+    rotate_enrichment,
     stale_manga,
     stats,
     update_chapter_pages,
@@ -49,6 +53,8 @@ from .schemas import (
     ChapterDetailInternal,
     CrawlStateIn,
     CrawlStateOut,
+    EnrichmentFailureRequest,
+    EnrichmentStats,
     GenreListOut,
     GenreOut,
     HomeUpdateOut,
@@ -104,6 +110,9 @@ def _crawl_state_out(state) -> CrawlStateOut:  # type: ignore[no-untyped-def]
         items_seen=state.items_seen,
         items_imported=state.items_imported,
         last_run_at=state.last_run_at,
+        last_success_at=state.last_success_at,
+        failure_count=state.failure_count,
+        failure_kind=state.failure_kind,
         created_at=state.created_at,
         updated_at=state.updated_at,
     )
@@ -462,11 +471,55 @@ class CatalogService:
             row = await get_crawl_state(session, source, mode)
             return _crawl_state_out(row) if row is not None else None
 
-    async def reset_enrichment(self, *, source: str | None = None) -> int:
+    async def record_enrichment_failure(
+        self, manga_id: uuid.UUID, payload: EnrichmentFailureRequest
+    ) -> dict[str, Any]:
+        async with self.session_factory() as session:
+            manga = await record_enrichment_failure(
+                session,
+                manga_id,
+                error=payload.error,
+                permanent=payload.permanent,
+                base_seconds=self.settings.enrichment_retry_base_seconds,
+                max_seconds=self.settings.enrichment_retry_max_seconds,
+            )
+            if manga is None:
+                raise NotFoundError("Manga not found")
+            await session.commit()
+            return {
+                "manga_id": str(manga.id),
+                "attempts": manga.enrichment_attempts,
+                "retry_at": manga.enrichment_retry_at.isoformat()
+                if manga.enrichment_retry_at
+                else None,
+            }
+
+    async def enrichment_stats(
+        self, *, rate_per_minute: int = 36, requests_per_title: int = 2
+    ) -> EnrichmentStats:
+        async with self.session_factory() as session:
+            payload = await enrichment_stats(
+                session,
+                rate_per_minute=rate_per_minute,
+                requests_per_title=requests_per_title,
+            )
+            return EnrichmentStats(**payload)
+
+    async def rotate_enrichment(
+        self, *, source: str | None = None, limit: int = 500
+    ) -> int:
+        async with self.session_factory() as session:
+            count = await rotate_enrichment(session, source=source, limit=limit)
+            await session.commit()
+            return count
+
+    async def reset_enrichment(
+        self, *, source: str | None = None, limit: int = 500
+    ) -> int:
         from .repository import reset_enrichment
 
         async with self.session_factory() as session:
-            count = await reset_enrichment(session, source=source)
+            count = await reset_enrichment(session, source=source, limit=limit)
             await session.commit()
             return count
 

@@ -1212,3 +1212,39 @@ html[data-admin="true"] .toast-region {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.admin-catalogue-health {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.admin-catalogue-health__row {
+  display: grid;
+  grid-template-columns: 120px 1.2fr 1.5fr 1.2fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  font-size: 0.86rem;
+}
+
+.admin-catalogue-health__row strong {
+  text-transform: capitalize;
+}
+
+.admin-catalogue-health__warning {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+@media (max-width: 760px) {
+  .admin-catalogue-health__row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

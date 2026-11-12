@@ -75,6 +75,7 @@ def summary(
     description: str | None = None,
     genres: list[str] | None = None,
     rating: float | None = None,
+    rating_count: int | None = None,
     poster_url: str | None = None,
     chapters_count: int | None = None,
 ) -> MangaSummary:
@@ -86,6 +87,7 @@ def summary(
         description=description,
         genres=genres or [],
         rating=rating,
+        rating_count=rating_count,
         poster_url=poster_url,
         chapters_count=chapters_count,
     )

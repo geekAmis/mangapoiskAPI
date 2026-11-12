@@ -18,6 +18,8 @@ from .schemas import (
     ChapterDetailInternal,
     CrawlStateIn,
     CrawlStateOut,
+    EnrichmentFailureRequest,
+    EnrichmentStats,
     GenreListOut,
     HomeUpdatesOut,
     ImportRequest,
@@ -145,6 +147,26 @@ async def pending_enrichment(
     return await service.pending_enrichment(source=source, limit=limit)
 
 
+@router.get("/enrichment/stats", response_model=EnrichmentStats)
+async def enrichment_stats(
+    rate_per_minute: int = Query(default=36, ge=1, le=600),
+    requests_per_title: int = Query(default=2, ge=1, le=10),
+    service: CatalogService = Depends(get_service),
+) -> EnrichmentStats:
+    return await service.enrichment_stats(
+        rate_per_minute=rate_per_minute, requests_per_title=requests_per_title
+    )
+
+
+@router.post("/manga/{manga_id}/enrichment-failure")
+async def enrichment_failure(
+    manga_id: uuid.UUID,
+    payload: EnrichmentFailureRequest,
+    service: CatalogService = Depends(get_service),
+) -> dict:
+    return await service.record_enrichment_failure(manga_id, payload)
+
+
 @router.get("/genres", response_model=GenreListOut)
 async def genres(
     service: CatalogService = Depends(get_service),
@@ -171,7 +193,9 @@ async def crawl_states(
 @router.get("/crawl-state/{source}", response_model=CrawlStateOut)
 async def crawl_state(
     source: str,
-    mode: str = Query(default="full", pattern="^(full|incremental)$"),
+    mode: str = Query(
+        default="full", pattern="^(full|incremental|health|enrichment)$"
+    ),
     service: CatalogService = Depends(get_service),
 ) -> CrawlStateOut:
     from manga_common.errors import NotFoundError
@@ -294,9 +318,19 @@ async def maintenance_refresh(
 @router.post("/maintenance/reset-enrichment")
 async def maintenance_reset_enrichment(
     source: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=500, ge=1, le=5000),
     service: CatalogService = Depends(get_service),
 ) -> dict[str, int]:
-    return {"queued": await service.reset_enrichment(source=source)}
+    return {"queued": await service.reset_enrichment(source=source, limit=limit)}
+
+
+@router.post("/maintenance/rotate-enrichment")
+async def maintenance_rotate_enrichment(
+    source: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=500, ge=1, le=5000),
+    service: CatalogService = Depends(get_service),
+) -> dict[str, int]:
+    return {"queued": await service.rotate_enrichment(source=source, limit=limit)}
 
 
 @router.get("/stats", response_model=CatalogStats)
