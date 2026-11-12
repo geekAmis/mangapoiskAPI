@@ -145,9 +145,9 @@ async def test_partial_backfill_search_and_resume(backfill_env) -> None:
     # The target may still be unindexed; legacy FTS + ranking_view must serve it.
     during = await service.list(query="человек бензопила", limit=3)
     assert during.items and during.items[0].source_id == "backfill-0"
-    # Suggestion fallback intentionally uses the legacy title tokens; typo/
-    # transliteration recall arrives as soon as the worker normalizes the row.
-    suggestions = await service.suggest("человек", limit=3)
+    # Bounded pending-row scan keeps typo/transliteration suggestions useful
+    # even before the worker reaches this title.
+    suggestions = await service.suggest("чензо мен", limit=3)
     assert suggestions.items and suggestions.items[0].title == "Человек-бензопила"
 
     async with factory() as session:

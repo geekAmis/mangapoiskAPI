@@ -138,12 +138,12 @@ p95 по сырым замерам, чтобы это было видно.
 | Метрика | Было (`ensure_runtime_schema` с Python backfill) | Стало |
 |---|---|---|
 | schema + indexes + mark | 123.6 с | **0.15 с** |
-| legacy FTS bootstrap | входил в backfill | **1.21 с** |
-| **startup до health** | **123.6 с** | **1.35 с** |
-| фоновый backfill | — | 162.8 с, 478 строк/с |
+| legacy FTS bootstrap | входил в backfill | **1.22 с** |
+| **startup до health** | **123.6 с** | **1.37 с** |
+| фоновый backfill | — | 178.6 с, 436 строк/с |
 | повторный запуск | — | 0 строк, без дублей |
-| search во время backfill | — | 248 мс, результаты есть |
-| suggest во время backfill | — | 135 мс, результаты есть |
+| search во время backfill | — | 256 мс, результаты есть |
+| suggest во время backfill | — | 145 мс, результаты есть |
 
 JSON: `docs/benchmarks/migration-sqlite-78275.json`.  Реальный запуск
 `uvicorn` на этой БД: **6.9 с от старта процесса до `/health` 200** (4.74 с

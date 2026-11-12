@@ -1138,9 +1138,9 @@ cd /opt/mangapoisk
 |---|---|
 | schema + indexes + mark | ~0.15 с |
 | legacy FTS bootstrap | ~1.2 с |
-| lifespan startup | **~1.35 с** |
+| lifespan startup | **~1.37 с** |
 | процесс → `/health` 200 | **~6.9 с** |
-| полный фоновый backfill | ~163 с (≈478 строк/с) |
+| полный фоновый backfill | ~179 с (≈436 строк/с) |
 | повторный запуск | 0 строк |
 
 ## 10. Change log

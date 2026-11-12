@@ -65,6 +65,8 @@ ENRICHMENT_FAILED_ATTEMPTS = 5
 ENRICHMENT_STALE_HOURS = 24
 SEARCH_CANDIDATE_LIMIT = 300
 SUGGESTION_CANDIDATE_LIMIT = 180
+PENDING_FALLBACK_LIMIT = 500
+SUGGESTION_PENDING_FALLBACK_LIMIT = 200
 
 
 async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
@@ -664,6 +666,36 @@ def _candidate_order(query: SearchQuery):
     )
 
 
+async def _pending_candidates(
+    session: AsyncSession,
+    conditions: list[Any],
+    *,
+    limit: int,
+) -> list[Manga]:
+    """Bounded legacy scan used only when indexed candidates have no relevant hit.
+
+    Exact/legacy tokens are already covered by FTS, but a typo/transliteration
+    query cannot match the raw legacy body.  Scanning a popularity-bounded
+    slice of the still-pending rows keeps that edge case useful during the
+    ~2.5 minute migration without scanning all 78k rows.
+    """
+
+    return list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*conditions, Manga.search_indexed.is_(False))
+                .order_by(
+                    desc(Manga.rating_count),
+                    desc(Manga.chapters_count),
+                    desc(Manga.rating),
+                )
+                .limit(limit)
+            )
+        ).all()
+    )
+
+
 async def search_manga(
     session: AsyncSession,
     query: SearchQuery,
@@ -690,19 +722,24 @@ async def search_manga(
     search_filter = await _search_filter(session, query)
     if search_filter is None:
         return [], 0
-    conditions.append(search_filter)
+    indexed_conditions = [*conditions, search_filter]
 
     candidates = list(
         (
             await session.scalars(
                 select(Manga)
-                .where(*conditions)
+                .where(*indexed_conditions)
                 .order_by(*_candidate_order(query))
                 .limit(SEARCH_CANDIDATE_LIMIT)
             )
         ).all()
     )
     ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, candidates)))
+    if not ranked:
+        pending = await _pending_candidates(
+            session, conditions, limit=PENDING_FALLBACK_LIMIT
+        )
+        ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, pending)))
     start = (page - 1) * limit
     items = [row for row, _score, _reason in ranked[start : start + limit]]
     return items, len(ranked)
@@ -725,12 +762,12 @@ async def suggest_manga(
     )
     if search_filter is None:
         return []
-    conditions.append(search_filter)
+    indexed_conditions = [*conditions, search_filter]
     candidates = list(
         (
             await session.scalars(
                 select(Manga)
-                .where(*conditions)
+                .where(*indexed_conditions)
                 .order_by(*_candidate_order(query))
                 .limit(SUGGESTION_CANDIDATE_LIMIT)
             )
@@ -741,13 +778,25 @@ async def suggest_manga(
     # with a multi-word query should not sit next to the real answer.  Ranking
     # still scans the full filtered list, so this does not affect recall.
     need = len(query.tokens)
-    result: list[tuple[Manga, str]] = []
-    for row, _score, reason in ranked:
-        if need > 1 and token_coverage(query, row) < need:
-            continue
-        result.append((row, reason))
-        if len(result) >= limit:
-            break
+
+    def pick(items):  # type: ignore[no-untyped-def]
+        chosen: list[tuple[Manga, str]] = []
+        for row, _score, reason in items:
+            if need > 1 and token_coverage(query, row) < need:
+                continue
+            chosen.append((row, reason))
+            if len(chosen) >= limit:
+                break
+        return chosen
+
+    result = pick(ranked)
+    if not result:
+        pending = await _pending_candidates(
+            session, conditions, limit=SUGGESTION_PENDING_FALLBACK_LIMIT
+        )
+        result = pick(
+            filter_relevant(dedupe_ranked_groups(rank_rows(query, pending)))
+        )
     return result
 
 
