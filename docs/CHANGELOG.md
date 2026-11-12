@@ -11,6 +11,15 @@ SemVer.
 - S3-compatible media storage.
 - More verified sources (MangaDex/ReadManga).
 
+### Security
+
+- Bumped `Pillow` to `>=13.0.0,<14` in the media service and `cryptography` to
+  `>=50.0.2,<51` in the control and notifier services (#77). This resolves the
+  40 Pillow 12.3.0 and 7 cryptography 47.0.0 advisories reported by
+  `pip-audit`; the updated environment reports 0 known vulnerabilities.
+- Added `docs/SECURITY.md` and `docs/DEPENDENCIES.md` with the reporting
+  process, audit cadence, pinning rules and upgrade checklist.
+
 ## [1.2.0] — unreleased (EPIC #48)
 
 ### Added
