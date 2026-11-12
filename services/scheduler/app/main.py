@@ -135,7 +135,7 @@ class Scheduler:
                 self.settings.notifier_url, "/internal/notify/new-chapters", json=payload
             )
         if events and self.settings.chapter_notifications_enabled:
-            await self.dispatch_chapter_notifications(events[:50])
+            await self.dispatch_chapter_notifications(events)
 
     async def dispatch_chapter_notifications(self, events: list[dict]) -> bool:
         """Fan out imported chapters to followed users (in-app + Web Push).
@@ -148,34 +148,41 @@ class Scheduler:
 
         if not events:
             return False
-        payload = {
-            "events": [
-                {
-                    "manga_id": event["manga_id"],
-                    "chapter_id": event["chapter_id"],
-                    "manga_title": event["manga_title"],
-                    "chapter_label": event["chapter_label"],
-                    "source": event.get("source"),
-                    "chapter_url": None,
-                }
-                for event in events
-            ]
-        }
-        result = await self._post(
-            self.settings.comments_url,
-            "/internal/notifications/chapters",
-            json=payload,
-        )
-        if result is None:
-            logger.warning("chapter notification fan-out failed")
-            return False
+        normalized = [
+            {
+                "manga_id": event["manga_id"],
+                "chapter_id": event["chapter_id"],
+                "manga_title": event["manga_title"],
+                "chapter_label": event["chapter_label"],
+                "source": event.get("source"),
+                "chapter_url": None,
+            }
+            for event in events
+        ]
+        # The comments API caps one request at 50 events; a large import burst
+        # must not silently drop everything after the first page.
+        success = True
+        created = 0
+        for index in range(0, len(normalized), 50):
+            batch = normalized[index : index + 50]
+            result = await self._post(
+                self.settings.comments_url,
+                "/internal/notifications/chapters",
+                json={"events": batch},
+            )
+            if result is None:
+                logger.warning(
+                    "chapter notification fan-out failed for events %s-%s",
+                    index,
+                    index + len(batch),
+                )
+                success = False
+                continue
+            created += int(result.get("created", 0))
         logger.info(
-            "chapter notifications: created=%s followers=%s push_recipients=%s",
-            result.get("created", 0),
-            result.get("followers", 0),
-            result.get("push_recipients", 0),
+            "chapter notifications: events=%s created=%s", len(normalized), created
         )
-        return True
+        return success
 
     async def import_catalogue(self, now: datetime | None = None) -> None:
         """Populate the catalogue from every enabled source's landing page.

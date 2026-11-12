@@ -24,7 +24,7 @@ const DEFAULT_FORM: SettingsForm = {
 };
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-const RATE_OPTIONS = [1, 2, 3, 5, 10, 20];
+const RATE_OPTIONS = [1, 2, 3, 5, 10];
 
 function hourLabel(hour: number): string {
   return `${String(hour).padStart(2, '0')}:00`;
