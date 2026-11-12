@@ -16,6 +16,8 @@ interface FieldErrors {
   email?: string;
   password?: string;
   confirm?: string;
+  age?: string;
+  terms?: string;
   form?: string;
 }
 
@@ -37,6 +39,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
 
   const nextPath = safeNextPath(searchParams.get('next'));
@@ -76,6 +80,14 @@ export default function RegisterPage() {
 
     if (!confirm) nextErrors.confirm = 'Повторите пароль.';
     else if (confirm !== password) nextErrors.confirm = 'Пароли не совпадают.';
+
+    if (!ageConfirmed) {
+      nextErrors.age = 'Подтвердите, что вам 18 лет или больше.';
+    }
+    if (!termsAccepted) {
+      nextErrors.terms =
+        'Примите Пользовательское соглашение и Политику конфиденциальности.';
+    }
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -222,6 +234,70 @@ export default function RegisterPage() {
                   {errors.confirm}
                 </span>
               ) : null}
+            </div>
+          </div>
+
+          <div className="auth-consents">
+            <div className="auth-consent">
+              <label className="checkbox" htmlFor="register-age">
+                <input
+                  id="register-age"
+                  type="checkbox"
+                  checked={ageConfirmed}
+                  onChange={(event) => {
+                    setAgeConfirmed(event.target.checked);
+                    setErrors((current) => ({ ...current, age: undefined, form: undefined }));
+                  }}
+                  aria-invalid={Boolean(errors.age)}
+                  aria-describedby={errors.age ? 'register-age-error' : undefined}
+                />
+                <span>
+                  Мне 18 лет или больше. Я понимаю, что на сайте есть контент для
+                  взрослых.
+                </span>
+              </label>
+              {errors.age ? (
+                <span className="field__error" id="register-age-error" role="alert">
+                  {errors.age}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="auth-consent">
+              <label className="checkbox" htmlFor="register-terms">
+                <input
+                  id="register-terms"
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={(event) => {
+                    setTermsAccepted(event.target.checked);
+                    setErrors((current) => ({ ...current, terms: undefined, form: undefined }));
+                  }}
+                  aria-invalid={Boolean(errors.terms)}
+                  aria-describedby={errors.terms ? 'register-terms-error' : 'register-terms-links'}
+                />
+                <span>
+                  Я принимаю условия использования и политику конфиденциальности.
+                </span>
+              </label>
+              {errors.terms ? (
+                <span className="field__error" id="register-terms-error" role="alert">
+                  {errors.terms}
+                </span>
+              ) : null}
+              <p className="auth-consent__links" id="register-terms-links">
+                <Link to="/terms" target="_blank" rel="noopener noreferrer">
+                  Пользовательское соглашение
+                </Link>
+                <span aria-hidden="true">·</span>
+                <Link to="/privacy" target="_blank" rel="noopener noreferrer">
+                  Политика конфиденциальности
+                </Link>
+                <span aria-hidden="true">·</span>
+                <Link to="/age" target="_blank" rel="noopener noreferrer">
+                  Правила 18+
+                </Link>
+              </p>
             </div>
           </div>
 

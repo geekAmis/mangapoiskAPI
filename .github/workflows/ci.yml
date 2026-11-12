@@ -58,9 +58,11 @@ jobs:
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - name: Typecheck
         run: npm run typecheck
+      - name: Component tests (vitest)
+        run: npm test
       - name: Build
         run: npm run build
-      - name: Unit tests
+      - name: Node unit tests (progress/profiles)
         run: npm run test:unit
 
   docs-encoding:

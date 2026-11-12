@@ -20,6 +20,17 @@ SITEMAP_MAX_URLS = 50_000
 SITEMAP_PAGE_SIZE = 100
 SITEMAP_CACHE_TTL_SECONDS = 1_800.0
 
+# Public legal pages.  /age is intentionally indexable: it is a substantive
+# policy page with a visible 18+ warning, not a duplicate or a gated doorway.
+# The date must be bumped together with LEGAL_UPDATED in apps/web/src/lib/legal.ts.
+LEGAL_SITEMAP_PAGES: tuple[tuple[str, str], ...] = (
+    ("/terms", "2026-11-13"),
+    ("/privacy", "2026-11-13"),
+    ("/dmca", "2026-11-13"),
+    ("/contacts", "2026-11-13"),
+    ("/age", "2026-11-13"),
+)
+
 router = APIRouter()
 
 _cache: tuple[float, str] | None = None
@@ -90,6 +101,7 @@ async def _collect_entries_for_app(app) -> list[tuple[str, str | None]]:  # type
         (f"{base}/", None),
         (f"{base}/catalogue", None),
         (f"{base}/sources", None),
+        *((f"{base}{path}", lastmod) for path, lastmod in LEGAL_SITEMAP_PAGES),
     ]
 
     # Preferred path: one dedicated catalogue query for all canonical titles.

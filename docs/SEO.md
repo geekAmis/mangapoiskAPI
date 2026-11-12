@@ -77,6 +77,28 @@ URL_SLUG_BACKFILL_BATCH_SIZE=500
 URL_SLUG_BACKFILL_YIELD_SECONDS=0.05
 ```
 
+### 2.4 Юридические страницы
+
+Публичные юридические маршруты индексируются и имеют собственные
+title/description/canonical:
+
+| Маршрут | title | canonical | robots |
+| --- | --- | --- | --- |
+| `/terms` | Пользовательское соглашение — MangaPoisk Reborn | `/terms` | index,follow |
+| `/privacy` | Политика конфиденциальности — MangaPoisk Reborn | `/privacy` | index,follow |
+| `/dmca` | Правообладателям и DMCA — MangaPoisk Reborn | `/dmca` | index,follow |
+| `/contacts` | Контакты и реквизиты — MangaPoisk Reborn | `/contacts` | index,follow |
+| `/age` | Возрастное ограничение 18+ — MangaPoisk Reborn | `/age` | index,follow (видимое предупреждение 18+) |
+
+Каждый из маршрутов `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age`
+добавляет один JSON-LD `WebPage`:
+
+- `name`, `description`, `url` (self-canonical), `inLanguage: ru`,
+  `dateModified` (дата редакции);
+- `isPartOf` → `WebSite` MangaPoisk Reborn;
+- `publisher` → `Organization` только если `LEGAL_OWNER_NAME` заполнен;
+  вымышленные реквизиты не выводятся.
+
 ## 3. Серверный prerender
 
 ### 3.1 Кто получает что
@@ -234,6 +256,9 @@ Sitemap: https://85.192.37.58.nip.io:8443/sitemap.xml
 - только `https://85.192.37.58.nip.io:8443` (production-валидация запрещает
   HTTP `PUBLIC_WEB_URL`);
 - статические `/`, `/catalogue`, `/sources`;
+- юридические страницы: `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age`
+  с датой редакции в `lastmod`. `/age` включён осознанно: это содержательная
+  публичная политика с видимым предупреждением 18+, а не doorway-страница;
 - только slug-URL `/manga/{id}-{url_slug}`;
 - только тайтлы с главами;
 - `Manga.adult = false` — 18+ исключены;

@@ -15,6 +15,11 @@ import ProfilePage from './pages/ProfilePage';
 import PublicProfilePage from './pages/PublicProfilePage';
 import SourcesPage from './pages/SourcesPage';
 import NotFoundPage from './pages/NotFoundPage';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
+import DmcaPage from './pages/DmcaPage';
+import ContactsPage from './pages/ContactsPage';
+import AgePage from './pages/AgePage';
 
 const ReaderPage = lazy(() => import('./pages/ReaderPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
@@ -80,6 +85,11 @@ export default function App() {
         />
         <Route path="u/:handle" element={<PublicProfilePage />} />
         <Route path="sources" element={<SourcesPage />} />
+        <Route path="terms" element={<TermsPage />} />
+        <Route path="privacy" element={<PrivacyPage />} />
+        <Route path="dmca" element={<DmcaPage />} />
+        <Route path="contacts" element={<ContactsPage />} />
+        <Route path="age" element={<AgePage />} />
         <Route path="404" element={<NotFoundPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
