@@ -93,6 +93,7 @@ app.add_middleware(
     RateLimitMiddleware,
     default_limit=settings.gateway_rate_limit_per_minute,
     search_limit=settings.gateway_search_limit_per_minute,
+    suggest_limit=settings.gateway_suggest_limit_per_minute,
     import_limit=settings.gateway_import_limit_per_minute,
 )
 

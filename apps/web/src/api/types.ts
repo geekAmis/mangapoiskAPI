@@ -154,6 +154,25 @@ export interface SearchResponse extends Paginated<MangaOut> {
   live: boolean;
 }
 
+export type SearchSuggestionReason = 'title' | 'alternative' | 'genre' | 'description';
+
+/** Instant local suggestion; no upstream/parser request is involved. */
+export interface SearchSuggestionOut {
+  id: UUID;
+  title: string;
+  title_en: string | null;
+  poster_url: string | null;
+  year: number | null;
+  source: string;
+  reason: SearchSuggestionReason;
+}
+
+export interface SuggestResponse {
+  query: string;
+  items: SearchSuggestionOut[];
+  total: number;
+}
+
 export interface ImportMangaRequest {
   source: string;
   url?: string;

@@ -34,6 +34,7 @@ from manga_common.schemas import (
     RelatedMangaOut,
     SourceOut,
     StreakOut,
+    SuggestResponse,
     TokenPair,
     UserOut,
 )
@@ -204,6 +205,11 @@ class CatalogClient(InternalClient):
             params["source"] = source
         data = await self.request("GET", "/internal/manga/search", params=params)
         return MangaListResponse.model_validate(data)
+
+    async def suggest(self, q: str, *, limit: int = 6) -> SuggestResponse:
+        params: dict[str, Any] = {"q": q, "limit": limit}
+        data = await self.request("GET", "/internal/manga/suggest", params=params)
+        return SuggestResponse.model_validate(data)
 
     async def manga(self, manga_id: str) -> MangaDetailOut:
         data = await self.request("GET", f"/internal/manga/{manga_id}")

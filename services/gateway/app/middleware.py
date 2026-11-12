@@ -23,17 +23,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         *,
         default_limit: int = 240,
         search_limit: int = 60,
+        suggest_limit: int = 300,
         import_limit: int = 10,
     ) -> None:
         super().__init__(app)
         self.default_limit = default_limit
         self.search_limit = search_limit
+        self.suggest_limit = suggest_limit
         self.import_limit = import_limit
         self.cache = MemoryCache(max_items=20_000)
 
     def _limit_for(self, path: str) -> int:
         if path.endswith("/manga/import"):
             return self.import_limit
+        if path.endswith("/manga/suggest"):
+            return self.suggest_limit
         if path.endswith("/manga/search"):
             return self.search_limit
         # A single chapter can contain 60+ pages.  Image reads are cheap for us

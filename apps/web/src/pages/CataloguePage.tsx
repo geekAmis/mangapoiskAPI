@@ -296,6 +296,7 @@ export default function CataloguePage() {
           size="lg"
           placeholder="Название, автор или альтернативное имя…"
           ariaLabel="Поиск по каталогу"
+          enableSuggestions
           onChange={setSearchInput}
           onSubmit={(value) => {
             setSearchInput(value);

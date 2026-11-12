@@ -31,6 +31,7 @@ export default function NotFoundPage() {
             size="lg"
             placeholder="Название манги…"
             ariaLabel="Поиск манги на странице 404"
+            enableSuggestions
             onSubmit={(value) =>
               navigate(value ? `/catalogue?q=${encodeURIComponent(value)}` : '/catalogue')
             }

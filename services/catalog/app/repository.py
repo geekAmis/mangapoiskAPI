@@ -8,7 +8,20 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
-from sqlalchemy import Integer, String, and_, case, cast, desc, exists, func, or_, select, update
+from sqlalchemy import (
+    Integer,
+    String,
+    and_,
+    case,
+    cast,
+    desc,
+    exists,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,10 +35,23 @@ from .normalization import (
     status_key,
 )
 from .schemas import CatalogStats, EnrichmentSourceStats, SourceStats
+from .search import (
+    SearchQuery,
+    analyze_query,
+    dedupe_ranked_groups,
+    expansion_terms,
+    filter_relevant,
+    fts_match_query,
+    rank_rows,
+    token_coverage,
+)
+from .search_fts import fts_available, sync_search_fts
 
 DESCRIPTION_FALLBACK = "Упс. Описание не нашлось в источниках"
 ENRICHMENT_FAILED_ATTEMPTS = 5
 ENRICHMENT_STALE_HOURS = 24
+SEARCH_CANDIDATE_LIMIT = 300
+SUGGESTION_CANDIDATE_LIMIT = 180
 
 
 async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
@@ -260,6 +286,9 @@ async def merge_group_metadata(session: AsyncSession, group_key: str | None) -> 
         variant.status = variant.status or best_status
         variant.title_en = variant.title_en or best_title_en
         variant.title_alt = variant.title_alt or best_title_alt
+        variant.refresh_search_fields()
+    for variant in variants:
+        await sync_search_fts(session, variant.id, variant.search_blob)
     await session.flush()
 
 
@@ -338,6 +367,7 @@ async def upsert_manga_detail(
     manga.enrichment_last_attempt_at = manga.last_synced_at
     if detail.chapters_count is not None:
         manga.chapters_count = max(int(manga.chapters_count or 0), int(detail.chapters_count))
+    manga.refresh_search_fields()
     await session.flush()
 
     new_chapters: list[Chapter] = []
@@ -382,6 +412,7 @@ async def upsert_manga_detail(
 
     await upsert_cover(session, manga, detail.poster_url or manga.poster_url)
     await merge_group_metadata(session, manga.group_key)
+    await sync_search_fts(session, manga.id, manga.search_blob)
     await refresh_group_primary_cover(session, manga.group_key)
     return manga, created, new_chapters
 
@@ -428,10 +459,12 @@ async def upsert_manga_summary(
     if summary.chapters_count:
         manga.chapters_count = max(int(manga.chapters_count or 0), int(summary.chapters_count))
     manga.last_synced_at = None if created else manga.last_synced_at
+    manga.refresh_search_fields()
     await session.flush()
 
     await upsert_cover(session, manga, summary.poster_url or manga.poster_url)
     await merge_group_metadata(session, manga.group_key)
+    await sync_search_fts(session, manga.id, manga.search_blob)
     await refresh_group_primary_cover(session, manga.group_key)
     return manga, created
 
@@ -506,7 +539,6 @@ async def update_chapter_pages(
 
 def _manga_conditions(
     *,
-    query: str | None = None,
     source: str | None = None,
     genre: str | None = None,
     genres: list[str] | None = None,
@@ -515,16 +547,6 @@ def _manga_conditions(
     include_empty: bool = False,
 ) -> list[Any]:
     conditions: list[Any] = []
-    if query:
-        pattern = f"%{query.strip()}%"
-        conditions.append(
-            or_(
-                Manga.title.ilike(pattern),
-                Manga.title_en.ilike(pattern),
-                Manga.title_alt.ilike(pattern),
-                Manga.description.ilike(pattern),
-            )
-        )
     if source:
         conditions.append(Manga.source == source)
     requested = (
@@ -553,6 +575,139 @@ def _manga_conditions(
     return conditions
 
 
+def _group_expr():
+    return func.coalesce(func.nullif(Manga.group_key, ""), cast(Manga.id, String))
+
+
+async def _search_filter(
+    session: AsyncSession,
+    query: SearchQuery,
+    *,
+    candidate_limit: int = SEARCH_CANDIDATE_LIMIT,
+):
+    """SQL candidate filter backed by FTS5 (SQLite), LIKE and trigram indexes."""
+
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite" and await fts_available(session):
+        match = fts_match_query(query)
+        if not match:
+            return None
+        return text(
+            "id IN (SELECT manga_id FROM manga_search_fts "
+            "WHERE manga_search_fts MATCH :fts_query "
+            "ORDER BY bm25(manga_search_fts) LIMIT :fts_limit)"
+        ).bindparams(fts_query=match, fts_limit=candidate_limit)
+    terms = expansion_terms(query, dialect=dialect)
+    if not terms:
+        return None
+    return or_(*[Manga.search_blob.contains(term, autoescape=True) for term in terms])
+
+
+def _candidate_order(query: SearchQuery):
+    normalized = query.normalized
+    preliminary = case(
+        (Manga.search_title == normalized, 0),
+        (Manga.search_title.startswith(normalized), 1),
+        (Manga.search_names.contains(normalized, autoescape=True), 2),
+        (Manga.search_blob.contains(normalized, autoescape=True), 3),
+        else_=4,
+    )
+    return (
+        preliminary,
+        desc(Manga.chapters_count),
+        desc(Manga.rating_count),
+        desc(Manga.rating),
+        desc(Manga.updated_at),
+    )
+
+
+async def search_manga(
+    session: AsyncSession,
+    query: SearchQuery,
+    *,
+    source: str | None = None,
+    genre: str | None = None,
+    genres: list[str] | None = None,
+    year: int | None = None,
+    status: str | None = None,
+    include_empty: bool = False,
+    page: int = 1,
+    limit: int = 24,
+) -> tuple[list[Manga], int]:
+    """Rank local catalogue rows by relevance, then paginate title groups."""
+
+    conditions = _manga_conditions(
+        source=source,
+        genre=genre,
+        genres=genres,
+        year=year,
+        status=status,
+        include_empty=include_empty,
+    )
+    search_filter = await _search_filter(session, query)
+    if search_filter is None:
+        return [], 0
+    conditions.append(search_filter)
+
+    candidates = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*conditions)
+                .order_by(*_candidate_order(query))
+                .limit(SEARCH_CANDIDATE_LIMIT)
+            )
+        ).all()
+    )
+    ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, candidates)))
+    start = (page - 1) * limit
+    items = [row for row, _score, _reason in ranked[start : start + limit]]
+    return items, len(ranked)
+
+
+async def suggest_manga(
+    session: AsyncSession,
+    raw_query: str,
+    *,
+    limit: int = 6,
+) -> list[tuple[Manga, str]]:
+    """Top local title suggestions.  This function never touches the parser."""
+
+    query = analyze_query(raw_query)
+    if query.is_empty:
+        return []
+    conditions = _manga_conditions(include_empty=False)
+    search_filter = await _search_filter(
+        session, query, candidate_limit=SUGGESTION_CANDIDATE_LIMIT
+    )
+    if search_filter is None:
+        return []
+    conditions.append(search_filter)
+    candidates = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where(*conditions)
+                .order_by(*_candidate_order(query))
+                .limit(SUGGESTION_CANDIDATE_LIMIT)
+            )
+        ).all()
+    )
+    ranked = filter_relevant(dedupe_ranked_groups(rank_rows(query, candidates)))
+    # Suggestions are a precision surface: a title that only shares one word
+    # with a multi-word query should not sit next to the real answer.  Ranking
+    # still scans the full filtered list, so this does not affect recall.
+    need = len(query.tokens)
+    result: list[tuple[Manga, str]] = []
+    for row, _score, reason in ranked:
+        if need > 1 and token_coverage(query, row) < need:
+            continue
+        result.append((row, reason))
+        if len(result) >= limit:
+            break
+    return result
+
+
 async def list_manga(
     session: AsyncSession,
     *,
@@ -567,8 +722,26 @@ async def list_manga(
     page: int = 1,
     limit: int = 24,
 ) -> tuple[list[Manga], int]:
+    search_query = analyze_query(query)
+    if (query or "").strip() and search_query.is_empty:
+        # A punctuation-only / stopword-only query must not silently turn into
+        # an unfiltered catalogue dump.
+        return [], 0
+    if not search_query.is_empty:
+        return await search_manga(
+            session,
+            search_query,
+            source=source,
+            genre=genre,
+            genres=genres,
+            year=year,
+            status=status,
+            include_empty=include_empty,
+            page=page,
+            limit=limit,
+        )
+
     conditions = _manga_conditions(
-        query=query,
         source=source,
         genre=genre,
         genres=genres,
@@ -587,7 +760,7 @@ async def list_manga(
 
     # One card per normalised title group.  The representative is the variant
     # with the most chapters, then the best rating, then the freshest row.
-    group_expr = func.coalesce(func.nullif(Manga.group_key, ""), cast(Manga.id, String))
+    group_expr = _group_expr()
     total = int(
         (
             await session.scalar(
@@ -640,6 +813,8 @@ async def backfill_group_keys(session: AsyncSession) -> int:
     )
     for manga in rows:
         manga.group_key = compute_group_key(manga.title)
+        manga.refresh_search_fields()
+        await sync_search_fts(session, manga.id, manga.search_blob)
     await session.flush()
     return len(rows)
 

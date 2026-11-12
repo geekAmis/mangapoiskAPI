@@ -133,6 +133,10 @@
   padding: 0 0 12px;
   animation: fade-in 160ms ease;
 }
+.mobile-search .searchbox {
+  flex: 1;
+  min-width: 0;
+}
 
 .header-login {
   margin-left: 4px;
@@ -349,6 +353,13 @@
   .mobile-search {
     width: 100%;
     padding: 0 16px 10px;
+  }
+  .search-suggest {
+    top: calc(100% + 6px);
+    border-radius: 14px;
+  }
+  .search-suggest__list {
+    max-height: min(52vh, 370px);
   }
   .brand__mark {
     width: 30px;

@@ -151,6 +151,24 @@ class SearchResponse(BaseModel):
     live: bool = False
 
 
+class SearchSuggestionOut(BaseModel):
+    """One instant-search suggestion.  It never triggers an upstream request."""
+
+    id: UUID
+    title: str
+    title_en: str | None = None
+    poster_url: str | None = None
+    year: int | None = None
+    source: str
+    reason: str = "title"
+
+
+class SuggestResponse(BaseModel):
+    query: str = ""
+    items: list[SearchSuggestionOut] = Field(default_factory=list)
+    total: int = 0
+
+
 class TranslatorOut(BaseModel):
     name: str
     count: int

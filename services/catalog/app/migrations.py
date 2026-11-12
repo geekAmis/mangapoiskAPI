@@ -8,8 +8,30 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .models import Manga
 from .normalization import genres_key, status_key
+from .search import build_search_fields
 
 logger = logging.getLogger(__name__)
+
+_SEARCH_COLUMNS = (
+    "search_title",
+    "search_alt",
+    "search_names",
+    "search_meta",
+    "search_description",
+    "search_blob",
+)
+
+
+async def _try_extension(connection, statement: str, name: str) -> bool:
+    """Create an optional extension without aborting the whole migration."""
+
+    try:
+        async with connection.begin_nested():
+            await connection.execute(text(statement))
+        return True
+    except Exception as exc:  # pragma: no cover - depends on server privileges
+        logger.warning("could not enable %s: %s", name, exc)
+        return False
 
 
 async def ensure_runtime_schema(engine: AsyncEngine) -> None:
@@ -62,6 +84,11 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 await connection.execute(
                     text("ALTER TABLE manga ADD COLUMN enrichment_last_error TEXT")
                 )
+            for column in _SEARCH_COLUMNS:
+                if column not in manga_columns:
+                    await connection.execute(
+                        text(f"ALTER TABLE manga ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+                    )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
             )
@@ -71,6 +98,12 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             await connection.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_title "
+                    "ON manga (search_title)"
                 )
             )
             await connection.execute(
@@ -100,6 +133,13 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 await connection.execute(
                     text("ALTER TABLE crawl_state ADD COLUMN eta_seconds INTEGER")
                 )
+            await connection.execute(
+                text(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS manga_search_fts USING fts5("
+                    "manga_id UNINDEXED, body, "
+                    "tokenize = 'unicode61 remove_diacritics 2')"
+                )
+            )
         else:
             await connection.execute(
                 text("ALTER TABLE chapters ADD COLUMN IF NOT EXISTS translator VARCHAR(255)")
@@ -113,6 +153,13 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             await connection.execute(
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS genres_key TEXT")
             )
+            for column in _SEARCH_COLUMNS:
+                await connection.execute(
+                    text(
+                        f"ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                        f"{column} TEXT NOT NULL DEFAULT ''"
+                    )
+                )
             await connection.execute(
                 text(
                     "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
@@ -157,8 +204,12 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
             )
             await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)")
+            )
+            await connection.execute(
                 text(
-                    "CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)"
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_title "
+                    "ON manga (search_title)"
                 )
             )
             await connection.execute(
@@ -170,28 +221,103 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             await connection.execute(
                 text("ALTER TABLE crawl_state ADD COLUMN IF NOT EXISTS eta_seconds INTEGER")
             )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_search_title_pattern "
+                    "ON manga (search_title text_pattern_ops)"
+                )
+            )
 
-        # Backfill filter keys.  Genres used to be indexed by their raw source
-        # label; the canonical English slug table changed that, so recompute
-        # only rows whose stored key differs.
+            # pg_trgm accelerates the LIKE '%term%' candidate filter used by
+            # both search and suggestions.  unaccent is kept as a deployment
+            # safety net for SQL-level diagnostics; application matching is
+            # already accent-insensitive because documents and queries are
+            # normalised in Python.
+            trigram = await _try_extension(
+                connection, "CREATE EXTENSION IF NOT EXISTS pg_trgm", "pg_trgm"
+            )
+            await _try_extension(
+                connection, "CREATE EXTENSION IF NOT EXISTS unaccent", "unaccent"
+            )
+            if trigram:
+                for name, column in (
+                    ("ix_manga_search_names_trgm", "search_names"),
+                    ("ix_manga_search_title_trgm", "search_title"),
+                    ("ix_manga_search_blob_trgm", "search_blob"),
+                ):
+                    try:
+                        async with connection.begin_nested():
+                            await connection.execute(
+                                text(
+                                    f"CREATE INDEX IF NOT EXISTS {name} "
+                                    f"ON manga USING gin ({column} gin_trgm_ops)"
+                                )
+                            )
+                    except Exception as exc:  # pragma: no cover - server specific
+                        logger.warning("could not create %s: %s", name, exc)
+
+        # Backfill filter keys and the denormalised search document.  This is
+        # intentionally done in Python: it works on both dialects and keeps the
+        # ranking identical to what write paths produce.
         rows = (
             await connection.execute(
-                select(Manga.id, Manga.status, Manga.genres, Manga.genres_key, Manga.status_key)
+                select(
+                    Manga.id,
+                    Manga.title,
+                    Manga.title_en,
+                    Manga.title_alt,
+                    Manga.description,
+                    Manga.genres,
+                    Manga.content_type,
+                    Manga.metadata_json.label("metadata_json"),
+                    Manga.group_key,
+                    Manga.status,
+                    Manga.genres_key,
+                    Manga.status_key,
+                    Manga.search_blob,
+                )
             )
         ).all()
         updated = 0
         for row in rows:
             expected_genres = genres_key(row.genres or [])
             expected_status = status_key(row.status)
-            if row.genres_key != expected_genres or row.status_key != expected_status:
+            fields = build_search_fields(
+                title=row.title,
+                title_en=row.title_en,
+                title_alt=row.title_alt,
+                genres=row.genres or [],
+                content_type=row.content_type,
+                description=row.description,
+                metadata=row.metadata_json or {},
+            )
+            values = {
+                "genres_key": expected_genres,
+                "status_key": expected_status,
+                **fields,
+            }
+            if (
+                row.genres_key != expected_genres
+                or row.status_key != expected_status
+                or row.search_blob != values["search_blob"]
+            ):
                 await connection.execute(
-                    update(Manga)
-                    .where(Manga.id == row.id)
-                    .values(genres_key=expected_genres, status_key=expected_status)
+                    update(Manga).where(Manga.id == row.id).values(**values)
                 )
                 updated += 1
         if updated:
-            logger.info("backfilled canonical filter keys for %s catalogue entries", updated)
+            logger.info("backfilled search/filter fields for %s catalogue entries", updated)
+
+        if dialect == "sqlite":
+            # The FTS mirror is rebuilt atomically with the migration: a stale
+            # mirror would make suggestions miss titles after a schema upgrade.
+            await connection.execute(text("DELETE FROM manga_search_fts"))
+            await connection.execute(
+                text(
+                    "INSERT INTO manga_search_fts (manga_id, body) "
+                    "SELECT CAST(id AS TEXT), search_blob FROM manga"
+                )
+            )
 
         # Covers created before grouping support need the denormalised key.
         await connection.execute(
