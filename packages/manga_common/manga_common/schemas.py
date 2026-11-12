@@ -263,6 +263,14 @@ class ProgressUpsert(BaseModel):
     chapter_id: UUID
     page: int = Field(default=1, ge=1)
     total_pages: int = Field(default=0, ge=0)
+    # Optional catalogue metadata.  Only the gateway fills these from trusted
+    # catalogue responses before forwarding to the internal library service;
+    # public clients cannot influence XP or event labels through them.
+    manga_title: str | None = Field(default=None, max_length=255)
+    chapter_label: str | None = Field(default=None, max_length=128)
+    poster_url: str | None = Field(default=None, max_length=1024)
+    genres: list[str] = Field(default_factory=list, max_length=8)
+    title_completed: bool = False
 
 
 class ProgressOut(ORMModel):

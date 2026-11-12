@@ -5,6 +5,8 @@ SemVer.
 
 ## [Unreleased]
 
+- Public reader profiles (#47): `/u/{username}`, XP/levels/ranks,
+  achievements, activity feed, privacy controls and profile moderation.
 - Shared database or replication for multi-node catalogue/library failover.
 - Alembic migrations for destructive schema changes.
 - Redis-backed global rate limiting.

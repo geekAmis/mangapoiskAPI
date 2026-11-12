@@ -252,6 +252,24 @@ The service stores a `manga_id` as an opaque UUID and keeps discussions after a
 title leaves the catalogue.  Create/duplicate cooldowns, daily limits and body
 length are configured by `COMMENTS_*` environment variables.
 
+## Profiles and gamification
+
+Public profiles are indexable by default.  Hiding the profile or any public
+section returns 404 to guests and `noindex,nofollow`; see
+[`PROFILES.md`](PROFILES.md) for XP/achievement rules and privacy semantics.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/users/{handle}` | public profile card (`handle` = username or UUID) |
+| POST | `/api/v1/users/{handle}/report` | report a profile (auth) |
+| POST | `/api/v1/users/{handle}/block` | block a profile (auth) |
+| DELETE | `/api/v1/users/{handle}/block` | unblock (auth) |
+| GET | `/api/v1/me/profile` | owner profile with exact timestamps |
+| PATCH | `/api/v1/me/profile` | update display name, username, bio, privacy |
+| GET | `/api/v1/me/events?limit=30` | owner activity feed |
+| GET | `/api/v1/admin/profile-reports` | moderation queue (admin) |
+| PATCH | `/api/v1/admin/profile-reports/{id}` | `resolved` or `dismissed` (admin) |
+
 ## Admin / server manager
 
 The web admin panel is at `/admin` (direct URL, no nav link).  Login uses

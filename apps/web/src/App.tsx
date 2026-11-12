@@ -11,6 +11,7 @@ import LibraryPage from './pages/LibraryPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
+import PublicProfilePage from './pages/PublicProfilePage';
 import SourcesPage from './pages/SourcesPage';
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -75,6 +76,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="u/:handle" element={<PublicProfilePage />} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="404" element={<NotFoundPage />} />
         <Route path="*" element={<NotFoundPage />} />

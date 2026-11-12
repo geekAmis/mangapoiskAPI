@@ -195,6 +195,18 @@ export interface AdminCommentReport {
   comment: AdminComment | null;
 }
 
+export interface AdminProfileReport {
+  id: string;
+  target_username: string;
+  target_display_name: string;
+  reporter_username: string;
+  reason: string;
+  status: string;
+  target_visible: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export interface AdminCatalogueState {
   source: string;
   mode: string;
@@ -607,6 +619,21 @@ export const adminApi = {
   resolveCommentReport: (id: string, status: 'resolved' | 'dismissed') =>
     adminRequest<AdminCommentReport>(`/comment-reports/${encodeURIComponent(id)}/resolve`, {
       method: 'POST',
+      body: { status },
+    }),
+
+  getProfileReports: (
+    status: 'open' | 'resolved' | 'dismissed' | 'all' = 'open',
+    signal?: AbortSignal,
+  ) =>
+    adminRequest<AdminProfileReport[]>(
+      `/profile-reports?status=${status}&limit=100`,
+      { signal },
+    ),
+
+  resolveProfileReport: (id: string, status: 'resolved' | 'dismissed') =>
+    adminRequest<AdminProfileReport>(`/profile-reports/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
       body: { status },
     }),
 

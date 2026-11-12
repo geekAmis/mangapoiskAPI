@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { Icon } from '../components/Icon';
 import { InlineError } from '../components/ErrorState';
 import { NotificationSettingsPanel } from '../components/NotificationSettings';
+import { ProfileOverview } from '../components/profile/ProfileOverview';
 import { ThemePicker } from '../components/ThemeSwitcher';
 import { humanizeError } from '../lib/errors';
 import { formatDate, initials } from '../lib/format';
@@ -90,7 +91,8 @@ export default function ProfilePage() {
           <span className="eyebrow">Личные настройки</span>
           <h1 className="page-title">Профиль</h1>
           <p className="page-subtitle">
-            Внешний вид, поведение читалки и данные аккаунта. Изменения сохраняются автоматически.
+            Публичная карточка, приватность, внешний вид и поведение читалки. Настройки профиля
+            сохраняются кнопкой, настройки читалки — автоматически.
           </p>
         </div>
       </div>
@@ -121,6 +123,22 @@ export default function ProfilePage() {
           </div>
 
           <nav className="profile-side-nav" aria-label="Разделы настроек">
+            <a href="#public-profile">
+              <Icon name="user" size={17} />
+              Публичный профиль
+            </a>
+            <a href="#privacy">
+              <Icon name="shield" size={17} />
+              Приватность
+            </a>
+            <a href="#achievements">
+              <Icon name="sparkles" size={17} />
+              Достижения
+            </a>
+            <a href="#events">
+              <Icon name="clock" size={17} />
+              События
+            </a>
             <a href="#appearance">
               <Icon name="palette" size={17} />
               Внешний вид
@@ -145,6 +163,8 @@ export default function ProfilePage() {
         </aside>
 
         <div className="profile-content">
+          <ProfileOverview />
+
           <section className="panel" id="appearance" aria-labelledby="appearance-title">
             <div className="panel__head">
               <div>

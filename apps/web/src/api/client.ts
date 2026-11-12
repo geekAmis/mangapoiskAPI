@@ -22,9 +22,14 @@ import type {
   PageOut,
   Paginated,
   ProgressMergeItem,
+  MyProfileOut,
+  ProfileEventOut,
+  ProfileReportOut,
+  ProfileUpdate,
   ProgressMergeOut,
   ProgressOut,
   ProgressUpsert,
+  PublicProfileOut,
   ReaderSettings,
   RecommendationListOut,
   RegisterRequest,
@@ -442,6 +447,60 @@ export const api = {
       query: { timezone },
       auth: true,
       signal,
+    }),
+
+  getProfile: (
+    handle: string,
+    timezone?: string,
+    signal?: AbortSignal,
+    authenticated = true,
+  ) =>
+    request<PublicProfileOut>(`/users/${encodeURIComponent(handle)}`, {
+      query: { timezone },
+      // Send the access token when present so the owner sees exact timestamps
+      // and private/hidden profiles; anonymous visitors simply omit it.
+      auth: authenticated,
+      signal,
+    }),
+
+  getMyProfile: (timezone?: string, signal?: AbortSignal) =>
+    request<MyProfileOut>('/me/profile', {
+      query: { timezone },
+      auth: true,
+      signal,
+    }),
+
+  updateMyProfile: (payload: ProfileUpdate) =>
+    request<MyProfileOut>('/me/profile', {
+      method: 'PATCH',
+      body: payload,
+      auth: true,
+    }),
+
+  getMyEvents: (limit = 30, signal?: AbortSignal) =>
+    request<ProfileEventOut[]>('/me/events', {
+      query: { limit },
+      auth: true,
+      signal,
+    }),
+
+  reportProfile: (handle: string, reason: string) =>
+    request<ProfileReportOut>(`/users/${encodeURIComponent(handle)}/report`, {
+      method: 'POST',
+      body: { reason },
+      auth: true,
+    }),
+
+  blockProfile: (handle: string) =>
+    request<OkResponse>(`/users/${encodeURIComponent(handle)}/block`, {
+      method: 'POST',
+      auth: true,
+    }),
+
+  unblockProfile: (handle: string) =>
+    request<OkResponse>(`/users/${encodeURIComponent(handle)}/block`, {
+      method: 'DELETE',
+      auth: true,
     }),
 
   getRecommendations: (
