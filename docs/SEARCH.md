@@ -79,11 +79,11 @@ $env:BENCHMARK_DATABASE_URL="postgresql+asyncpg://..."
 
 | Метрика | Значение |
 |---|---|
-| search p50 | 33.30 мс |
-| search p95 | 55.53 мс |
-| search p95 по сырым замерам | 60.75 мс |
-| suggest p50 | 25.51 мс |
-| suggest p95 | 42.85 мс |
+| search p50 | 32.88 мс |
+| search p95 | 48.25 мс |
+| search p95 по сырым замерам | 51.84 мс |
+| suggest p50 | 24.07 мс |
+| suggest p95 | 37.08 мс |
 | размер БД | 26.4 МБ |
 | текст в FTS-мирроре | 2.15 МБ |
 
