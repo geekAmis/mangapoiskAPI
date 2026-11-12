@@ -3,10 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>MangaPoisk Reborn — читалка манги и манхвы</title>
+    <title>MangaPoisk Reborn — читалка манги и манхвы онлайн</title>
     <meta
       name="description"
       content="MangaPoisk Reborn — русский каталог манги и манхвы: поиск по источникам, удобная читалка, закладки, история чтения и офлайн-экспорт глав."
+      data-seo="description"
+    />
+    <meta name="robots" content="index,follow,max-image-preview:large" data-seo="robots" />
+    <link
+      rel="canonical"
+      href="https://85.192.37.58.nip.io:8443/"
+      data-seo="canonical"
     />
     <meta name="theme-color" content="#060b12" />
     <meta name="color-scheme" content="dark light" />
@@ -15,19 +22,64 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
-    <meta property="og:type" content="website" />
-    <meta property="og:locale" content="ru_RU" />
-    <meta property="og:site_name" content="MangaPoisk Reborn" />
-    <meta property="og:title" content="MangaPoisk Reborn — читалка манги" />
+    <meta property="og:type" content="website" data-seo="og:type" />
+    <meta property="og:locale" content="ru_RU" data-seo="og:locale" />
+    <meta property="og:site_name" content="MangaPoisk Reborn" data-seo="og:site_name" />
+    <meta property="og:title" content="MangaPoisk Reborn — читалка манги и манхвы онлайн" data-seo="og:title" />
     <meta
       property="og:description"
       content="Каталог манги и манхвы, удобная читалка и офлайн-экспорт глав. Шесть атмосферных тем на выбор."
+      data-seo="og:description"
     />
+    <meta property="og:url" content="https://85.192.37.58.nip.io:8443/" data-seo="og:url" />
+    <meta
+      property="og:image"
+      content="https://85.192.37.58.nip.io:8443/icons/icon-512.png"
+      data-seo="og:image"
+    />
+    <meta property="og:image:alt" content="MangaPoisk Reborn" data-seo="og:image:alt" />
 
+    <meta name="twitter:card" content="summary_large_image" data-seo="twitter:card" />
+    <meta name="twitter:title" content="MangaPoisk Reborn — читалка манги и манхвы онлайн" data-seo="twitter:title" />
+    <meta
+      name="twitter:description"
+      content="Каталог манги и манхвы, удобная читалка и офлайн-экспорт глав."
+      data-seo="twitter:description"
+    />
+    <meta
+      name="twitter:image"
+      content="https://85.192.37.58.nip.io:8443/icons/icon-512.png"
+      data-seo="twitter:image"
+    />
+    <meta name="twitter:image:alt" content="MangaPoisk Reborn" data-seo="twitter:image:alt" />
+
+    <!-- Cover hosts are the LCP images on the home and catalogue pages. -->
+    <link rel="preconnect" href="https://cover.imglib.info" crossorigin />
+    <link rel="dns-prefetch" href="https://static2.mangapoisk.me" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="mask-icon" href="/icons/favicon.svg" color="#5ec8ff" />
+
+    <script>
+      // The SPA cannot know the route when nginx serves index.html.  Give
+      // crawlers and link previews a correct canonical/og:url immediately;
+      // useSeo refines them after data loads (and points the reader at the
+      // title page).
+      (function () {
+        try {
+          var url =
+            window.location.origin +
+            (window.location.pathname.replace(/\/+$/, '') || '/');
+          var canonical = document.querySelector('link[data-seo="canonical"]');
+          if (canonical) canonical.setAttribute('href', url);
+          var ogUrl = document.querySelector('meta[data-seo="og:url"]');
+          if (ogUrl) ogUrl.setAttribute('content', url);
+        } catch (e) {
+          /* canonical останется корневым, если DOM недоступен */
+        }
+      })();
+    </script>
 
     <style>
       #boot-loader {

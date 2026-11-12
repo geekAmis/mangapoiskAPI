@@ -1,10 +1,16 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { SearchBox } from '../components/SearchBox';
-import { useDocumentTitle } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 
 export default function NotFoundPage() {
-  useDocumentTitle('Страница не найдена — MangaPoisk Reborn');
+  useSeo({
+    title: 'Страница не найдена — MangaPoisk Reborn',
+    description:
+      'Страница не найдена. Вернитесь на главную, откройте каталог манги и манхвы или воспользуйтесь поиском.',
+    canonical: null,
+    robots: 'noindex,follow',
+  });
   const navigate = useNavigate();
 
   return (

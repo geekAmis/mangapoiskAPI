@@ -24,7 +24,7 @@ import {
   sourceLabel,
   statusLabel,
 } from '../lib/format';
-import { useDocumentTitle } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 import { useOfflineTitle } from '../lib/offlineHooks';
 import { deleteOfflineChapter, deleteOfflineTitle } from '../lib/offlineStorage';
 import {
@@ -48,9 +48,12 @@ export default function OfflineMangaPage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useDocumentTitle(
-    title ? `${title.title} — офлайн | MangaPoisk Reborn` : 'Офлайн-тайтл — MangaPoisk Reborn',
-  );
+  useSeo({
+    title: title ? `${title.title} — офлайн | MangaPoisk Reborn` : 'Офлайн-тайтл — MangaPoisk Reborn',
+    description: 'Скачанный тайтл доступен в офлайн-библиотеке MangaPoisk Reborn на этом устройстве.',
+    canonical: null,
+    robots: 'noindex,nofollow',
+  });
 
   const chapters = useMemo(() => (title ? sortOfflineChapters(title.chapters) : []), [title]);
   const stats = useMemo(() => (title ? offlineTitleStats(title) : null), [title]);

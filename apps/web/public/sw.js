@@ -10,7 +10,7 @@
  * data lives in IndexedDB, while API requests stay network-only.
  */
 
-const CACHE_VERSION = 'v4-2026-11-12';
+const CACHE_VERSION = 'v5-2026-11-12';
 const CACHE_PREFIX = 'mangapoisk-';
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `${CACHE_PREFIX}runtime-${CACHE_VERSION}`;

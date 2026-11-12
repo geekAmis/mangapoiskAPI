@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
+  /** Canonical public origin, e.g. https://85.192.37.58.nip.io:8443 */
+  readonly VITE_SITE_URL?: string;
 }
 
 interface ImportMeta {

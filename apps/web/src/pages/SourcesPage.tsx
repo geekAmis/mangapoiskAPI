@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon';
 import { DancingSpinner } from '../components/DancingLoader';
 import { Skeleton } from '../components/Skeleton';
 import { humanizeError } from '../lib/errors';
-import { useDocumentTitle } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 import { pluralRu } from '../lib/format';
 
 const CAPABILITY_LABELS: Array<{ key: string; label: string }> = [
@@ -28,7 +28,13 @@ function languageLabel(code: string): string {
 }
 
 export default function SourcesPage() {
-  useDocumentTitle('Источники — MangaPoisk Reborn');
+  useSeo({
+    title: 'Источники манги и манхвы — MangaPoisk Reborn',
+    description:
+      'Публичные источники каталога MangaPoisk Reborn: какие сайты подключены, что умеет каждый адаптер и как обновляются метаданные и главы.',
+    canonical: '/sources',
+    robots: 'index,follow,max-image-preview:large',
+  });
   const sourcesQuery = useQuery({
     queryKey: ['sources'],
     queryFn: ({ signal }) => api.sources(signal),

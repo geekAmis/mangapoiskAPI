@@ -35,7 +35,7 @@ import {
   progressPercent,
   sourceLabel,
 } from '../lib/format';
-import { useDocumentTitle } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 import { queryKeys } from '../lib/queryClient';
 import { useAuthStore } from '../stores/auth';
 import { toast } from '../stores/toast';
@@ -63,7 +63,13 @@ function parseTab(value: string | null): LibraryTab {
 }
 
 export default function LibraryPage() {
-  useDocumentTitle('Моя библиотека — MangaPoisk Reborn');
+  useSeo({
+    title: 'Моя библиотека — MangaPoisk Reborn',
+    description:
+      'Личная библиотека MangaPoisk Reborn: закладки, история чтения, прогресс и скачанные главы на этом устройстве.',
+    canonical: null,
+    robots: 'noindex,nofollow',
+  });
   const user = useAuthStore((state) => state.user);
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = parseTab(searchParams.get('tab'));

@@ -15,7 +15,14 @@ import {
   progressPercent,
   sourceLabel,
 } from '../lib/format';
-import { useDocumentTitle } from '../lib/hooks';
+import {
+  SEO_DEFAULT_DESCRIPTION,
+  SEO_DEFAULT_TITLE,
+  buildOrganizationJsonLd,
+  buildWebSiteJsonLd,
+  jsonLdGraph,
+  useSeo,
+} from '../lib/seo';
 import { useAuthStore } from '../stores/auth';
 import '../styles/mangalib-home.css';
 
@@ -67,7 +74,13 @@ function RankedList({
 }
 
 export default function HomePage() {
-  useDocumentTitle('MangaPoisk Reborn — читалка манги и манхвы');
+  useSeo({
+    title: SEO_DEFAULT_TITLE,
+    description: SEO_DEFAULT_DESCRIPTION,
+    canonical: '/',
+    robots: 'index,follow,max-image-preview:large',
+    jsonLd: jsonLdGraph(buildWebSiteJsonLd(), buildOrganizationJsonLd()),
+  });
   const user = useAuthStore((state) => state.user);
 
   const updatesQuery = useQuery({

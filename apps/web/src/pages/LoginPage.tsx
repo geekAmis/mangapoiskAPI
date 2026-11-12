@@ -7,7 +7,7 @@ import { DancingSpinner } from '../components/DancingLoader';
 import { AuthLayout } from '../components/AuthLayout';
 import { authErrorMessage } from '../lib/errors';
 import { safeNextPath } from '../lib/format';
-import { useDocumentTitle } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 import { useAuthStore } from '../stores/auth';
 import { toast } from '../stores/toast';
 
@@ -20,7 +20,12 @@ interface FieldErrors {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginPage() {
-  useDocumentTitle('Вход — MangaPoisk Reborn');
+  useSeo({
+    title: 'Вход — MangaPoisk Reborn',
+    description: 'Вход в аккаунт MangaPoisk Reborn: закладки, история чтения и прогресс синхронизируются между устройствами.',
+    canonical: null,
+    robots: 'noindex,nofollow',
+  });
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

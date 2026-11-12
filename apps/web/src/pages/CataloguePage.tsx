@@ -22,7 +22,8 @@ import {
   sourceLabel,
   statusLabel,
 } from '../lib/format';
-import { useDebouncedValue, useDocumentTitle } from '../lib/hooks';
+import { useDebouncedValue } from '../lib/hooks';
+import { SEO_SITE_NAME, absoluteUrl, useSeo } from '../lib/seo';
 import { queryKeys } from '../lib/queryClient';
 import { toast } from '../stores/toast';
 
@@ -98,8 +99,6 @@ export default function CataloguePage() {
   const [searchInput, setSearchInput] = useState(q);
   const debouncedSearch = useDebouncedValue(searchInput, 380);
   const committedSearchRef = useRef<string | null>(null);
-
-  useDocumentTitle(q ? `${q} — поиск в каталоге` : 'Каталог манги — MangaPoisk Reborn');
 
   const params = {
     query: q || undefined,
@@ -205,6 +204,47 @@ export default function CataloguePage() {
   const hasFilters = Boolean(q || activeFilterCount);
   const items = catalogueQuery.data?.items ?? [];
   const total = catalogueQuery.data?.total ?? 0;
+
+  // Self-canonical pagination, but drop sorting and other transient UI noise.
+  const canonicalParams = new URLSearchParams();
+  const addCanonicalParam = (key: string, value: string | undefined) => {
+    if (value) canonicalParams.set(key, value);
+  };
+  addCanonicalParam('q', q);
+  addCanonicalParam('source', source);
+  if (hashGenres.length > 0) addCanonicalParam('genres', hashGenres.join('+'));
+  else addCanonicalParam('genre', genre);
+  if (year) addCanonicalParam('year', String(year));
+  addCanonicalParam('status', status);
+  if (page > 1) addCanonicalParam('page', String(page));
+  const canonicalQuery = canonicalParams.toString();
+  const canonical = absoluteUrl(
+    `/catalogue${canonicalQuery ? `?${canonicalQuery}` : ''}`,
+  );
+
+  // Search result pages are thin by nature; empty filtered pages and API
+  // errors must not be indexed either.  The catalogue itself stays indexable.
+  const thinResult =
+    Boolean(q) ||
+    (Boolean(catalogueQuery.data) && total === 0 && (hasFilters || page > 1)) ||
+    catalogueQuery.isError;
+  const title = q
+    ? `«${q}» — поиск манги — ${SEO_SITE_NAME}`
+    : page > 1
+      ? `Каталог манги — страница ${page} — ${SEO_SITE_NAME}`
+      : `Каталог манги и манхвы на русском — ${SEO_SITE_NAME}`;
+  const description = q
+    ? `Поиск манги и манхвы по запросу «${q}» в каталоге MangaPoisk Reborn: результаты локального индекса и живого поиска по источникам.`
+    : total > 0
+      ? `Каталог манги и манхвы на русском: ${formatInt(total)} тайтлов, фильтры по жанру, году и статусу, свежие главы и читалка с офлайн-режимом.`
+      : 'Каталог манги и манхвы на русском: поиск по названию, фильтры по жанру, году и статусу, свежие главы и читалка с офлайн-режимом.';
+
+  useSeo({
+    title,
+    description,
+    canonical,
+    robots: thinResult ? 'noindex,follow' : 'index,follow,max-image-preview:large',
+  });
 
   const activeChips: Array<{ key: string; label: string; clear: () => void }> = [];
   if (q) activeChips.push({ key: 'q', label: `«${q}»`, clear: () => updateParams({ q: undefined }) });

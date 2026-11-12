@@ -7,7 +7,7 @@ import { DancingSpinner } from '../components/DancingLoader';
 import { AuthLayout } from '../components/AuthLayout';
 import { authErrorMessage } from '../lib/errors';
 import { safeNextPath } from '../lib/format';
-import { useDocumentTitle } from '../lib/hooks';
+import { useSeo } from '../lib/seo';
 import { useAuthStore } from '../stores/auth';
 import { toast } from '../stores/toast';
 
@@ -22,7 +22,12 @@ interface FieldErrors {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function RegisterPage() {
-  useDocumentTitle('Регистрация — MangaPoisk Reborn');
+  useSeo({
+    title: 'Регистрация — MangaPoisk Reborn',
+    description: 'Создайте аккаунт MangaPoisk Reborn, чтобы сохранять закладки, историю чтения и прогресс на всех устройствах.',
+    canonical: null,
+    robots: 'noindex,nofollow',
+  });
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
