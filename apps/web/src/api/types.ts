@@ -225,6 +225,64 @@ export interface ProgressUpsert {
   total_pages: number;
 }
 
+export interface ProgressMergeItem {
+  manga_id: UUID;
+  chapter_id: UUID;
+  page: number;
+  total_pages: number;
+  read_at: string;
+}
+
+export interface ProgressMergeOut {
+  merged: number;
+  unchanged: number;
+  ignored: number;
+}
+
+export interface StreakOut {
+  current: number;
+  longest: number;
+  read_today: boolean;
+  timezone: string;
+  last_read_on: string | null;
+  days: string[];
+}
+
+export interface RecommendationListOut {
+  items: MangaOut[];
+  strategy: 'personalized' | 'popular' | 'related';
+}
+
+export interface RelatedMangaOut {
+  series: MangaOut[];
+  related: MangaOut[];
+}
+
+export type AnalyticsEventName =
+  | 'impression'
+  | 'click'
+  | 'read_start'
+  | 'read_complete'
+  | 'finish';
+
+export interface AnalyticsEventIn {
+  event: AnalyticsEventName;
+  dedupe_key: string;
+  client_id: string;
+  surface: string;
+  manga_id?: UUID | null;
+  chapter_id?: UUID | null;
+}
+
+export interface AnalyticsEventsIn {
+  events: AnalyticsEventIn[];
+}
+
+export interface AnalyticsIngestOut {
+  accepted: number;
+  duplicates: number;
+}
+
 export interface ReaderSettings {
   theme: string;
   reader_mode: ReaderMode;
