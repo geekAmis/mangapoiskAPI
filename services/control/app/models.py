@@ -70,6 +70,9 @@ class DeploymentJob(Base, UUIDPrimaryKey, TimestampMixin):
     requested: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     log: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_output_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     server: Mapped[Server] = relationship(back_populates="jobs")
 

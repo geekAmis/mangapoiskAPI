@@ -131,6 +131,7 @@ class JobOut(BaseModel):
     error: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_output_at: datetime | None = None
 
 
 class RegistryEndpoint(BaseModel):
