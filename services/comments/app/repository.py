@@ -5,10 +5,21 @@ from collections import defaultdict
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from .models import Comment, CommentLike, CommentNotification, CommentReport
+from .models import (
+    ChapterNotification,
+    Comment,
+    CommentLike,
+    CommentNotification,
+    CommentReport,
+    NotificationSettings,
+    TitleFollow,
+    TitleFollowAlias,
+)
 
 
 def utcnow() -> datetime:
@@ -423,3 +434,244 @@ async def comments_by_ids(
         return {}
     rows = await session.scalars(select(Comment).where(Comment.id.in_(ids)))
     return {comment.id: comment for comment in rows}
+
+
+# ---------------------------------------------------------------------------
+# Title follows
+# ---------------------------------------------------------------------------
+
+
+async def get_follow(
+    session: AsyncSession, user_id: uuid.UUID, manga_id: uuid.UUID
+) -> TitleFollow | None:
+    return await session.scalar(
+        select(TitleFollow).where(
+            TitleFollow.user_id == user_id, TitleFollow.manga_id == manga_id
+        )
+    )
+
+
+async def add_follow(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    manga_id: uuid.UUID,
+    manga_title: str,
+    poster_url: str | None,
+    source: str | None,
+    variant_ids: list[uuid.UUID],
+) -> TitleFollow:
+    follow = TitleFollow(
+        user_id=user_id,
+        manga_id=manga_id,
+        manga_title=manga_title,
+        poster_url=poster_url,
+        source=source,
+    )
+    session.add(follow)
+    await session.flush()
+    aliases = {manga_id, *variant_ids}
+    for alias_id in aliases:
+        session.add(TitleFollowAlias(follow_id=follow.id, manga_id=alias_id))
+    return follow
+
+
+async def add_follow_alias(
+    session: AsyncSession, follow_id: uuid.UUID, manga_id: uuid.UUID
+) -> None:
+    exists = await session.scalar(
+        select(TitleFollowAlias.id).where(
+            TitleFollowAlias.follow_id == follow_id,
+            TitleFollowAlias.manga_id == manga_id,
+        )
+    )
+    if exists is None:
+        session.add(TitleFollowAlias(follow_id=follow_id, manga_id=manga_id))
+
+
+async def delete_follow(session: AsyncSession, follow: TitleFollow) -> None:
+    await session.delete(follow)
+
+
+async def list_follows(session: AsyncSession, user_id: uuid.UUID) -> list[TitleFollow]:
+    return list(
+        await session.scalars(
+            select(TitleFollow)
+            .where(TitleFollow.user_id == user_id)
+            .order_by(TitleFollow.created_at.desc(), TitleFollow.id.desc())
+        )
+    )
+
+
+async def follows_for_manga_ids(
+    session: AsyncSession, manga_ids: list[uuid.UUID]
+) -> list[TitleFollow]:
+    if not manga_ids:
+        return []
+    return list(
+        await session.scalars(
+            select(TitleFollow)
+            .join(TitleFollowAlias, TitleFollowAlias.follow_id == TitleFollow.id)
+            .where(TitleFollowAlias.manga_id.in_(manga_ids))
+            .distinct()
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chapter notifications
+# ---------------------------------------------------------------------------
+
+
+async def add_chapter_notification(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    manga_id: uuid.UUID,
+    chapter_id: uuid.UUID,
+    manga_title: str,
+    chapter_label: str,
+    chapter_url: str | None,
+    source: str | None,
+) -> bool:
+    """Insert one chapter notification, ignoring a duplicate triple.
+
+    Returns True when a new row was created.  The unique index
+    ``(user_id, manga_id, chapter_id)`` is the authoritative dedupe guard; the
+    dialect-specific ``ON CONFLICT DO NOTHING`` keeps concurrent fan-outs safe.
+    """
+
+    values = {
+        "id": uuid.uuid4(),
+        "user_id": user_id,
+        "manga_id": manga_id,
+        "chapter_id": chapter_id,
+        "manga_title": manga_title,
+        "chapter_label": chapter_label,
+        "chapter_url": chapter_url,
+        "source": source,
+        "read_at": None,
+        "created_at": utcnow(),
+    }
+    bind = session.get_bind()
+    dialect = bind.dialect.name if bind is not None else "sqlite"
+    if dialect == "postgresql":
+        statement = (
+            postgresql_insert(ChapterNotification)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=["user_id", "manga_id", "chapter_id"]
+            )
+        )
+    elif dialect == "sqlite":
+        statement = (
+            sqlite_insert(ChapterNotification)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=["user_id", "manga_id", "chapter_id"]
+            )
+        )
+    else:  # pragma: no cover - only sqlite/postgres are supported deployments
+        existing = await session.scalar(
+            select(ChapterNotification.id).where(
+                ChapterNotification.user_id == user_id,
+                ChapterNotification.manga_id == manga_id,
+                ChapterNotification.chapter_id == chapter_id,
+            )
+        )
+        if existing is not None:
+            return False
+        session.add(ChapterNotification(**values))
+        return True
+    result = await session.execute(statement)
+    return bool(result.rowcount)
+
+
+async def list_chapter_notifications(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    unread_only: bool,
+    offset: int,
+    limit: int,
+) -> list[ChapterNotification]:
+    statement = select(ChapterNotification).where(
+        ChapterNotification.user_id == user_id
+    )
+    if unread_only:
+        statement = statement.where(ChapterNotification.read_at.is_(None))
+    statement = statement.order_by(
+        ChapterNotification.created_at.desc(), ChapterNotification.id.desc()
+    )
+    return list(await session.scalars(statement.offset(offset).limit(limit)))
+
+
+async def count_chapter_notifications(
+    session: AsyncSession, user_id: uuid.UUID, *, unread_only: bool
+) -> int:
+    statement = select(func.count()).select_from(ChapterNotification).where(
+        ChapterNotification.user_id == user_id
+    )
+    if unread_only:
+        statement = statement.where(ChapterNotification.read_at.is_(None))
+    return int(await session.scalar(statement) or 0)
+
+
+async def mark_chapter_notifications_read(
+    session: AsyncSession, user_id: uuid.UUID, ids: list[uuid.UUID]
+) -> int:
+    result = await session.execute(
+        update(ChapterNotification)
+        .where(
+            ChapterNotification.user_id == user_id,
+            ChapterNotification.id.in_(ids),
+            ChapterNotification.read_at.is_(None),
+        )
+        .values(read_at=utcnow())
+    )
+    return int(result.rowcount or 0)
+
+
+# ---------------------------------------------------------------------------
+# Notification settings
+# ---------------------------------------------------------------------------
+
+
+async def get_notification_settings(
+    session: AsyncSession, user_id: uuid.UUID
+) -> NotificationSettings | None:
+    return await session.scalar(
+        select(NotificationSettings).where(NotificationSettings.user_id == user_id)
+    )
+
+
+async def notification_settings_for_users(
+    session: AsyncSession, user_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, NotificationSettings]:
+    if not user_ids:
+        return {}
+    rows = await session.scalars(
+        select(NotificationSettings).where(NotificationSettings.user_id.in_(user_ids))
+    )
+    return {row.user_id: row for row in rows}
+
+
+def default_notification_settings(user_id: uuid.UUID) -> NotificationSettings:
+    return NotificationSettings(user_id=user_id)
+
+
+def apply_notification_settings(
+    row: NotificationSettings,
+    *,
+    in_app_enabled: bool,
+    web_push_enabled: bool,
+    max_pushes_per_hour: int,
+    quiet_hours_start: int | None,
+    quiet_hours_end: int | None,
+) -> NotificationSettings:
+    row.in_app_enabled = in_app_enabled
+    row.web_push_enabled = web_push_enabled
+    row.max_pushes_per_hour = max_pushes_per_hour
+    row.quiet_hours_start = quiet_hours_start
+    row.quiet_hours_end = quiet_hours_end
+    return row

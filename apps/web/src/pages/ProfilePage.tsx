@@ -4,6 +4,7 @@ import { ApiError } from '../api/client';
 import { api } from '../api/client';
 import { Icon } from '../components/Icon';
 import { InlineError } from '../components/ErrorState';
+import { NotificationSettingsPanel } from '../components/NotificationSettings';
 import { ThemePicker } from '../components/ThemeSwitcher';
 import { humanizeError } from '../lib/errors';
 import { formatDate, initials } from '../lib/format';
@@ -127,6 +128,10 @@ export default function ProfilePage() {
             <a href="#reader-defaults">
               <Icon name="book" size={17} />
               Читалка по умолчанию
+            </a>
+            <a href="#notifications">
+              <Icon name="bell" size={17} />
+              Уведомления
             </a>
             <a href="#account">
               <Icon name="user" size={17} />
@@ -349,6 +354,8 @@ export default function ProfilePage() {
               </div>
             </div>
           </section>
+
+          <NotificationSettingsPanel />
 
           <section className="panel" id="account" aria-labelledby="account-title">
             <div className="panel__head">

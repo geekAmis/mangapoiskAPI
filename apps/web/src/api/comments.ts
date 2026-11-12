@@ -41,14 +41,24 @@ export interface NotificationComment {
   created_at: string;
 }
 
+export interface NotificationChapter {
+  manga_id: string;
+  manga_title: string;
+  chapter_id: string;
+  chapter_label: string;
+  url: string | null;
+  source: string | null;
+}
+
 export interface CommentNotification {
   id: string;
   user_id: string;
-  comment_id: string;
+  comment_id: string | null;
   type: string;
   read_at: string | null;
   created_at: string;
   comment: NotificationComment | null;
+  chapter: NotificationChapter | null;
 }
 
 export interface NotificationsPage {

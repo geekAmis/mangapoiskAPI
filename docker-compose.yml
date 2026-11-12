@@ -124,8 +124,30 @@ services:
     environment:
       SERVICE_NAME: notifier
       PORT: 8006
+      NOTIFIER_DATABASE_URL: sqlite+aiosqlite:////data/notifier.db
+    volumes:
+      - notifier-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8006/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [internal]
+
+  comments:
+    build:
+      context: .
+      dockerfile: services/comments/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVICE_NAME: comments
+      PORT: 8109
+      COMMENTS_DATABASE_URL: sqlite+aiosqlite:////data/comments.db
+    volumes:
+      - comments-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8109/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -168,6 +190,7 @@ services:
       MEDIA_URL: http://media:8004
       CONTROL_URL: http://control:8005
       NOTIFIER_URL: http://notifier:8006
+      COMMENTS_URL: http://comments:8109
       REDIS_URL: redis://redis:6379/2
     depends_on:
       catalog:
@@ -179,6 +202,10 @@ services:
       parser:
         condition: service_started
       control:
+        condition: service_started
+      comments:
+        condition: service_healthy
+      notifier:
         condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health')"]
@@ -198,11 +225,14 @@ services:
       CATALOG_URL: http://catalog:8002
       MEDIA_URL: http://media:8004
       NOTIFIER_URL: http://notifier:8006
+      COMMENTS_URL: http://comments:8109
     depends_on:
       catalog:
         condition: service_healthy
       media:
         condition: service_started
+      comments:
+        condition: service_healthy
     networks: [internal]
 
   web:
@@ -240,3 +270,5 @@ volumes:
   redis-data:
   media-data:
   control-data:
+  comments-data:
+  notifier-data:

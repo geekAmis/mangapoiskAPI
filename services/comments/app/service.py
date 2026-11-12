@@ -4,6 +4,7 @@ import math
 import re
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 from manga_common.errors import (
     ConflictError,
@@ -19,18 +20,32 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from . import repository as repo
 from .auth import CommentUser
 from .config import CommentsSettings
-from .models import Comment, CommentNotification, CommentReport
+from .models import (
+    ChapterNotification,
+    Comment,
+    CommentNotification,
+    CommentReport,
+    NotificationSettings,
+)
+from .push import PushDispatcher
 from .schemas import (
     AdminCommentOut,
     AdminReportOut,
+    ChapterEventIn,
+    ChapterFanoutOut,
     CommentCreate,
     CommentOut,
     CommentThreadOut,
     CommentUpdate,
+    FollowCreate,
+    FollowOut,
     LikeOut,
+    NotificationChapterOut,
     NotificationCommentOut,
     NotificationListOut,
     NotificationOut,
+    NotificationSettingsIn,
+    NotificationSettingsOut,
     ReportOut,
 )
 
@@ -63,9 +78,11 @@ class CommentsService:
         self,
         settings: CommentsSettings,
         session_factory: async_sessionmaker[AsyncSession],
+        push_dispatcher: PushDispatcher | None = None,
     ) -> None:
         self.settings = settings
         self.session_factory = session_factory
+        self.push_dispatcher = push_dispatcher
 
     # ------------------------------------------------------------------ text
     def normalize_body(self, raw: str) -> str:
@@ -181,6 +198,56 @@ class CommentsService:
             comment=(
                 NotificationCommentOut.model_validate(comment) if comment is not None else None
             ),
+        )
+
+    def _chapter_notification_out(
+        self, notification: ChapterNotification
+    ) -> NotificationOut:
+        return NotificationOut(
+            id=notification.id,
+            user_id=notification.user_id,
+            comment_id=None,
+            type="chapter",
+            read_at=repo.as_utc(notification.read_at),
+            created_at=_as_utc(notification.created_at),
+            chapter=NotificationChapterOut(
+                manga_id=notification.manga_id,
+                manga_title=notification.manga_title,
+                chapter_id=notification.chapter_id,
+                chapter_label=notification.chapter_label,
+                url=notification.chapter_url,
+                source=notification.source,
+            ),
+        )
+
+    def _settings_out(
+        self, row: NotificationSettings | None, user_id: uuid.UUID
+    ) -> NotificationSettingsOut:
+        if row is None:
+            return NotificationSettingsOut(
+                in_app_enabled=True,
+                web_push_enabled=True,
+                max_pushes_per_hour=5,
+                quiet_hours_start=None,
+                quiet_hours_end=None,
+                updated_at=repo.utcnow(),
+            )
+        return NotificationSettingsOut(
+            in_app_enabled=bool(row.in_app_enabled),
+            web_push_enabled=bool(row.web_push_enabled),
+            max_pushes_per_hour=int(row.max_pushes_per_hour or 5),
+            quiet_hours_start=row.quiet_hours_start,
+            quiet_hours_end=row.quiet_hours_end,
+            updated_at=repo.as_utc(row.updated_at) or repo.utcnow(),
+        )
+
+    def _follow_out(self, follow) -> FollowOut:  # type: ignore[no-untyped-def]
+        return FollowOut(
+            manga_id=follow.manga_id,
+            manga_title=follow.manga_title,
+            poster_url=follow.poster_url,
+            source=follow.source,
+            created_at=_as_utc(follow.created_at),
         )
 
     def _report_out(self, report: CommentReport) -> ReportOut:
@@ -539,32 +606,62 @@ class CommentsService:
         page: int,
         limit: int,
     ) -> NotificationListOut:
+        """Merge comment and chapter notifications into one chronological feed.
+
+        Both tables keep their own indexes and unread state; the merge happens
+        in the service because the two notification families have different
+        payloads.  A page is at most ``limit`` rows, so fetching
+        ``offset + limit`` from each side is enough to produce the correct
+        slice without scanning whole tables.
+        """
+
         params = PageParams(page=page, limit=limit)
         async with self.session_factory() as session:
-            total = await repo.count_notifications(
+            comment_total = await repo.count_notifications(
                 session, viewer.id, unread_only=unread_only
             )
-            unread_count = await repo.count_unread_notifications(session, viewer.id)
-            notifications = await repo.list_notifications(
+            chapter_total = await repo.count_chapter_notifications(
+                session, viewer.id, unread_only=unread_only
+            )
+            total = comment_total + chapter_total
+            unread_comments = await repo.count_unread_notifications(session, viewer.id)
+            unread_chapters = await repo.count_chapter_notifications(
+                session, viewer.id, unread_only=True
+            )
+            fetch_limit = params.offset + params.limit
+            comment_rows = await repo.list_notifications(
                 session,
                 viewer.id,
                 unread_only=unread_only,
-                offset=params.offset,
-                limit=params.limit,
+                offset=0,
+                limit=fetch_limit,
+            )
+            chapter_rows = await repo.list_chapter_notifications(
+                session,
+                viewer.id,
+                unread_only=unread_only,
+                offset=0,
+                limit=fetch_limit,
             )
             comments = await repo.comments_by_ids(
-                session, [item.comment_id for item in notifications]
+                session, [item.comment_id for item in comment_rows]
             )
+            merged: list[tuple[datetime, str, NotificationOut]] = []
+            for item in comment_rows:
+                output = self._notification_out(item, comments.get(item.comment_id))
+                merged.append((output.created_at, str(output.id), output))
+            for item in chapter_rows:
+                output = self._chapter_notification_out(item)
+                merged.append((output.created_at, str(output.id), output))
+            merged.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
+            items = [entry[2] for entry in merged[params.offset : params.offset + params.limit]]
             return NotificationListOut(
-                items=[
-                    self._notification_out(item, comments.get(item.comment_id))
-                    for item in notifications
-                ],
+                items=items,
                 total=total,
                 page=params.page,
                 limit=params.limit,
                 has_next=params.has_next(total),
-                unread_count=unread_count,
+                unread_count=unread_comments + unread_chapters,
             )
 
     async def mark_notifications_read(
@@ -572,8 +669,200 @@ class CommentsService:
     ) -> int:
         async with self.session_factory() as session:
             updated = await repo.mark_notifications_read(session, viewer.id, ids)
+            updated += await repo.mark_chapter_notifications_read(
+                session, viewer.id, ids
+            )
             await session.commit()
             return updated
+
+    # --------------------------------------------------------------- follows
+    async def follow_title(
+        self, viewer: CommentUser, payload: FollowCreate
+    ) -> FollowOut:
+        async with self.session_factory() as session:
+            follow = await repo.get_follow(session, viewer.id, payload.manga_id)
+            if follow is None:
+                follow = await repo.add_follow(
+                    session,
+                    user_id=viewer.id,
+                    manga_id=payload.manga_id,
+                    manga_title=payload.manga_title,
+                    poster_url=payload.poster_url,
+                    source=payload.source,
+                    variant_ids=payload.variant_ids,
+                )
+            else:
+                # Refresh the display snapshot and add newly discovered
+                # source variants without creating a second follow row.
+                follow.manga_title = payload.manga_title or follow.manga_title
+                follow.poster_url = payload.poster_url or follow.poster_url
+                follow.source = payload.source or follow.source
+                for variant_id in payload.variant_ids:
+                    await repo.add_follow_alias(session, follow.id, variant_id)
+            await session.commit()
+            return self._follow_out(follow)
+
+    async def unfollow_title(self, viewer: CommentUser, manga_id: uuid.UUID) -> bool:
+        async with self.session_factory() as session:
+            follow = await repo.get_follow(session, viewer.id, manga_id)
+            if follow is None:
+                return False
+            await repo.delete_follow(session, follow)
+            await session.commit()
+            return True
+
+    async def list_follows(self, viewer: CommentUser) -> list[FollowOut]:
+        async with self.session_factory() as session:
+            follows = await repo.list_follows(session, viewer.id)
+            return [self._follow_out(item) for item in follows]
+
+    async def follow_status(
+        self, viewer: CommentUser, manga_id: uuid.UUID
+    ) -> bool:
+        async with self.session_factory() as session:
+            # A variant id also counts as following the title it belongs to.
+            follows = await repo.follows_for_manga_ids(session, [manga_id])
+            return any(item.user_id == viewer.id for item in follows)
+
+    # -------------------------------------------------------------- settings
+    async def get_settings(self, viewer: CommentUser) -> NotificationSettingsOut:
+        async with self.session_factory() as session:
+            row = await repo.get_notification_settings(session, viewer.id)
+            return self._settings_out(row, viewer.id)
+
+    async def save_settings(
+        self, viewer: CommentUser, payload: NotificationSettingsIn
+    ) -> NotificationSettingsOut:
+        async with self.session_factory() as session:
+            row = await repo.get_notification_settings(session, viewer.id)
+            if row is None:
+                row = repo.default_notification_settings(viewer.id)
+                session.add(row)
+            repo.apply_notification_settings(
+                row,
+                in_app_enabled=payload.in_app_enabled,
+                web_push_enabled=payload.web_push_enabled,
+                max_pushes_per_hour=payload.max_pushes_per_hour,
+                quiet_hours_start=payload.quiet_hours_start,
+                quiet_hours_end=payload.quiet_hours_end,
+            )
+            row.updated_at = repo.utcnow()
+            await session.commit()
+            await session.refresh(row)
+            return self._settings_out(row, viewer.id)
+
+    # ----------------------------------------------------------- chapter fanout
+    async def fanout_chapters(
+        self, events: list[ChapterEventIn]
+    ) -> ChapterFanoutOut:
+        """Create in-app rows for followed titles and queue Web Push.
+
+        Dedupe key for in-app is ``(user_id, canonical manga_id, chapter_id)``.
+        The same event may arrive from a retry, another scheduler replica or a
+        manual refresh; repeated calls only report zero created rows and the
+        feed stays unchanged.  Web Push has its own dedupe in the notifier.
+        """
+
+        if not events or not self.settings.chapter_notifications_enabled:
+            return ChapterFanoutOut(created=0, followers=0, push_recipients=0)
+        event_dicts = [event.model_dump(mode="json") for event in events]
+        event_manga_ids = sorted({event.manga_id for event in events}, key=str)
+        created = 0
+        push_recipients: list[dict[str, Any]] = []
+        follower_ids: set[uuid.UUID] = set()
+        async with self.session_factory() as session:
+            follows = await repo.follows_for_manga_ids(session, event_manga_ids)
+            if not follows:
+                await session.commit()
+                return ChapterFanoutOut(created=0, followers=0, push_recipients=0)
+            user_ids = sorted({follow.user_id for follow in follows}, key=str)
+            settings_map = await repo.notification_settings_for_users(session, user_ids)
+            alias_map = await self._follow_alias_map(session, follows)
+            for follow in follows:
+                follower_ids.add(follow.user_id)
+                settings_row = settings_map.get(follow.user_id)
+                in_app = (
+                    True if settings_row is None else bool(settings_row.in_app_enabled)
+                )
+                web_push = (
+                    True if settings_row is None else bool(settings_row.web_push_enabled)
+                )
+                matched_events = [
+                    event
+                    for event in events
+                    if event.manga_id in alias_map.get(follow.id, set())
+                ]
+                for event in matched_events:
+                    if in_app:
+                        was_created = await repo.add_chapter_notification(
+                            session,
+                            user_id=follow.user_id,
+                            manga_id=follow.manga_id,
+                            chapter_id=event.chapter_id,
+                            manga_title=event.manga_title or follow.manga_title,
+                            chapter_label=event.chapter_label,
+                            chapter_url=event.chapter_url
+                            or f"/reader/{event.chapter_id}",
+                            source=event.source or follow.source,
+                        )
+                        if was_created:
+                            created += 1
+                if web_push and matched_events:
+                    push_recipients.append(
+                        {
+                            "user_id": str(follow.user_id),
+                            "max_pushes_per_hour": (
+                                int(settings_row.max_pushes_per_hour or 5)
+                                if settings_row is not None
+                                else 5
+                            ),
+                            "quiet_hours_start": (
+                                settings_row.quiet_hours_start
+                                if settings_row is not None
+                                else None
+                            ),
+                            "quiet_hours_end": (
+                                settings_row.quiet_hours_end
+                                if settings_row is not None
+                                else None
+                            ),
+                        }
+                    )
+            await session.commit()
+
+        push_result: dict[str, Any] | None = None
+        if (
+            push_recipients
+            and self.settings.chapter_notifications_push_enabled
+            and self.push_dispatcher is not None
+        ):
+            push_result = await self.push_dispatcher.dispatch_chapters(
+                event_dicts, push_recipients
+            )
+        return ChapterFanoutOut(
+            created=created,
+            followers=len(follower_ids),
+            push_recipients=len(push_recipients),
+            push=push_result,
+        )
+
+    async def _follow_alias_map(
+        self, session: AsyncSession, follows: list
+    ) -> dict[uuid.UUID, set[uuid.UUID]]:
+        from sqlalchemy import select
+
+        from .models import TitleFollowAlias
+
+        follow_ids = [follow.id for follow in follows]
+        rows = await session.scalars(
+            select(TitleFollowAlias).where(TitleFollowAlias.follow_id.in_(follow_ids))
+        )
+        mapping: dict[uuid.UUID, set[uuid.UUID]] = {
+            follow.id: {follow.manga_id} for follow in follows
+        }
+        for row in rows:
+            mapping.setdefault(row.follow_id, set()).add(row.manga_id)
+        return mapping
 
     # ------------------------------------------------------------ moderation
     async def admin_list_comments(

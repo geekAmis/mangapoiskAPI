@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 
 from .api import router
 from .config import CommentsSettings
+from .push import NotifierPushDispatcher
 from .service import CommentsService
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,12 @@ def create_app(settings: CommentsSettings | None = None) -> FastAPI:
         await create_all(engine)
         app.state.engine = engine
         app.state.session_factory = session_factory
-        app.state.service = CommentsService(settings, session_factory)
+        dispatcher = (
+            NotifierPushDispatcher(settings)
+            if settings.chapter_notifications_push_enabled
+            else None
+        )
+        app.state.service = CommentsService(settings, session_factory, dispatcher)
 
         async def db_ready() -> bool:
             return await ping(engine)
@@ -55,6 +61,8 @@ def create_app(settings: CommentsSettings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            if dispatcher is not None:
+                await dispatcher.close()
             await engine.dispose()
 
     app = create_service_app(

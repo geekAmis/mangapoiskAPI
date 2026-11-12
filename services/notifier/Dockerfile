@@ -3,7 +3,8 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    NOTIFIER_DATABASE_URL=sqlite+aiosqlite:////data/notifier.db
 
 WORKDIR /app
 
@@ -16,6 +17,7 @@ RUN pip install --upgrade pip && \
     pip install /app/packages/manga_common && \
     pip install -r /app/services/notifier/requirements.txt
 
+RUN mkdir -p /data && chown -R app:app /data
 USER app
 WORKDIR /app/services/notifier
 

@@ -26,6 +26,7 @@ class SchedulerSettings(Settings):
     sync_batch_size: int = 5
     cleanup_interval_seconds: int = 21600
     notify_new_chapters: bool = True
+    chapter_notifications_enabled: bool = True
     catalogue_import_enabled: bool = True
     catalogue_import_interval_seconds: int = 21600
     catalogue_import_per_source_limit: int = 60
@@ -133,6 +134,48 @@ class Scheduler:
             await self._post(
                 self.settings.notifier_url, "/internal/notify/new-chapters", json=payload
             )
+        if events and self.settings.chapter_notifications_enabled:
+            await self.dispatch_chapter_notifications(events[:50])
+
+    async def dispatch_chapter_notifications(self, events: list[dict]) -> bool:
+        """Fan out imported chapters to followed users (in-app + Web Push).
+
+        The comments service owns the follow table and the in-app dedupe key
+        ``(user, manga, chapter)``.  A duplicate delivery from a retried refresh
+        is harmless: it creates zero new rows and the notifier skips already
+        delivered Web Push chapters.
+        """
+
+        if not events:
+            return False
+        payload = {
+            "events": [
+                {
+                    "manga_id": event["manga_id"],
+                    "chapter_id": event["chapter_id"],
+                    "manga_title": event["manga_title"],
+                    "chapter_label": event["chapter_label"],
+                    "source": event.get("source"),
+                    "chapter_url": None,
+                }
+                for event in events
+            ]
+        }
+        result = await self._post(
+            self.settings.comments_url,
+            "/internal/notifications/chapters",
+            json=payload,
+        )
+        if result is None:
+            logger.warning("chapter notification fan-out failed")
+            return False
+        logger.info(
+            "chapter notifications: created=%s followers=%s push_recipients=%s",
+            result.get("created", 0),
+            result.get("followers", 0),
+            result.get("push_recipients", 0),
+        )
+        return True
 
     async def import_catalogue(self, now: datetime | None = None) -> None:
         """Populate the catalogue from every enabled source's landing page.

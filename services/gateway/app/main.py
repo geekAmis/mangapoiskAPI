@@ -14,6 +14,8 @@ from .comments_api import router as comments_router
 from .comments_client import CommentsClient
 from .config import GatewaySettings
 from .middleware import RateLimitMiddleware
+from .notifications_api import router as notifications_router
+from .notifier_client import NotifierClient
 from .routing import EndpointPool, reset_client_key, set_client_key
 from .seo import router as seo_router
 
@@ -31,6 +33,7 @@ async def lifespan(app: FastAPI):
     media = MediaClient(settings, settings.media_url, pool=pool)
     control = ControlClient(settings, settings.control_url, pool=pool)
     comments = CommentsClient(settings, settings.comments_url, pool=pool)
+    notifier = NotifierClient(settings, settings.notifier_url, pool=pool)
     app.state.pool = pool
     app.state.catalog = catalog
     app.state.parser = parser
@@ -38,6 +41,7 @@ async def lifespan(app: FastAPI):
     app.state.media = media
     app.state.control = control
     app.state.comments = comments
+    app.state.notifier = notifier
 
     async def health_check(client) -> bool:  # type: ignore[no-untyped-def]
         try:
@@ -73,7 +77,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(sync_task, return_exceptions=True)
         await asyncio.gather(
             catalog.close(), parser.close(), library.close(), media.close(), control.close(),
-            comments.close(),
+            comments.close(), notifier.close(),
             return_exceptions=True,
         )
 
@@ -126,6 +130,7 @@ async def client_identity(request, call_next):  # type: ignore[no-untyped-def]
 app.include_router(router)
 app.include_router(comments_router)
 app.include_router(seo_router)
+app.include_router(notifications_router)
 
 
 if __name__ == "__main__":

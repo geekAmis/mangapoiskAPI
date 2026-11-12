@@ -31,6 +31,11 @@ class CommentsSettings(Settings):
     comments_report_reason_max_length: int = Field(default=500, ge=1, le=2000)
     comments_reply_preview_limit: int = Field(default=3, ge=0, le=10)
 
+    # Chapter notifications.  Both switches are intentionally independent:
+    # an operator may keep the in-app bell while Web Push is unconfigured.
+    chapter_notifications_enabled: bool = True
+    chapter_notifications_push_enabled: bool = True
+
     @property
     def comments_dsn(self) -> str:
         return self.comments_database_url or "sqlite+aiosqlite:///./data/comments.db"
