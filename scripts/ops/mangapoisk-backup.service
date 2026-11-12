@@ -1,0 +1,13 @@
+[Unit]
+Description=MangaPoisk Reborn encrypted off-host backup
+Documentation=file:/opt/mangapoisk-reborn/docs/OPS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/mangapoisk-backup.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h
