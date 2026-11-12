@@ -4,6 +4,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Annotated
+from urllib.parse import unquote
 
 from fastapi import Depends, Header
 from manga_common.errors import ForbiddenError, UnauthorizedError
@@ -17,7 +18,7 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 def clean_user_name(value: str | None) -> str:
     """Turn a forwarded display name into a safe single-line snapshot."""
 
-    name = _CONTROL_CHARS.sub("", value or "")
+    name = _CONTROL_CHARS.sub("", unquote(value or ""))
     name = " ".join(name.split())
     return (name or "Пользователь")[:_USER_NAME_MAX_LENGTH]
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from manga_common.security import UserClaims, optional_user, require_admin, require_user
@@ -25,7 +26,7 @@ def _user_headers(user: UserClaims | None, *, include_name: bool = False) -> dic
             or str(user.raw.get("email") or "").split("@")[0]
             or "Читатель"
         )
-        headers["X-User-Name"] = str(name)[:64]
+        headers["X-User-Name"] = quote(str(name)[:64], safe="")
     return headers
 
 
