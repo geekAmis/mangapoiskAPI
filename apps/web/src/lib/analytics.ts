@@ -17,7 +17,7 @@ function randomId(): string {
   }
 }
 
-function optedOut(): boolean {
+export function analyticsOptedOut(): boolean {
   if (typeof navigator === 'undefined') return true;
   const nav = navigator as Navigator & { globalPrivacyControl?: boolean };
   return (
@@ -27,6 +27,8 @@ function optedOut(): boolean {
       (window as Window & { doNotTrack?: string }).doNotTrack === '1')
   );
 }
+
+const optedOut = analyticsOptedOut;
 
 export function analyticsClientId(): string {
   if (typeof window === 'undefined') return 'server';

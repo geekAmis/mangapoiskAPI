@@ -199,6 +199,31 @@ class AnalyticsEvent(Base, UUIDPrimaryKey):
     )
 
 
+class TrafficVisit(Base, UUIDPrimaryKey):
+    """One anonymized visitor per UTC day (#85).
+
+    The gateway HMACs a random browser id before calling the library, so this
+    table never contains an IP address, user agent, account id or raw visitor
+    id.  ``path_group`` is a coarse public section ("home", "manga", ...) and
+    the unique constraint gives exact per-day deduplication.  Old rows are
+    purged after ``TRAFFIC_RETENTION_DAYS`` (90 by default).
+    """
+
+    __tablename__ = "traffic_visits"
+    __table_args__ = (
+        UniqueConstraint("visitor_hash", "day", name="uq_traffic_visits_visitor_day"),
+        Index("ix_traffic_visits_day", "day"),
+        Index("ix_traffic_visits_day_group", "day", "path_group"),
+    )
+
+    visitor_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    path_group: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public profiles and gamification (issue #47)
 # ---------------------------------------------------------------------------

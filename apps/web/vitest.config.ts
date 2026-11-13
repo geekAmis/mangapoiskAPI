@@ -7,6 +7,7 @@ export default defineConfig({
     __LEGAL_CONTACT_EMAIL__: JSON.stringify(''),
     __LEGAL_OWNER_NAME__: JSON.stringify(''),
     __LEGAL_JURISDICTION__: JSON.stringify(''),
+    __YANDEX_METRIKA_ID__: JSON.stringify(''),
   },
   test: {
     environment: 'jsdom',

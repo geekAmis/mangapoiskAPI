@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlparse
@@ -37,6 +38,9 @@ from manga_common.schemas import (
     ReaderSettings,
     StreakOut,
     TokenPair,
+    TrafficDayOut,
+    TrafficPathGroupOut,
+    TrafficSummaryOut,
     UserOut,
     YandexCallbackOut,
     YandexCredentials,
@@ -74,17 +78,39 @@ from .repository import (
     list_reading_days,
     merge_progress,
     purge_expired_oauth_artifacts,
+    purge_traffic_visits,
     record_reading_day,
     remove_bookmark,
     revoke_all_tokens,
     revoke_refresh_token,
+    traffic_daily_counts,
+    traffic_last_visit,
+    traffic_path_groups,
+    traffic_unique_visitors,
     upsert_progress,
     upsert_settings,
+)
+from .repository import (
+    record_traffic_visit as record_traffic_visit_row,
 )
 from .streak import compute_streak
 from .yandex import YandexOAuthClient, YandexProfile
 
 logger = logging.getLogger(__name__)
+
+# The cleanup is tiny but a page-view beacon should not issue a DELETE on
+# every request.  One pass per hour per process is enough for a 90-day table.
+_TRAFFIC_CLEANUP_INTERVAL_SECONDS = 3_600.0
+_last_traffic_cleanup = 0.0
+
+
+def _traffic_cleanup_due() -> bool:
+    global _last_traffic_cleanup
+    now = time.monotonic()
+    if now - _last_traffic_cleanup < _TRAFFIC_CLEANUP_INTERVAL_SECONDS:
+        return False
+    _last_traffic_cleanup = now
+    return True
 
 
 def _user_out(user: User) -> UserOut:
@@ -621,6 +647,81 @@ class LibraryService:
         ]
         items.sort(key=lambda item: (-item.impressions, item.surface))
         return AnalyticsSurfacesOut(days=window, generated_at=now, items=items)
+
+    async def record_traffic_visit(
+        self,
+        visitor_hash: str,
+        path_group: str = "other",
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        """Record one anonymized page view; repeated visitor/day is a no-op."""
+
+        moment = as_utc(now) or datetime.now(UTC)
+        retention = max(1, min(int(self.settings.traffic_retention_days), 365))
+        async with self.session_factory() as session:
+            accepted = await record_traffic_visit_row(
+                session,
+                visitor_hash=visitor_hash,
+                path_group=path_group,
+                visited_at=moment,
+            )
+            if _traffic_cleanup_due():
+                cutoff = moment.astimezone(UTC).date() - timedelta(days=retention - 1)
+                removed = await purge_traffic_visits(session, before_day=cutoff)
+                if removed:
+                    logger.info("traffic retention removed %s old rows", removed)
+            await session.commit()
+        return accepted
+
+    async def traffic_summary(
+        self, *, now: datetime | None = None, days: int = 30
+    ) -> TrafficSummaryOut:
+        """Return unique visitors without exposing hashes or raw identifiers."""
+
+        moment = as_utc(now) or datetime.now(UTC)
+        today = moment.astimezone(UTC).date()
+        window = max(7, min(days, 90))
+        start = today - timedelta(days=window - 1)
+        since_7d = today - timedelta(days=6)
+        retention = max(1, min(int(self.settings.traffic_retention_days), 365))
+        async with self.session_factory() as session:
+            unique_7d = await traffic_unique_visitors(
+                session, since_day=since_7d, until_day=today
+            )
+            unique_30d = await traffic_unique_visitors(
+                session, since_day=today - timedelta(days=29), until_day=today
+            )
+            daily_counts = await traffic_daily_counts(
+                session, since_day=start, until_day=today
+            )
+            groups = await traffic_path_groups(
+                session, since_day=since_7d, until_day=today
+            )
+            last_visit = await traffic_last_visit(session)
+        daily = [
+            TrafficDayOut(
+                day=start + timedelta(days=offset),
+                unique_visitors=daily_counts.get(start + timedelta(days=offset), 0),
+            )
+            for offset in range(window)
+        ]
+        goal = 100
+        return TrafficSummaryOut(
+            generated_at=moment,
+            unique_visitors_7d=unique_7d,
+            unique_visitors_30d=unique_30d,
+            unique_visitors_today=daily_counts.get(today, 0),
+            weekly_goal=goal,
+            progress_percent=round(min(100.0, unique_7d * 100.0 / goal), 1),
+            last_visit_at=last_visit,
+            retention_days=retention,
+            daily=daily,
+            path_groups=[
+                TrafficPathGroupOut(path_group=group, unique_visitors=count)
+                for group, count in groups
+            ],
+        )
 
     async def delete_progress(self, user_id: uuid.UUID, manga_id: uuid.UUID) -> bool:
         async with self.session_factory() as session:

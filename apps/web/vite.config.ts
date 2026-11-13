@@ -84,6 +84,15 @@ export default defineConfig(({ mode }) => {
     env.VITE_SITE_URL ??
     ''
   ).trim();
+  // Yandex Metrika counter (#85).  The non-VITE name is the documented deploy
+  // variable; the VITE alias keeps local apps/web/.env builds convenient.
+  // Empty means no loader and no Yandex requests at all.
+  const metrikaId = (
+    process.env.YANDEX_METRIKA_ID ??
+    env.YANDEX_METRIKA_ID ??
+    env.VITE_YANDEX_METRIKA_ID ??
+    ''
+  ).trim();
 
   return {
     plugins: [react(), seoVerificationPlugin(env), ...(siteUrl ? [publicOriginPlugin(siteUrl)] : [])],
@@ -92,6 +101,7 @@ export default defineConfig(({ mode }) => {
       __LEGAL_OWNER_NAME__: JSON.stringify(legalOwnerName),
       __LEGAL_JURISDICTION__: JSON.stringify(legalJurisdiction),
       __SITE_URL__: JSON.stringify(siteUrl),
+      __YANDEX_METRIKA_ID__: JSON.stringify(metrikaId),
     },
     server: {
       port: 5173,

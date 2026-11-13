@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastHost } from './components/Toast';
+import { TrafficTracker } from './components/TrafficTracker';
 import { ScrollToTop } from './lib/ScrollToTop';
 import { SettingsBridge } from './lib/SettingsBridge';
 import { ThemeEffects } from './lib/ThemeEffects';
@@ -28,6 +29,7 @@ createRoot(rootElement).render(
           <ThemeEffects />
           <SettingsBridge />
           <ScrollToTop />
+          <TrafficTracker />
           <App />
           <ToastHost />
         </BrowserRouter>

@@ -2848,3 +2848,116 @@ html[data-admin="true"] .toast-region {
     justify-content: center;
   }
 }
+
+/* Traffic card (#85) */
+.admin-traffic-goal {
+  margin-top: 18px;
+}
+
+.admin-traffic-goal__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.admin-traffic-goal__head strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.admin-traffic-last {
+  font-size: 1rem !important;
+  line-height: 1.25;
+}
+
+.admin-traffic-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.7fr);
+  gap: 26px;
+  margin-top: 22px;
+}
+
+.admin-traffic-subtitle {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-traffic-days {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(22px, 1fr);
+  align-items: end;
+  gap: 6px;
+  min-height: 128px;
+  padding-top: 6px;
+}
+
+.admin-traffic-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 128px;
+  min-width: 0;
+}
+
+.admin-traffic-day__bar {
+  width: 100%;
+  max-width: 26px;
+  min-height: 2px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, var(--accent) 0%, rgba(94, 200, 255, 0.25) 100%);
+}
+
+.admin-traffic-day small {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
+.admin-traffic-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-traffic-groups li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.admin-traffic-groups li:last-child {
+  border-bottom: 0;
+}
+
+.admin-traffic-groups strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 900px) {
+  .admin-traffic-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+}

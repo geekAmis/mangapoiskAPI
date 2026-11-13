@@ -23,6 +23,7 @@ from .retention import router as retention_router
 from .routing import EndpointPool, reset_client_key, set_client_key
 from .seo import router as seo_router
 from .seo import warm_sitemap_cache
+from .traffic import router as traffic_router
 
 logger = logging.getLogger(__name__)
 settings = GatewaySettings()
@@ -145,6 +146,7 @@ app.include_router(retention_router)
 app.include_router(profile_router)
 app.include_router(comments_router)
 app.include_router(seo_router)
+app.include_router(traffic_router)
 app.include_router(prerender_router)
 app.include_router(notifications_router)
 

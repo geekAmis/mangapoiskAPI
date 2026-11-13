@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Generic, Literal, TypeVar
 from uuid import UUID
 
@@ -547,6 +547,72 @@ class AnalyticsRetentionOut(BaseModel):
     days: int = 30
     generated_at: datetime
     cohorts: list[AnalyticsRetentionCohort] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Anonymous traffic (#85)
+# ---------------------------------------------------------------------------
+
+TrafficPathGroup = Literal[
+    "home",
+    "catalogue",
+    "manga",
+    "collection",
+    "sources",
+    "legal",
+    "profile",
+    "other",
+]
+
+
+class TrafficVisitIn(BaseModel):
+    """Public beacon payload.
+
+    The browser sends only a random device id and a coarse page group.  IP
+    addresses, user agents, full URLs and account identifiers are deliberately
+    not part of the contract; ``extra="forbid"`` rejects accidental PII.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    visitor_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    path_group: TrafficPathGroup = "other"
+
+
+class TrafficVisitIngest(BaseModel):
+    """Internal gateway -> library payload; the visitor id is already HMACed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    visitor_hash: str = Field(min_length=32, max_length=64, pattern=r"^[a-f0-9]+$")
+    path_group: TrafficPathGroup = "other"
+
+
+class TrafficVisitOut(BaseModel):
+    recorded: bool = False
+
+
+class TrafficDayOut(BaseModel):
+    day: date
+    unique_visitors: int = 0
+
+
+class TrafficPathGroupOut(BaseModel):
+    path_group: str
+    unique_visitors: int = 0
+
+
+class TrafficSummaryOut(BaseModel):
+    generated_at: datetime
+    unique_visitors_7d: int = 0
+    unique_visitors_30d: int = 0
+    unique_visitors_today: int = 0
+    weekly_goal: int = 100
+    progress_percent: float = 0.0
+    last_visit_at: datetime | None = None
+    retention_days: int = 90
+    daily: list[TrafficDayOut] = Field(default_factory=list)
+    path_groups: list[TrafficPathGroupOut] = Field(default_factory=list)
 
 
 class ReaderSettings(BaseModel):

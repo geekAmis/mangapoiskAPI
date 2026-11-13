@@ -70,6 +70,11 @@ const ObservabilityPanel = lazy(() =>
     default: module.ObservabilityPanel,
   })),
 );
+const TrafficPanel = lazy(() =>
+  import('../components/admin/TrafficPanel').then((module) => ({
+    default: module.TrafficPanel,
+  })),
+);
 const IntegrationsPanel = lazy(() =>
   import('./admin/IntegrationsPanel').then((module) => ({ default: module.IntegrationsPanel })),
 );
@@ -472,6 +477,7 @@ export default function AdminPage() {
               onOpenTab={changeTab}
               onOpenConsole={openConsole}
             />
+            <TrafficPanel />
             <ObservabilityPanel />
           </TabPanel>
         ) : null}

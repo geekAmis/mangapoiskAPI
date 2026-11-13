@@ -10,7 +10,7 @@
 
 | Вкладка | Deep link | Что внутри |
 |---|---|---|
-| Обзор | `/admin?tab=overview` | здоровье сервисов, активные задачи, алерты, последние события |
+| Обзор | `/admin?tab=overview` | здоровье сервисов, активные задачи, алерты, трафик, последние события |
 | Серверы | `/admin?tab=servers` | inventory, health-check, deploy, реестр gateway, failover |
 | Деплой | `/admin?tab=deploy` | очередь deployment jobs, журнал, слот AI supervisor |
 | Краулер и каталог | `/admin?tab=crawler` | источники, backlog, ETA, enrichment, crawl states |
@@ -44,6 +44,8 @@
 - `registry` — только на вкладке «Серверы»;
 - `audit` — на «Обзоре» и «Аудите»;
 - `catalogue` — на «Обзоре» и «Краулере»;
+- `traffic` — только на «Обзоре»: уникальные посетители 7/30 дней и прогресс
+  к 100/неделю (см. `docs/TRAFFIC.md`);
 - `media`, `ads`, `comments`, `console history` — только при открытии
   соответствующей вкладки.
 

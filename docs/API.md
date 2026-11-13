@@ -29,6 +29,7 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 |---|---|---|
 | GET | `/api/v1/health` | aggregated health |
 | GET | `/api/v1/sources` | available sources + capabilities |
+| POST | `/api/v1/traffic/visit` | anonymous public page-view beacon; no IP/UA/PII |
 
 `GET /api/v1/sources` → `[{"code":"mangapoisk","name":"MangaPoisk","base_url":"https://mangapoisk.me","language":"ru","enabled":true,"requires_cookies":false,"capabilities":{"search":true,"catalog":true,"manga":true,"chapters":true,"pages":true,"latest":true}}]`
 
@@ -388,6 +389,7 @@ unaffected.
 | PUT | `/api/v1/admin/collections/{id}/order` | `{manga_ids:[...]}` |
 | GET | `/api/v1/admin/collections/audit?limit=100` | editorial audit trail |
 | GET | `/api/v1/admin/analytics/surfaces?days=30` | impression/click/CTR by surface |
+| GET | `/api/v1/admin/traffic` | unique visitors 7d/30d, daily series, last visit |
 | GET/PUT/DELETE | `/api/v1/admin/integrations/yandex` | masked Yandex OAuth settings / set / delete |
 | POST | `/api/v1/admin/integrations/yandex/test` | presence/shape check, no secret echo |
 | GET | `/api/v1/admin/sources/{code}/cookie` | cookie status only (never the value) |
@@ -465,6 +467,9 @@ network in production and should not be exposed publicly.
 - `GET/PUT /internal/users/{user_id}/progress...`
 - `GET/PUT /internal/users/{user_id}/settings`
 - `GET /internal/analytics/surfaces?days=30`
+- `POST /internal/traffic/visits` `{visitor_hash, path_group}` (gateway sends an
+  HMAC, never a raw visitor id)
+- `GET /internal/traffic/summary` (aggregates only; hashes stay in the DB)
 
 ### Media
 

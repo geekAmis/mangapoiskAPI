@@ -49,6 +49,7 @@ from manga_common.schemas import (
     StreakOut,
     SuggestResponse,
     TokenPair,
+    TrafficSummaryOut,
     UserOut,
     YandexCallbackOut,
     YandexCredentialsOut,
@@ -628,6 +629,19 @@ class LibraryClient(InternalClient):
             "GET", "/internal/analytics/surfaces", params={"days": days}
         )
         return AnalyticsSurfacesOut.model_validate(data)
+
+    async def record_traffic_visit(self, visitor_hash: str, path_group: str) -> bool:
+        data = await self.request(
+            "POST",
+            "/internal/traffic/visits",
+            json={"visitor_hash": visitor_hash, "path_group": path_group},
+            timeout=10.0,
+        )
+        return bool(data.get("recorded")) if isinstance(data, dict) else False
+
+    async def traffic_summary(self) -> TrafficSummaryOut:
+        data = await self.request("GET", "/internal/traffic/summary")
+        return TrafficSummaryOut.model_validate(data)
 
 
 class ControlClient(InternalClient):

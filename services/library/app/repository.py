@@ -18,6 +18,7 @@ from .models import (
     ReadingDay,
     ReadingProgress,
     RefreshToken,
+    TrafficVisit,
     User,
     UserSettings,
 )
@@ -495,3 +496,105 @@ async def analytics_surface_totals(
         .group_by(AnalyticsEvent.surface, AnalyticsEvent.event)
     )
     return [(str(row[0]), str(row[1]), int(row[2])) for row in rows.all()]
+
+
+async def record_traffic_visit(
+    session: AsyncSession,
+    *,
+    visitor_hash: str,
+    path_group: str,
+    visited_at: datetime | None = None,
+) -> bool:
+    """Insert one visitor/day row; return ``True`` only for a new visitor.
+
+    The unique constraint is the deduplication guarantee.  The dialect-specific
+    ``ON CONFLICT DO NOTHING`` keeps page-view beacons cheap even when a reader
+    opens several pages in one day.
+    """
+
+    moment = as_utc(visited_at) or datetime.now(UTC)
+    row = {
+        "visitor_hash": visitor_hash,
+        "day": moment.astimezone(UTC).date(),
+        "path_group": path_group,
+        "created_at": moment,
+    }
+    dialect = session.get_bind().dialect.name
+    if dialect in {"postgresql", "sqlite"}:
+        insert = postgres_insert if dialect == "postgresql" else sqlite_insert
+        statement = insert(TrafficVisit).values(row)
+        statement = statement.on_conflict_do_nothing(
+            index_elements=["visitor_hash", "day"]
+        )
+        result = await session.execute(statement)
+        accepted = int(result.rowcount or 0) > 0
+    else:
+        existing = await session.scalar(
+            select(TrafficVisit.id).where(
+                TrafficVisit.visitor_hash == visitor_hash,
+                TrafficVisit.day == row["day"],
+            )
+        )
+        accepted = existing is None
+        if accepted:
+            session.add(TrafficVisit(**row))
+    await session.flush()
+    return accepted
+
+
+async def traffic_unique_visitors(
+    session: AsyncSession, *, since_day: date, until_day: date
+) -> int:
+    value = await session.scalar(
+        select(func.count(func.distinct(TrafficVisit.visitor_hash))).where(
+            TrafficVisit.day >= since_day,
+            TrafficVisit.day <= until_day,
+        )
+    )
+    return int(value or 0)
+
+
+async def traffic_daily_counts(
+    session: AsyncSession, *, since_day: date, until_day: date
+) -> dict[date, int]:
+    rows = await session.execute(
+        select(TrafficVisit.day, func.count(TrafficVisit.id))
+        .where(
+            TrafficVisit.day >= since_day,
+            TrafficVisit.day <= until_day,
+        )
+        .group_by(TrafficVisit.day)
+        .order_by(TrafficVisit.day.asc())
+    )
+    return {row[0]: int(row[1]) for row in rows.all()}
+
+
+async def traffic_path_groups(
+    session: AsyncSession, *, since_day: date, until_day: date
+) -> list[tuple[str, int]]:
+    rows = await session.execute(
+        select(
+            TrafficVisit.path_group,
+            func.count(func.distinct(TrafficVisit.visitor_hash)),
+        )
+        .where(
+            TrafficVisit.day >= since_day,
+            TrafficVisit.day <= until_day,
+        )
+        .group_by(TrafficVisit.path_group)
+        .order_by(
+            func.count(func.distinct(TrafficVisit.visitor_hash)).desc(),
+            TrafficVisit.path_group.asc(),
+        )
+    )
+    return [(str(row[0]), int(row[1])) for row in rows.all()]
+
+
+async def traffic_last_visit(session: AsyncSession) -> datetime | None:
+    return as_utc(await session.scalar(select(func.max(TrafficVisit.created_at))))
+
+
+async def purge_traffic_visits(session: AsyncSession, *, before_day: date) -> int:
+    result = await session.execute(delete(TrafficVisit).where(TrafficVisit.day < before_day))
+    await session.flush()
+    return int(result.rowcount or 0)

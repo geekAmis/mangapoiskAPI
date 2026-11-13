@@ -32,6 +32,9 @@ from manga_common.schemas import (
     RegisterRequest,
     StreakOut,
     TokenPair,
+    TrafficSummaryOut,
+    TrafficVisitIngest,
+    TrafficVisitOut,
     UserOut,
     YandexCallbackOut,
     YandexCallbackRequest,
@@ -310,6 +313,28 @@ async def analytics_surfaces(
     service: LibraryService = Depends(get_service),
 ) -> AnalyticsSurfacesOut:
     return await service.analytics_surfaces(days)
+
+
+@router.post("/traffic/visits", response_model=TrafficVisitOut)
+async def traffic_visit(
+    payload: TrafficVisitIngest,
+    service: LibraryService = Depends(get_service),
+) -> TrafficVisitOut:
+    """Internal, already-HMACed page-view beacon; never accepts PII."""
+
+    recorded = await service.record_traffic_visit(
+        payload.visitor_hash, payload.path_group
+    )
+    return TrafficVisitOut(recorded=recorded)
+
+
+@router.get("/traffic/summary", response_model=TrafficSummaryOut)
+async def traffic_summary(
+    service: LibraryService = Depends(get_service),
+) -> TrafficSummaryOut:
+    """Aggregate unique visitors for the admin dashboard; hashes stay internal."""
+
+    return await service.traffic_summary()
 
 
 @router.delete("/me/progress/{manga_id}", status_code=status.HTTP_204_NO_CONTENT)

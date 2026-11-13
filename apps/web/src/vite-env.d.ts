@@ -4,6 +4,8 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
   /** Canonical public origin, e.g. https://85.192.37.58.nip.io */
   readonly VITE_SITE_URL?: string;
+  /** Optional Vite alias for the build-time Yandex Metrika counter id. */
+  readonly VITE_YANDEX_METRIKA_ID?: string;
 }
 
 interface ImportMeta {
@@ -30,6 +32,8 @@ interface Window {
   Ya?: {
     Context?: YandexContext;
   };
+  /** Yandex Metrika queue/function, created by TrafficTracker when enabled. */
+  ym?: ((...args: unknown[]) => void) & { a?: unknown[][]; l?: number };
 }
 
 /**
@@ -40,3 +44,9 @@ interface Window {
 declare const __LEGAL_CONTACT_EMAIL__: string;
 declare const __LEGAL_OWNER_NAME__: string;
 declare const __LEGAL_JURISDICTION__: string;
+
+/**
+ * Build-time Yandex Metrika counter id (YANDEX_METRIKA_ID or
+ * VITE_YANDEX_METRIKA_ID).  Empty disables the loader entirely.
+ */
+declare const __YANDEX_METRIKA_ID__: string;

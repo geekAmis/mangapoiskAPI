@@ -130,6 +130,18 @@ class Settings(BaseSettings):
     # humans.  Empty falls back to PUBLIC_WEB_URL/index.html.
     web_internal_url: str | None = None
 
+    # Anonymous traffic counting (#85).  Visitor ids are HMACed before they
+    # reach the library database; the raw id never leaves the gateway.  A
+    # dedicated value is recommended, but JWT_SECRET is a safe fallback when
+    # the operator has not configured one.  Retention is enforced
+    # opportunistically by the library service.
+    traffic_hash_secret: str | None = None
+    traffic_retention_days: int = 90
+
+    @property
+    def traffic_secret(self) -> str:
+        return self.traffic_hash_secret or self.jwt_secret
+
     @field_validator("public_web_url", "public_api_url")
     @classmethod
     def _normalize_public_url(cls, value: str) -> str:

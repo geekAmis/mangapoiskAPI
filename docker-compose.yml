@@ -243,6 +243,7 @@ services:
         LEGAL_CONTACT_EMAIL: ${LEGAL_CONTACT_EMAIL:-}
         LEGAL_OWNER_NAME: ${LEGAL_OWNER_NAME:-}
         LEGAL_JURISDICTION: ${LEGAL_JURISDICTION:-}
+        YANDEX_METRIKA_ID: ${YANDEX_METRIKA_ID:-}
     restart: unless-stopped
     ports:
       - "8080:80"

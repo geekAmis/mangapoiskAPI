@@ -447,6 +447,29 @@ export interface AdminObservability {
   alerts: AdminObservabilityAlert[];
 }
 
+export interface AdminTrafficDay {
+  day: string;
+  unique_visitors: number;
+}
+
+export interface AdminTrafficPathGroup {
+  path_group: string;
+  unique_visitors: number;
+}
+
+export interface AdminTrafficSummary {
+  generated_at: string;
+  unique_visitors_7d: number;
+  unique_visitors_30d: number;
+  unique_visitors_today: number;
+  weekly_goal: number;
+  progress_percent: number;
+  last_visit_at: string | null;
+  retention_days: number;
+  daily: AdminTrafficDay[];
+  path_groups: AdminTrafficPathGroup[];
+}
+
 export type AdminStorageLevel = 'ok' | 'warning' | 'critical' | 'unbounded';
 
 export interface AdminImageCacheStats {
@@ -728,6 +751,8 @@ export const adminApi = {
     adminRequest<AdminCrawlerStatus>('/crawl', { signal }),
   getObservability: (signal?: AbortSignal) =>
     adminRequest<AdminObservability>('/observability', { signal }),
+  getTraffic: (signal?: AbortSignal) =>
+    adminRequest<AdminTrafficSummary>('/traffic', { signal }),
 
   listServers: (signal?: AbortSignal) => adminRequest<AdminServer[]>('/servers', { signal }),
 
