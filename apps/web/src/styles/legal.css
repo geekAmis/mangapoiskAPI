@@ -107,6 +107,16 @@
   gap: clamp(22px, 3vw, 30px);
 }
 
+/* Grid items default to min-width:auto, so a wide table (min-width:660px)
+   would expand the whole document column and clip the page at 390px.  Let
+   every content block shrink; the table scrolls inside .legal-table-wrap. */
+.legal-doc__body > *,
+.legal-section,
+.legal-table-wrap {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .legal-section {
   scroll-margin-top: calc(var(--header-height) + 20px);
 }
@@ -551,7 +561,7 @@ body.has-consent-banner .auth-page__content {
 
 @media (max-width: 767px) {
   .legal-page__grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .legal-nav {

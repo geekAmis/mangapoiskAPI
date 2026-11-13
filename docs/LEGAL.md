@@ -205,6 +205,9 @@ curl -s https://<host>/contacts | grep -o 'LEGAL_CONTACT_EMAIL' || true
   wording «Cookie и статистика», отзыв 18+;
 - `apps/web/tests/ads.test.tsx` — рендер Яндекс РСЯ при `denied`/`null`,
   защита от дублей, невалидный Block ID;
+- `apps/web/tests/legal-overflow.mjs` — Playwright/Edge: все пять legal
+  страниц при 390×844, `scrollWidth === innerWidth`; таблица `/privacy`
+  прокручивается внутри `.legal-table-wrap`, а не растягивает страницу;
 - `tests/gateway/test_seo.py` — legal URL в sitemap.
 
 Команды:
@@ -214,6 +217,7 @@ cd apps/web
 npm run typecheck
 npm test
 npm run build
+npm run test:legal-overflow
 cd ../..
 pytest
 ruff check .
