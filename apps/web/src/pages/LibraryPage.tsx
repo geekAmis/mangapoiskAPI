@@ -18,6 +18,7 @@ import {
   useDownloadJobs,
 } from '../lib/downloadManager';
 import { humanizeError } from '../lib/errors';
+import { mangaPath } from '../lib/mangaRoute';
 import { useOfflineTitles } from '../lib/offlineHooks';
 import { deleteOfflineTitle } from '../lib/offlineStorage';
 import {
@@ -255,11 +256,11 @@ export default function LibraryPage() {
                 const percent = progressPercent(item.page, item.total_pages);
                 return (
                   <article className="reading-card" key={item.manga_id}>
-                    <Link to={`/manga/${manga.id}`} className="reading-card__poster">
+                    <Link to={mangaPath(manga)} className="reading-card__poster">
                       <Poster src={manga.poster_url} alt="" />
                     </Link>
                     <div className="reading-card__body">
-                      <Link to={`/manga/${manga.id}`} className="reading-card__title">
+                      <Link to={mangaPath(manga)} className="reading-card__title">
                         {manga.title}
                       </Link>
                       <span className="reading-card__chapter">
@@ -639,11 +640,11 @@ function HistoryRow({ item }: { item: ProgressOut }) {
   if (!manga) return null;
   return (
     <div className="history-row">
-      <Link to={`/manga/${manga.id}`} className="history-row__poster" tabIndex={-1} aria-hidden="true">
+      <Link to={mangaPath(manga)} className="history-row__poster" tabIndex={-1} aria-hidden="true">
         <Poster src={manga.poster_url} alt="" />
       </Link>
       <div className="history-row__body">
-        <Link to={`/manga/${manga.id}`} className="history-row__title">
+        <Link to={mangaPath(manga)} className="history-row__title">
           {manga.title}
         </Link>
         <div className="history-row__meta">

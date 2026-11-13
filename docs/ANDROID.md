@@ -366,7 +366,7 @@ Capacitor build now uses:
 | Setting | Required value |
 |---|---|
 | API base | `https://85.192.37.58.nip.io/api/v1` (port 443) |
-| WebView/server URL | `https://85.192.37.58.nip.io` (port 443) |
+| WebView origin | `https://localhost` (packaged `www`; **no** `server.url`) |
 | `server.androidScheme` | `https` |
 | `server.cleartext` | `false` |
 | `android.allowMixedContent` | `false` (or omitted) |
@@ -381,14 +381,17 @@ These live in `apps/mobile/capacitor.config.json`,
 
 ```powershell
 cd apps/mobile
-npm install
+npm ci
 $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.21.9-hotspot" # adjust to your JDK 17
 $env:ANDROID_HOME = "D:\Android\sdk"
 $env:ANDROID_SDK_ROOT = "D:\Android\sdk"
 
-# Optional: override the HTTPS production API base.
-# The default is already https://85.192.37.58.nip.io/api/v1
-# $env:CAPACITOR_API_BASE = "https://85.192.37.58.nip.io/api/v1"
+# Build the web from main 1dd216a with standard HTTPS 443 and legal values.
+$env:CAPACITOR_API_BASE = "https://85.192.37.58.nip.io/api/v1"
+$env:VITE_SITE_URL = "https://85.192.37.58.nip.io"
+$env:LEGAL_CONTACT_EMAIL = "xgemxsite@gmail.com"
+$env:LEGAL_OWNER_NAME = "Roman"
+$env:LEGAL_JURISDICTION = "Russia"
 
 npm run sync
 cd android
@@ -414,48 +417,49 @@ refuses arbitrary plain-HTTP URLs. Only `https://` and local development hosts
 silently fall back to HTTP. The Android shell still enforces HTTPS in every
 build type, so localhost HTTP is only useful for the browser web build.
 
-#### 1.3.1 release (current)
+#### 1.3.2 release (current)
 
-The 1.3.1 Capacitor release is built from branch `release/android-1.3.1`
-(base `release/android-1.3.0` `7fe1cca`). It moves the app from the retired
-`:8443` endpoint to standard HTTPS port 443. Version metadata lives in
-`apps/mobile/package.json` (`1.3.1`) and
-`apps/mobile/android/app/build.gradle` (`versionCode 4`,
-`versionName "1.3.1"`); the package id stays `ru.mangapoisk.reborn`.
+The 1.3.2 Capacitor release restores the 1.3.0 packaged-`www` behaviour after
+the 1.3.1 `server.url` regression (#84). It is built from branch
+`release/android-1.3.2` (base `release/android-1.3.1` `85d4d23`) with
+`apps/web` overlaid from main `1dd216a` (legal, SEO, standard ports, profiles,
+collections). Version metadata lives in `apps/mobile/package.json` (`1.3.2`)
+and `apps/mobile/android/app/build.gradle` (`versionCode 5`,
+`versionName "1.3.2"`); the package id stays `ru.mangapoisk.reborn`.
 
-The production endpoints are:
+The Capacitor config has **no** `server.url`. The WebView loads the packaged
+`www` at `https://localhost`, and the API base remains
+`https://85.192.37.58.nip.io/api/v1` (port 443). Keep
+`androidScheme: "https"`, `cleartext: false` and
+`allowMixedContent: false`.
 
-- API base: `https://85.192.37.58.nip.io/api/v1`
-- WebView/server URL: `https://85.192.37.58.nip.io`
-
-Both respond with HTTP `200` and a valid TLS certificate on port 443. The
-Capacitor config sets `server.url` to the port-free origin, keeps
-`androidScheme: "https"`, `cleartext: false` and `allowMixedContent: false`.
-
-Build with `npm run sync` and `.\gradlew.bat assembleRelease`, then sign the
-unsigned APK with the production key using the steps below. The signed 1.3.1
-artifact is `mangapoisk-reborn-1.3.1-release.apk`:
+Build the web from main `1dd216a` with the environment block above, then sign
+the unsigned APK with the production key. The signed 1.3.2 artifact is
+`mangapoisk-reborn-1.3.2-release.apk`:
 
 | Field | Value |
 |---|---|
-| Size | 7 379 905 bytes |
-| SHA-256 | `5bb3c9457e99fff34c7ab3b721eeeb16f442603b463d991982823498d4a5d7f5` |
+| Size | 7 438 522 bytes |
+| SHA-256 | `13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019` |
 | Package | `ru.mangapoisk.reborn` |
-| versionName / versionCode | `1.3.1` / `4` |
+| versionName / versionCode | `1.3.2` / `5` |
 | Certificate SHA-256 | `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74` |
 | Signature schemes | v1, v2 and v3 all `true` |
 
-1.3.1 uses the same production key as 1.3.0 and 1.1.0. Install it in place over
-the production-signed 1.3.0 (versionCode 3); do not uninstall, so bookmarks,
-history, reader settings and downloaded chapters survive the update. Only
-uninstall if a debug-signed build is installed.
+1.3.2 uses the same production key as 1.3.1, 1.3.0 and 1.1.0. Install it in
+place over the production-signed 1.3.1 (versionCode 4); do not uninstall.
+Downgrading to 1.3.0 is not possible, so versionCode 5 is required. App data
+written under `https://localhost` by 1.3.0/1.3.2 should be accessible again;
+1.3.1 used a different remote origin and therefore a separate WebView storage
+bucket. Verify bookmarks, history, reader settings and downloaded chapters
+from 1.3.0 after the update.
 
 #### Release signing (production)
 
 The release APK is signed outside Gradle with the production keystore; the
 repository intentionally contains no signing config and no keystore.
 
-Signing certificate (1.1.0, 1.3.0 and 1.3.1):
+Signing certificate (1.1.0, 1.3.0, 1.3.1 and 1.3.2):
 
 | Field | Value |
 |---|---|
@@ -484,7 +488,7 @@ renamed or all users are told to uninstall.
   `keystore.properties` or the password in git, issue comments, chat, CI logs
   or shell history.
 
-**Generate the keystore (one-time; already done for 1.1.0, reused for 1.3.0 and 1.3.1)**
+**Generate the keystore (one-time; already done for 1.1.0, reused for 1.3.0, 1.3.1 and 1.3.2)**
 
 Run on production as root. `keytool` is part of the JDK 17 installation.
 
@@ -534,7 +538,7 @@ apksigner sign \
   --v1-signing-enabled true \
   --v2-signing-enabled true \
   --v3-signing-enabled true \
-  --out mangapoisk-reborn-1.3.1-release.apk \
+  --out mangapoisk-reborn-1.3.2-release.apk \
   app-release-unsigned.apk
 
 unset storePassword keyPassword
@@ -558,18 +562,18 @@ $env:keyPassword = $props['keyPassword']
 apksigner sign --ks "$KS_DIR\mangapoisk-release.jks" --ks-type PKCS12 `
   --ks-key-alias mangapoisk --ks-pass env:storePassword --key-pass env:keyPassword `
   --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true `
-  --out mangapoisk-reborn-1.3.1-release.apk app-release-unsigned.apk
+  --out mangapoisk-reborn-1.3.2-release.apk app-release-unsigned.apk
 Remove-Item Env:storePassword, Env:keyPassword
 ```
 
 **Verify the signature**
 
 ```bash
-apksigner verify --verbose --print-certs mangapoisk-reborn-1.3.1-release.apk
-sha256sum mangapoisk-reborn-1.3.1-release.apk
+apksigner verify --verbose --print-certs mangapoisk-reborn-1.3.2-release.apk
+sha256sum mangapoisk-reborn-1.3.2-release.apk
 ```
 
-Expected for 1.3.1:
+Expected for 1.3.2:
 
 - `Verifies`
 - `Verified using v1 scheme (JAR signing): true`
@@ -580,12 +584,14 @@ Expected for 1.3.1:
   `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`
   and `RSA 4096`.
 - APK SHA-256
-  `5bb3c9457e99fff34c7ab3b721eeeb16f442603b463d991982823498d4a5d7f5`
-  (7 379 905 bytes).
+  `13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019`
+  (7 438 522 bytes).
 
 The earlier artifacts remain for update-path comparison and all use the same
 certificate:
 
+- 1.3.1: `5bb3c9457e99fff34c7ab3b721eeeb16f442603b463d991982823498d4a5d7f5`
+  (7 379 905 bytes; remote-WebView regression, superseded by 1.3.2).
 - 1.3.0: `ea4ec2102e5b8fc2b51c6e576b1d16b6fc6e1b4509820d3959379ed71f38c514`
   (7 379 905 bytes).
 - 1.1.0: `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`
@@ -634,7 +640,7 @@ Run these checks against the signed release APK (the unsigned build has the same
 assets):
 
 ```bash
-APK=mangapoisk-reborn-1.3.1-release.apk
+APK=mangapoisk-reborn-1.3.2-release.apk
 sha256sum "$APK"
 apksigner verify --verbose --print-certs "$APK"
 
@@ -644,6 +650,8 @@ grep -R -l -E '85\.192\.37\.58(\.nip\.io)?:(8088|8443)' /tmp/apk-check || echo '
 grep -R -l 'http://85.192.37.58' /tmp/apk-check || echo 'HTTP_API_HITS: none'
 grep -R -l 'https://85.192.37.58.nip.io/api/v1' /tmp/apk-check
 grep -R -l 'https://85.192.37.58.nip.io' /tmp/apk-check
+grep -q '"url"' /tmp/apk-check/assets/capacitor.config.json &&
+  echo 'SERVER_URL_PRESENT' || echo 'SERVER_URL: absent'
 cat /tmp/apk-check/assets/capacitor.config.json
 
 aapt2 dump xmltree --file AndroidManifest.xml "$APK" |
@@ -651,14 +659,14 @@ aapt2 dump xmltree --file AndroidManifest.xml "$APK" |
 ```
 
 Expected: the only API base is
-`https://85.192.37.58.nip.io/api/v1`; the WebView/server URL is
-`https://85.192.37.58.nip.io`; `:8443`, `:8088` and
-`http://85.192.37.58` are absent; the packaged config has
-`"url": "https://85.192.37.58.nip.io"`, `"androidScheme": "https"`,
-`"cleartext": false` and `"allowMixedContent": false`; the manifest has
-`usesCleartextTraffic=false`, `versionName="1.3.1"`, `versionCode=4` and
+`https://85.192.37.58.nip.io/api/v1`; `:8443`, `:8088` and
+`http://85.192.37.58` are absent; the packaged config has **no**
+`server.url` and no `"url"` key, only `"androidScheme": "https"`,
+`"cleartext": false` and `"allowMixedContent": false`, so the WebView origin
+is `https://localhost` from the packaged `www`; the manifest has
+`usesCleartextTraffic=false`, `versionName="1.3.2"`, `versionCode=5` and
 `package="ru.mangapoisk.reborn"`; the APK SHA-256 is
-`5bb3c9457e99fff34c7ab3b721eeeb16f442603b463d991982823498d4a5d7f5`.
+`13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019`.
 On Windows, use `tar -xf` instead of `unzip`.
 
 The only remaining `http://` strings in the JS/CSS are W3C XML/SVG namespaces
@@ -668,11 +676,12 @@ There are no `http://` API or site URLs.
 #### On-device QA checklist (TECNO KL6, Android 14)
 
 Do not publish the draft release until every item passes. Record results in
-the 1.3.1 release QA issue.
+the 1.3.2 release QA issue.
 
 1. **Preconditions.** Phone unlocked, USB debugging enabled, `adb devices`
    shows the device as `device` (not `unauthorized`). The QA phone currently
-   has the production-signed 1.3.0 (versionCode 3). 1.3.1 uses the same key, so
+   has the production-signed 1.3.1 (versionCode 4), which must be updated with
+   code 5; downgrading to 1.3.0 is not possible. 1.3.2 uses the same key, so
    install it as an in-place update and keep app data. Only if the installed
    build is debug-signed (for example the old 1.0 debug build) uninstall once
    first; this wipes app data on the QA phone:
@@ -684,7 +693,7 @@ the 1.3.1 release QA issue.
 2. **Install the signed release.**
 
    ```bash
-   adb install -r mangapoisk-reborn-1.3.1-release.apk
+   adb install -r mangapoisk-reborn-1.3.2-release.apk
    ```
 
    Expected `Success`. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means an old
@@ -697,8 +706,8 @@ the 1.3.1 release QA issue.
      grep -E 'versionName|versionCode|firstInstallTime|lastUpdateTime|flags='
    ```
 
-   Expected `versionName=1.3.1`, `versionCode=4`, and **no** `DEBUGGABLE` in
-   `flags=`. When updating over 1.3.0, `firstInstallTime` must stay the same and
+   Expected `versionName=1.3.2`, `versionCode=5`, and **no** `DEBUGGABLE` in
+   `flags=`. When updating over 1.3.1, `firstInstallTime` must stay the same and
    `lastUpdateTime` must change.
 
 4. **Installed binary signature.** Pull the installed base APK and verify it,
@@ -714,7 +723,7 @@ the 1.3.1 release QA issue.
    Expected certificate SHA-256
    `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`;
    record the installed APK SHA-256 (it should equal
-   `5bb3c9457e99fff34c7ab3b721eeeb16f442603b463d991982823498d4a5d7f5`).
+   `13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019`).
 
 5. **Launch with logcat and check the API host.**
 
@@ -730,17 +739,19 @@ the 1.3.1 release QA issue.
    contains `:8443` or `:8088`; no `CleartextNotPermitted` or
    `ERR_CLEARTEXT_NOT_PERMITTED` lines.
 
-6. **WebView origin.** Because 1.3.1 sets `server.url`, the Capacitor WebView
-   loads `https://85.192.37.58.nip.io` and its origin must be
-   `https://85.192.37.58.nip.io`, not `https://localhost` and not an `http://`
-   origin. Check the Chromium lines in the same logcat, or open
-   `chrome://inspect` on the workstation and inspect the
-   `ru.mangapoisk.reborn` WebView. A blank/error page here means the 443 site or
-   TLS chain is unavailable.
+6. **WebView origin.** 1.3.2 has **no** `server.url`: the Capacitor WebView
+   must load the packaged `www` at `https://localhost`, not
+   `https://85.192.37.58.nip.io` and not an `http://` origin. Check the Chromium
+   lines in the same logcat, or open `chrome://inspect` on the workstation and
+   inspect the `ru.mangapoisk.reborn` WebView. A remote-site origin here means
+   the APK still has the 1.3.1 regression.
 
-7. **Smoke matrix.** Mark each item pass/fail in the 1.3.1 QA issue:
-   - update-in-place: install over 1.3.0 without uninstalling; bookmarks,
-     history, reader settings and downloaded chapters survive;
+7. **Smoke matrix.** Mark each item pass/fail in the 1.3.2 QA issue:
+   - update-in-place: install over 1.3.1 without uninstalling; app data from
+     1.3.0 under `https://localhost` must be accessible again (bookmarks,
+     history, reader settings and downloaded chapters);
+   - regression #84: page layout, tap targets, login/session persistence and
+     chapter downloads work normally in the packaged-`www` shell;
    - cold start: home renders (hero, continue reading, popular, sources strip);
    - catalogue: pagination, source filter, sort;
    - search: query returns results, open a manga from results;
@@ -776,7 +787,7 @@ the 1.3.1 release QA issue.
    `85.192.37.58`.
 
 10. **Sign-off.** Attach the installed APK SHA-256, certificate fingerprint,
-    logcat excerpt and the pass/fail matrix to the 1.3.1 QA issue. Only then
+    logcat excerpt and the pass/fail matrix to the 1.3.2 QA issue. Only then
     publish the draft release and verify
     `https://github.com/geekAmis/mangapoiskAPI/releases/latest/download/mangapoisk-reborn.apk`
     downloads the same SHA-256. On any failure, keep the release in draft and
@@ -790,13 +801,16 @@ the 1.3.1 release QA issue.
 | `assembleRelease` (R8/resources shrink) | **SUCCESS** — `app/build/outputs/apk/release/app-release-unsigned.apk` |
 | Capacitor `assembleDebug` / `assembleRelease` | **SUCCESS** — `ru.mangapoisk.reborn` 1.1.0 (versionCode 2); bundle/API config verified HTTPS-only; release APK built unsigned, then signed with the production key |
 | Capacitor `assembleDebug` / `assembleRelease` (1.3.0) | **SUCCESS** — `ru.mangapoisk.reborn` 1.3.0 (versionCode 3); `npm run sync` baked only the HTTPS API base; release APK built unsigned, then signed with the production key |
-| Capacitor `assembleDebug` / `assembleRelease` (1.3.1) | **SUCCESS** — `ru.mangapoisk.reborn` 1.3.1 (versionCode 4); `npm run sync` baked `https://85.192.37.58.nip.io/api/v1` and the port-free WebView URL; release APK built unsigned, then signed with the production key |
+| Capacitor `assembleDebug` / `assembleRelease` (1.3.1) | **BUILT, REGRESSION** — `ru.mangapoisk.reborn` 1.3.1 (versionCode 4) used remote `server.url`; the WebView origin changed and caused layout/tap/session/download problems (#84). Superseded by 1.3.2. |
+| Capacitor `assembleDebug` / `assembleRelease` (1.3.2) | **SUCCESS** — `ru.mangapoisk.reborn` 1.3.2 (versionCode 5); packaged `www` built from main `1dd216a` with 443 API/site and legal values; no `server.url`; release APK signed with the production key |
 | `apksigner verify` (signed 1.1.0) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8` |
 | `apksigner verify` (signed 1.3.0) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `ea4ec2102e5b8fc2b51c6e576b1d16b6fc6e1b4509820d3959379ed71f38c514` (7 379 905 bytes) |
 | `apksigner verify` (signed 1.3.1) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `5bb3c9457e99fff34c7ab3b721eeeb16f442603b463d991982823498d4a5d7f5` (7 379 905 bytes) |
+| `apksigner verify` (signed 1.3.2) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019` (7 438 522 bytes) |
 | Draft release asset | **UPLOADED** — `mangapoisk-reborn.apk` on draft `MangaPoisk Reborn 1.1.0`; not published pending on-device QA |
 | 1.3.0 release asset | **PENDING** — signed APK staged for the lead; not uploaded or published pending on-device QA |
-| 1.3.1 release asset | **PENDING** — signed 443 APK staged for the lead; not uploaded or published pending on-device QA |
+| 1.3.1 release asset | **SUPERSEDED** — remote-WebView regression (#84); do not publish; 1.3.2 replaces it |
+| 1.3.2 release asset | **PENDING** — signed packaged-`www` APK staged for the lead; not uploaded or published pending on-device QA |
 | Kotlin compile | Success (Kotlin 2.0.21, JVM 17) |
 | Resource/manifest validation | Success (AAPT2 via assemble) |
 | Lint | `lintDebug` passes with no errors after the `NewApi` style fix |
@@ -831,16 +845,16 @@ rule and then succeeded.
    `blur_adult_posters` server setting is not consumed.
 9. **Chapter list pagination** beyond `MangaDetailOut.chapters` (capped at 500
    by the API) is not implemented.
-10. **Release APK signing is manual.** The 1.3.1 APK is signed with the
+10. **Release APK signing is manual.** The 1.3.2 APK is signed with the
     production key outside Gradle; the lead installs it and uploads it to the
     draft release, but publication is blocked on the on-device QA checklist
     above. The production-signed 1.1.0 remains the last published build until
     then.
-11. **1.3.1 loads the remote WebView.** `server.url` points the Capacitor
-    WebView at `https://85.192.37.58.nip.io` instead of the bundled `www`
-    assets. The 443 site must be reachable for the UI to start; an outage shows
-    a WebView error page. Offline behaviour depends on the site's service worker
-    and cache, so verify it explicitly in QA.
+11. **1.3.2 restores the packaged `www`.** 1.3.1 briefly set `server.url` and
+    loaded the remote 443 site, which changed the WebView origin from
+    `https://localhost` and broke layout, tap targets, session persistence and
+    downloads (#84). 1.3.2 removes `server.url` and serves the bundled `www`;
+    keep it out of future release configs.
 12. **No offline catalogue/home.** Offline support covers downloaded chapters,
     local bookmarks, history and settings.
 13. **No localization beyond Russian.** All strings are externalized, so adding

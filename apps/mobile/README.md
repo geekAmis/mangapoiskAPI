@@ -47,7 +47,8 @@ For a physical device on the same network, use the server IP. For the emulator,
 Release builds use the secure Capacitor settings in
 `capacitor.config.json`:
 
-- `server.url: "https://85.192.37.58.nip.io"` (port 443)
+- **no `server.url`** — the WebView loads the packaged `www` at
+  `https://localhost`
 - `server.androidScheme: "https"`
 - `server.cleartext: false`
 - `android.allowMixedContent: false`

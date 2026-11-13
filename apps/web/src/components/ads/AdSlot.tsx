@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchAdsConfig, hasAdsConsent, type AdPlacement, type AdSlotConfig } from '../../api/ads';
+import {
+  fetchAdsConfig,
+  useAdsConsent,
+  type AdPlacement,
+  type AdSlotConfig,
+} from '../../api/ads';
 import { useAuthStore } from '../../stores/auth';
 import '../../styles/ads.css';
 
@@ -77,12 +82,13 @@ interface AdSlotProps {
  */
 export function AdSlot({ placement, adult = false, className = '' }: AdSlotProps) {
   const token = useAuthStore((state) => state.accessToken);
+  const consent = useAdsConsent();
   const [contentFailed, setContentFailed] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const recordedRef = useRef<string | null>(null);
 
   const query = useQuery({
-    queryKey: ['ads-config', Boolean(token), adult],
+    queryKey: ['ads-config', Boolean(token), adult, consent],
     queryFn: ({ signal }) => fetchAdsConfig({ adult, signal }),
     staleTime: 60_000,
     retry: false,
@@ -94,10 +100,10 @@ export function AdSlot({ placement, adult = false, className = '' }: AdSlotProps
       (query.data ?? []).find(
         (item) =>
           item.placement === placement &&
-          (!item.require_consent || hasAdsConsent()) &&
+          (!item.require_consent || consent === 'granted') &&
           canShow(item),
       ),
-    [query.data, placement],
+    [query.data, placement, consent],
   );
 
   useEffect(() => {

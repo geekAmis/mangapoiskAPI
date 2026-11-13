@@ -1,12 +1,16 @@
+import { Capacitor } from '@capacitor/core';
 import { useAuthStore } from '../stores/auth';
 import type {
   AnalyticsEventIn,
   AnalyticsIngestOut,
   ApiErrorBody,
+  AuthProvidersOut,
   BookmarkOut,
   ChapterDetailOut,
   ChapterListParams,
   ChapterOut,
+  CollectionListOut,
+  CollectionOut,
   HealthOut,
   HomeUpdatesOut,
   ImportMangaRequest,
@@ -22,9 +26,14 @@ import type {
   PageOut,
   Paginated,
   ProgressMergeItem,
+  MyProfileOut,
+  ProfileEventOut,
+  ProfileReportOut,
+  ProfileUpdate,
   ProgressMergeOut,
   ProgressOut,
   ProgressUpsert,
+  PublicProfileOut,
   ReaderSettings,
   RecommendationListOut,
   RegisterRequest,
@@ -39,6 +48,16 @@ import type {
 
 const configuredBase = import.meta.env.VITE_API_BASE?.trim();
 export const API_BASE = (configuredBase || '/api/v1').replace(/\/+$/, '');
+const IS_NATIVE_APP = Capacitor.isNativePlatform();
+
+/** Absolute top-level URL for the Yandex OAuth start endpoint. */
+export function yandexStartUrl(nextPath = '/'): string {
+  const params = new URLSearchParams({ next: nextPath });
+  // Capacitor must return to its bundled https://localhost SPA instead of the
+  // remote production web origin, otherwise the tokens land in another origin.
+  if (IS_NATIVE_APP) params.set('client', 'app');
+  return `${API_BASE}/auth/yandex/start?${params.toString()}`;
+}
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -367,6 +386,21 @@ export const api = {
   login: (body: LoginRequest) =>
     request<TokenPair>('/auth/login', { method: 'POST', body, auth: false, skipRefresh: true }),
 
+  authProviders: (signal?: AbortSignal) =>
+    request<AuthProvidersOut>('/auth/providers', {
+      auth: false,
+      skipRefresh: true,
+      signal,
+    }),
+
+  yandexExchange: (code: string) =>
+    request<TokenPair>('/auth/yandex/exchange', {
+      method: 'POST',
+      body: { code },
+      auth: false,
+      skipRefresh: true,
+    }),
+
   refresh: (refreshToken: string) =>
     request<TokenPair>('/auth/refresh', {
       method: 'POST',
@@ -444,6 +478,60 @@ export const api = {
       signal,
     }),
 
+  getProfile: (
+    handle: string,
+    timezone?: string,
+    signal?: AbortSignal,
+    authenticated = true,
+  ) =>
+    request<PublicProfileOut>(`/users/${encodeURIComponent(handle)}`, {
+      query: { timezone },
+      // Send the access token when present so the owner sees exact timestamps
+      // and private/hidden profiles; anonymous visitors simply omit it.
+      auth: authenticated,
+      signal,
+    }),
+
+  getMyProfile: (timezone?: string, signal?: AbortSignal) =>
+    request<MyProfileOut>('/me/profile', {
+      query: { timezone },
+      auth: true,
+      signal,
+    }),
+
+  updateMyProfile: (payload: ProfileUpdate) =>
+    request<MyProfileOut>('/me/profile', {
+      method: 'PATCH',
+      body: payload,
+      auth: true,
+    }),
+
+  getMyEvents: (limit = 30, signal?: AbortSignal) =>
+    request<ProfileEventOut[]>('/me/events', {
+      query: { limit },
+      auth: true,
+      signal,
+    }),
+
+  reportProfile: (handle: string, reason: string) =>
+    request<ProfileReportOut>(`/users/${encodeURIComponent(handle)}/report`, {
+      method: 'POST',
+      body: { reason },
+      auth: true,
+    }),
+
+  blockProfile: (handle: string) =>
+    request<OkResponse>(`/users/${encodeURIComponent(handle)}/block`, {
+      method: 'POST',
+      auth: true,
+    }),
+
+  unblockProfile: (handle: string) =>
+    request<OkResponse>(`/users/${encodeURIComponent(handle)}/block`, {
+      method: 'DELETE',
+      auth: true,
+    }),
+
   getRecommendations: (
     params: {
       limit?: number;
@@ -465,8 +553,32 @@ export const api = {
       signal,
     }),
 
-  getMangaRelated: (id: string, signal?: AbortSignal) =>
+  getMangaRelated: (
+    id: string,
+    historyIds: string[] = [],
+    signal?: AbortSignal,
+    limit = 12,
+    authenticated = false,
+  ) =>
     request<RelatedMangaOut>(`/manga/${encodeURIComponent(id)}/related`, {
+      query: {
+        limit,
+        history: historyIds.slice(0, 100).join(','),
+      },
+      auth: authenticated,
+      signal,
+    }),
+
+  getCollections: (limit = 12, signal?: AbortSignal) =>
+    request<CollectionListOut>('/collections', {
+      query: { limit },
+      auth: false,
+      signal,
+    }),
+
+  getCollection: (slug: string, limit = 24, signal?: AbortSignal) =>
+    request<CollectionOut>(`/collections/${encodeURIComponent(slug)}`, {
+      query: { limit },
       auth: false,
       signal,
     }),

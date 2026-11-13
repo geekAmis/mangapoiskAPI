@@ -9,3 +9,12 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/**
+ * Legal contact details are replaced at build time by vite.config.ts.
+ * They intentionally do not use the VITE_ prefix so deployment can pass the
+ * documented LEGAL_CONTACT_EMAIL / LEGAL_OWNER_NAME / LEGAL_JURISDICTION names.
+ */
+declare const __LEGAL_CONTACT_EMAIL__: string;
+declare const __LEGAL_OWNER_NAME__: string;
+declare const __LEGAL_JURISDICTION__: string;

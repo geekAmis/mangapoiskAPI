@@ -1,4 +1,12 @@
 import { API_BASE } from './client';
+import type {
+  AnalyticsSurfacesOut,
+  CollectionAuditOut,
+  CollectionKind,
+  CollectionListOut,
+  CollectionOut,
+  CollectionRule,
+} from './types';
 
 export const ADMIN_TOKEN_KEY = 'mp-admin-token';
 export const ADMIN_UNAUTHORIZED_EVENT = 'mp-admin-unauthorized';
@@ -195,6 +203,18 @@ export interface AdminCommentReport {
   comment: AdminComment | null;
 }
 
+export interface AdminProfileReport {
+  id: string;
+  target_username: string;
+  target_display_name: string;
+  reporter_username: string;
+  reason: string;
+  status: string;
+  target_visible: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export interface AdminCatalogueState {
   source: string;
   mode: string;
@@ -235,12 +255,44 @@ export interface AdminCatalogueHealth {
   crawl_states: AdminCatalogueState[];
 }
 
+export interface AdminCollectionInput {
+  title: string;
+  slug?: string | null;
+  description?: string;
+  kind: CollectionKind;
+  rule?: CollectionRule | null;
+  enabled?: boolean;
+  position?: number;
+  limit?: number;
+}
+
 export interface AdminAuditEntry {
   id: string;
   action: string;
   server_id: string | null;
   details: Record<string, unknown>;
   created_at: string | null;
+}
+
+export interface AdminConsoleRequest {
+  command?: string;
+  action?: string;
+  params?: Record<string, unknown>;
+}
+
+export interface AdminConsoleResult {
+  ok: boolean;
+  kind: 'command' | 'action';
+  action: string;
+  command: string | null;
+  output: string;
+  exit_code: number | null;
+  duration_ms: number;
+  truncated: boolean;
+  timed_out: boolean;
+  output_hash: string | null;
+  job_id: string | null;
+  message: string | null;
 }
 
 export interface AdminCrawlState {
@@ -289,6 +341,110 @@ export interface AdminCrawlerStatus {
   image_cache_bytes: number;
   image_cache_files: number;
   warnings: string[];
+}
+
+export interface AdminObservabilityWindow {
+  window: string;
+  requests: number;
+  errors_5xx: number;
+  error_rate: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  sampled: number;
+  dropped: number;
+}
+
+export interface AdminObservabilityAlert {
+  key: string;
+  severity: 'info' | 'warning' | 'high' | 'critical' | string;
+  summary: string;
+  details?: string;
+  value?: number | string | null;
+  threshold?: number | string | null;
+}
+
+export interface AdminObservabilityCrawlerSource {
+  source: string;
+  mode: string;
+  status: string;
+  page: number;
+  total_pages: number | null;
+  progress_percent: number | null;
+  eta_seconds: number | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_error: string | null;
+  stalled: boolean;
+}
+
+export interface AdminObservability {
+  generated_at: string;
+  http: {
+    total: number;
+    errors_5xx: number;
+    error_rate: number;
+    windows: Record<string, AdminObservabilityWindow>;
+  };
+  db: {
+    errors_total: number;
+    retries_total: number;
+    exhausted_total: number;
+    recovered_total: number;
+    errors_1m: number;
+    errors_5m: number;
+    retries_5m: number;
+    per_minute_5m: number;
+    by_service?: Record<
+      string,
+      {
+        errors_total: number;
+        retries_total: number;
+        exhausted_total: number;
+        recovered_total: number;
+        errors_1m: number;
+        errors_5m: number;
+        retries_5m: number;
+        per_minute_5m: number;
+      }
+    >;
+  };
+  services: Record<string, boolean>;
+  crawler: {
+    backlog: number;
+    backlog_by_source: Record<string, number>;
+    sources: AdminObservabilityCrawlerSource[];
+    stalled: string[];
+    failed: Array<{ source: string; mode: string; last_error: string | null }>;
+  };
+  media: {
+    archive_usage_percent: number;
+    archive_done_bytes: number;
+    archive_cap_bytes: number;
+    archive_done: number;
+    archive_failed: number;
+    archive_pending: number;
+    image_cache_bytes: number;
+    image_cache_usage_percent: number;
+    image_cache_files: number;
+    warnings: string[];
+  };
+  backup: {
+    configured: boolean;
+    status: string;
+    last_success_at: string | null;
+    last_attempt_at: string | null;
+    age_seconds: number | null;
+    last_error: string | null;
+    path?: string | null;
+  };
+  disk: {
+    path?: string;
+    used_percent?: number | null;
+    free_bytes?: number | null;
+    total_bytes?: number | null;
+  };
+  alerts: AdminObservabilityAlert[];
 }
 
 export type AdminStorageLevel = 'ok' | 'warning' | 'critical' | 'unbounded';
@@ -396,6 +552,45 @@ export interface AdminAdProviderInput {
   hide_for_donors: boolean;
   require_consent: boolean;
 }
+export interface AdminIntegrationSecret {
+  configured: boolean;
+  hint: string;
+  updated_at: string | null;
+}
+
+export interface AdminYandexIntegration {
+  provider: string;
+  enabled: boolean;
+  configured: boolean;
+  client_id: AdminIntegrationSecret;
+  client_secret: AdminIntegrationSecret;
+  redirect_uri: string | null;
+  redirect_uri_updated_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminYandexIntegrationUpdate {
+  enabled?: boolean;
+  client_id?: string;
+  client_secret?: string;
+  redirect_uri?: string;
+}
+
+export interface AdminYandexTestCheck {
+  name: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface AdminYandexTest {
+  ok: boolean;
+  configured: boolean;
+  enabled: boolean;
+  checks: AdminYandexTestCheck[];
+  redirect_uri: string | null;
+  message: string;
+}
+
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -531,6 +726,8 @@ export const adminApi = {
     adminRequest<AdminMediaStats>('/media/stats', { signal }),
   getCrawlerStatus: (signal?: AbortSignal) =>
     adminRequest<AdminCrawlerStatus>('/crawl', { signal }),
+  getObservability: (signal?: AbortSignal) =>
+    adminRequest<AdminObservability>('/observability', { signal }),
 
   listServers: (signal?: AbortSignal) => adminRequest<AdminServer[]>('/servers', { signal }),
 
@@ -552,8 +749,23 @@ export const adminApi = {
       body: payload,
     }),
 
+  listJobs: (limit = 30, signal?: AbortSignal) =>
+    adminRequest<AdminJob[]>(`/jobs?limit=${encodeURIComponent(String(limit))}`, { signal }),
+
   getJob: (id: string, signal?: AbortSignal) =>
     adminRequest<AdminJob>(`/jobs/${encodeURIComponent(id)}`, { signal }),
+
+  console: (serverId: string, payload: AdminConsoleRequest) =>
+    adminRequest<AdminConsoleResult>(`/servers/${encodeURIComponent(serverId)}/console`, {
+      method: 'POST',
+      body: payload,
+    }),
+
+  consoleHistory: (serverId: string, limit = 50, signal?: AbortSignal) =>
+    adminRequest<AdminAuditEntry[]>(
+      `/servers/${encodeURIComponent(serverId)}/console/history?limit=${encodeURIComponent(String(limit))}`,
+      { signal },
+    ),
 
   getServerHealth: (id: string, signal?: AbortSignal) =>
     adminRequest<AdminServerHealth>(`/servers/${encodeURIComponent(id)}/health`, { signal }),
@@ -610,6 +822,21 @@ export const adminApi = {
       body: { status },
     }),
 
+  getProfileReports: (
+    status: 'open' | 'resolved' | 'dismissed' | 'all' = 'open',
+    signal?: AbortSignal,
+  ) =>
+    adminRequest<AdminProfileReport[]>(
+      `/profile-reports?status=${status}&limit=100`,
+      { signal },
+    ),
+
+  resolveProfileReport: (id: string, status: 'resolved' | 'dismissed') =>
+    adminRequest<AdminProfileReport>(`/profile-reports/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: { status },
+    }),
+
   syncRegistry: () =>
     adminRequest<AdminRegistrySyncResponse>('/registry/sync', { method: 'POST' }),
 
@@ -617,6 +844,67 @@ export const adminApi = {
 
   getAudit: (limit = 100, signal?: AbortSignal) =>
     adminRequest<AdminAuditEntry[]>(`/audit?limit=${encodeURIComponent(String(limit))}`, { signal }),
+
+  listCollections: (signal?: AbortSignal) =>
+    adminRequest<CollectionListOut>('/collections', { signal }),
+
+  createCollection: (payload: AdminCollectionInput) =>
+    adminRequest<CollectionOut>('/collections', { method: 'POST', body: payload }),
+
+  updateCollection: (id: string, payload: Partial<AdminCollectionInput>) =>
+    adminRequest<CollectionOut>(`/collections/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
+
+  deleteCollection: (id: string) =>
+    adminRequest<{ ok: boolean }>(`/collections/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  addCollectionItem: (id: string, mangaId: string) =>
+    adminRequest<CollectionOut>(`/collections/${encodeURIComponent(id)}/items`, {
+      method: 'POST',
+      body: { manga_id: mangaId },
+    }),
+
+  removeCollectionItem: (id: string, mangaId: string) =>
+    adminRequest<CollectionOut>(
+      `/collections/${encodeURIComponent(id)}/items/${encodeURIComponent(mangaId)}`,
+      { method: 'DELETE' },
+    ),
+
+  reorderCollection: (id: string, mangaIds: string[]) =>
+    adminRequest<CollectionOut>(`/collections/${encodeURIComponent(id)}/order`, {
+      method: 'PUT',
+      body: { manga_ids: mangaIds },
+    }),
+
+  getCollectionAudit: (limit = 100, signal?: AbortSignal) =>
+    adminRequest<CollectionAuditOut[]>(
+      `/collections/audit?limit=${encodeURIComponent(String(limit))}`,
+      { signal },
+    ),
+
+  getSurfaceMetrics: (days = 30, signal?: AbortSignal) =>
+    adminRequest<AnalyticsSurfacesOut>(
+      `/analytics/surfaces?days=${encodeURIComponent(String(days))}`,
+      { signal },
+    ),
+  getYandexIntegration: (signal?: AbortSignal) =>
+    adminRequest<AdminYandexIntegration>('/integrations/yandex', { signal }),
+
+  updateYandexIntegration: (payload: AdminYandexIntegrationUpdate) =>
+    adminRequest<AdminYandexIntegration>('/integrations/yandex', {
+      method: 'PUT',
+      body: payload,
+    }),
+
+  deleteYandexIntegration: () =>
+    adminRequest<{ ok: boolean }>('/integrations/yandex', { method: 'DELETE' }),
+
+  testYandexIntegration: () =>
+    adminRequest<AdminYandexTest>('/integrations/yandex/test', { method: 'POST' }),
 
   listAds: (signal?: AbortSignal) => adminRequest<AdminAdProvider[]>('/ads', { signal }),
 

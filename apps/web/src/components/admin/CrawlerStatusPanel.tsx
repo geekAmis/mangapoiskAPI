@@ -90,7 +90,13 @@ function SourceCard({
         <div>
           <span>Страница</span>
           <strong>{formatInt(page)}</strong>
-          <small>{total ? `из ${formatInt(total)}` : 'всего неизвестно'}</small>
+          <small>
+            {full?.status === 'completed'
+              ? 'источник исчерпан'
+              : total
+                ? `из ${formatInt(total)}`
+                : 'всего неизвестно'}
+          </small>
         </div>
         <div>
           <span>ETA</span>
@@ -145,11 +151,12 @@ function SourceCard({
   );
 }
 
-export function CrawlerStatusPanel() {
+export function CrawlerStatusPanel({ active = true }: { active?: boolean }) {
   const statusQuery = useQuery({
     queryKey: ['admin', 'crawl-status'],
     queryFn: ({ signal }) => adminApi.getCrawlerStatus(signal),
-    refetchInterval: 15_000,
+    enabled: active,
+    refetchInterval: active ? 15_000 : false,
     staleTime: 5_000,
     retry: 1,
   });

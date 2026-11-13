@@ -10,6 +10,7 @@ import { CommentsSection } from '../components/CommentsSection';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState, InlineError } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
+import { AgeNotice } from '../components/legal/AgeNotice';
 import { DancingSpinner } from '../components/DancingLoader';
 import { Modal } from '../components/Modal';
 import { Poster } from '../components/Poster';
@@ -45,6 +46,7 @@ import {
   metaDescription,
   useSeo,
 } from '../lib/seo';
+import { mangaPath, parseMangaRouteParam } from '../lib/mangaRoute';
 import { useOfflineTitle } from '../lib/offlineHooks';
 import { formatBytes, jobPercent, offlineTitleStats, type DownloadJobStatus } from '../lib/offlineTypes';
 import { queryKeys } from '../lib/queryClient';
@@ -121,7 +123,9 @@ function mangaMetaDescription(
 }
 
 export default function MangaPage() {
-  const { id = '' } = useParams();
+  const { id: routeParam = '' } = useParams();
+  // The route segment is `{uuid}-{slug}`; only the UUID is authoritative.
+  const { id } = parseMangaRouteParam(routeParam);
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -257,7 +261,7 @@ export default function MangaPage() {
     activeVariant?.poster_url ??
     null;
   const seoCanonical = manga
-    ? absoluteUrl(`/manga/${manga.id}`)
+    ? absoluteUrl(mangaPath(manga))
     : mangaQuery.isError
       ? null
       : undefined;
@@ -265,7 +269,7 @@ export default function MangaPage() {
     ? jsonLdGraph(
         buildComicStoryJsonLd({
           name: manga.title,
-          url: absoluteUrl(`/manga/${manga.id}`) ?? '',
+          url: absoluteUrl(mangaPath(manga)) ?? '',
           description: manga.description || manga.description_fallback,
           image: seoCover,
           alternateNames: [manga.title_en, manga.title_alt],
@@ -280,7 +284,7 @@ export default function MangaPage() {
         buildBreadcrumbJsonLd([
           { name: 'Главная', url: '/' },
           { name: 'Каталог', url: '/catalogue' },
-          { name: viewTitle ?? manga.title, url: `/manga/${manga.id}` },
+          { name: viewTitle ?? manga.title, url: mangaPath(manga) },
         ]),
       )
     : null;
@@ -295,6 +299,16 @@ export default function MangaPage() {
     type: 'book',
     jsonLd: seoJsonLd,
   });
+
+  // Client-side safety net for direct SPA navigation to an old/mismatched
+  // slug.  Direct HTTP requests are 301'd by the gateway before React loads.
+  useEffect(() => {
+    if (!manga) return;
+    const canonicalPath = mangaPath(manga);
+    if (location.pathname !== canonicalPath) {
+      navigate(`${canonicalPath}${location.search}${location.hash}`, { replace: true });
+    }
+  }, [manga, location.pathname, location.search, location.hash, navigate]);
 
   const bookmarks = listItems(bookmarksQuery.data);
   const isBookmarked = bookmarks.some((bookmark) => bookmark.manga_id === id);
@@ -405,7 +419,7 @@ export default function MangaPage() {
   if (!manga) {
     if (mangaQuery.isLoading) {
       return (
-        <div className="page container manga-page">
+        <div className="page container manga-page manga-page--loading">
           <Skeleton width="280px" height="14px" />
           <div className="manga-hero" style={{ marginTop: 28 }}>
             <div className="manga-poster-column">
@@ -645,6 +659,8 @@ export default function MangaPage() {
         <Icon name="chevron-right" size={13} />
         <span aria-current="page">{displayTitle}</span>
       </nav>
+
+      {viewManga.adult ? <AgeNotice /> : null}
 
       {mangaQuery.isError ? (
         <div className="manga-inline-error">
