@@ -596,12 +596,18 @@ body.has-consent-banner .auth-page__content {
     margin-inline: 0;
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .consent-banner__body p {
+    font-size: 0.76rem;
+    line-height: 1.4;
   }
 
   .consent-banner__actions .btn {
     flex: 1;
-    min-height: 44px;
+    min-height: 40px;
   }
 
   body.has-consent-banner .site-main {

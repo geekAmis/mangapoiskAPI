@@ -32,6 +32,8 @@ export interface AdSlotConfig {
   content: string;
   content_type: 'html' | 'script' | 'none';
   require_consent: boolean;
+  /** Public, non-secret provider parameters (for Yandex: `block_id`). */
+  config: Record<string, unknown>;
 }
 
 export const ADS_CONSENT_KEY = 'mp-ads-consent';

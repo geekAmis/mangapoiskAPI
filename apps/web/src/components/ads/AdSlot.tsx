@@ -11,6 +11,20 @@ import '../../styles/ads.css';
 
 const CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CAP_PREFIX = 'mp-ads-cap:';
+const YANDEX_BLOCK_ID_RE = /^R-A-\d+-\d+$/;
+
+export function yandexBlockIdFromConfig(
+  config: Record<string, unknown> | undefined,
+): string | null {
+  const raw = config?.block_id;
+  if (typeof raw !== 'string') return null;
+  const blockId = raw.trim();
+  return YANDEX_BLOCK_ID_RE.test(blockId) ? blockId : null;
+}
+
+function yandexContainerId(blockId: string): string {
+  return `yandex_rtb_${blockId}`;
+}
 
 const DEFAULT_SIZES: Record<AdPlacement, { width: number; height: number }> = {
   header: { width: 970, height: 90 },
@@ -90,6 +104,10 @@ export function AdSlot({ placement, adult = false, className = '' }: AdSlotProps
   const query = useQuery({
     queryKey: ['ads-config', Boolean(token), adult, consent],
     queryFn: ({ signal }) => fetchAdsConfig({ adult, signal }),
+    // Consent changes use a new query key.  Keeping the previous slots while
+    // the new response loads avoids removing/re-creating the Yandex container
+    // (and therefore a duplicate SDK render) on every consent click.
+    placeholderData: (previousData) => previousData,
     staleTime: 60_000,
     retry: false,
     refetchOnWindowFocus: false,
@@ -105,6 +123,12 @@ export function AdSlot({ placement, adult = false, className = '' }: AdSlotProps
       ),
     [query.data, placement, consent],
   );
+
+  const yandexBlockId =
+    slot?.type === 'yandex' ? yandexBlockIdFromConfig(slot.config) : null;
+  const yandexRenderTo = yandexBlockId ? yandexContainerId(yandexBlockId) : null;
+  const yandexRenderedRef = useRef<string | null>(null);
+  const yandexAliveRef = useRef(false);
 
   useEffect(() => {
     if (!slot) return;
@@ -137,6 +161,53 @@ export function AdSlot({ placement, adult = false, className = '' }: AdSlotProps
     return () => root.removeEventListener('error', onError, true);
   }, [slot?.id, slot?.content_type]);
 
+  useEffect(() => {
+    if (slot?.type !== 'yandex' || !yandexBlockId || !yandexRenderTo) {
+      yandexRenderedRef.current = null;
+      yandexAliveRef.current = false;
+      return;
+    }
+
+    const key = `${slot.id}:${yandexBlockId}`;
+    yandexAliveRef.current = true;
+    if (yandexRenderedRef.current === key) {
+      // StrictMode runs effects twice without replacing the DOM node.  The
+      // keyed ref keeps the SDK render exactly once for the same slot/block.
+      return () => {
+        yandexAliveRef.current = false;
+      };
+    }
+    yandexRenderedRef.current = key;
+
+    const render = () => {
+      if (!yandexAliveRef.current || yandexRenderedRef.current !== key) return;
+      const target = document.getElementById(yandexRenderTo);
+      if (!target || target.dataset.yandexRendered === 'true') return;
+      const advManager = window.Ya?.Context?.AdvManager;
+      if (!advManager || typeof advManager.render !== 'function') return;
+      target.dataset.yandexRendered = 'true';
+      try {
+        advManager.render({ blockId: yandexBlockId, renderTo: yandexRenderTo });
+      } catch {
+        // Adblock or a failed SDK call must not break the page or log errors.
+        delete target.dataset.yandexRendered;
+      }
+    };
+
+    if (window.Ya?.Context?.AdvManager?.render) {
+      render();
+    } else {
+      const queue = Array.isArray(window.yaContextCb)
+        ? window.yaContextCb
+        : (window.yaContextCb = []);
+      queue.push(render);
+    }
+
+    return () => {
+      yandexAliveRef.current = false;
+    };
+  }, [slot?.id, slot?.type, yandexBlockId, yandexRenderTo]);
+
   if (!slot) return null;
 
   const size = sizeFor(slot, placement);
@@ -154,7 +225,15 @@ export function AdSlot({ placement, adult = false, className = '' }: AdSlotProps
       data-ad-provider={slot.type}
     >
       <span className="ad-slot__label">Реклама</span>
-      {slot.content_type === 'html' && slot.content && !contentFailed ? (
+      {slot.type === 'yandex' ? (
+        yandexBlockId && yandexRenderTo ? (
+          <div id={yandexRenderTo} className="ad-slot__yandex" />
+        ) : (
+          <div className="ad-slot__placeholder">
+            {slot.format || 'Рекламный блок'}
+          </div>
+        )
+      ) : slot.content_type === 'html' && slot.content && !contentFailed ? (
         <div
           ref={contentRef}
           className="ad-slot__content"
