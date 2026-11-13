@@ -1,6 +1,6 @@
 # Server manager
 
-Панель: `http://<host>:8088/admin` (прямая ссылка, в меню сайта её нет).
+Панель: `https://85.192.37.58.nip.io/admin` (прямая ссылка, в меню сайта её нет).
 
 Логин/пароль — `ADMIN_USERNAME` и `ADMIN_PASSWORD` из `.env`. В репозитории
 секретов нет; задайте свои значения и не коммитьте `.env`.
@@ -67,9 +67,13 @@ Control перезапускает сам себя не сразу, а чере�
 | media | 8104 |
 | notifier | 8106 |
 | scheduler | 8107 (без HTTP) |
-| web (nginx) | 8088 |
+| replica | 8108 |
+| comments | 8109 |
+| web (nginx) | **80/443** (+ legacy 8443 API, 8088 redirect) |
+| web-internal (prerender) | 8089 (loopback) |
 
-Все backend-порты слушают `127.0.0.1`; наружу смотрит только nginx на 8088.
+Все backend-порты слушают `127.0.0.1`; наружу смотрят nginx на 80/443 и
+legacy-порты 8443 (API для APK 1.3.0) / 8088 (redirect, кроме `/ads.txt`).
 В Docker Compose используется другая нумерация — `8000–8006`; это локальный
 режим, не production.
 
@@ -103,4 +107,5 @@ production пока не включена.
 - Деплой перезаписывает `.env` на целевом сервере. Секреты генерируются из
   настроек control; храните `CONTROL_SECRET_KEY` в надёжном месте.
 - Автоустановка web-клиента не входит в backend-деплой: `apps/web/dist`
-  заливается отдельно в `/opt/mangapoisk-reborn/web` (nginx :8088).
+  заливается отдельно в `/opt/mangapoisk-reborn/web` (nginx 80/443, внутренний
+  static 8089).

@@ -11,7 +11,7 @@ and runs on every pull request to `main`, every push to `main`, and on manual
 | `backend` | `ruff check .` and `pytest` for all services and shared packages. Pytest also imports every service app, which is the source import smoke test. |
 | `web` | TypeScript typecheck, production Vite build, and `npm run test:unit` (Node's built-in test runner). |
 | `docs-encoding` | `README.md` and `docs/*.md` are valid UTF-8 without BOM, `U+FFFD` characters, CP1251 mojibake, or mixed CRLF/LF endings. |
-| `mobile-web` | Capacitor web bundle builds from `apps/mobile` (`npm run build:www`). The job installs both the mobile and web workspaces because `build:www` runs the web build first. |
+| `mobile-web` | Capacitor web bundle builds from `apps/mobile` (`npm run build:www`). The job installs both the mobile and web workspaces because `build:www` runs the web build first. The `release/android-1.3.2` build additionally rejects stale `:8088`/`:8443` endpoints and packages API 443. |
 | `ops-scripts` | `bash -n scripts/ops/*.sh` parses every ops shell script. |
 | `android` | `./gradlew assembleDebug` when `apps/android/gradlew` is present. |
 | `compose` | `docker compose config -q` validates the compose file. |

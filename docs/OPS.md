@@ -7,6 +7,35 @@
 
 ---
 
+# 0. Current state (2026-11-13, v1.3.2)
+
+This section supersedes port/TLS details in the historical audit below.
+
+- Public entry point: `https://85.192.37.58.nip.io` on **80/443**.
+  `http://` and `www` return 301 to apex HTTPS.
+- `:8443` is **legacy API only** for APK 1.3.0; web pages on 8443 return 301.
+- `:8088` returns 301 to 443 for every path except exact `/ads.txt`, which is
+  served directly as `200 text/plain` (9 lines) on 80, 443 and 8088.
+- TLS: Let's Encrypt SAN apex+`www`, expires **2027-02-11 01:21:39 UTC**;
+  renewal uses webroot `/var/www/certbot` and reloads
+  `mangapoisk-web.service`. Targeted `certbot renew --dry-run` passed.
+- The system nginx unit remains failed because of an unrelated site. The public
+  site is served by standalone `mangapoisk-web.service`; do not touch the
+  system unit.
+- Internal SPA for gateway prerender: `WEB_INTERNAL_URL=http://127.0.0.1:8089`.
+- Catalogue: ~25k visible titles, 78k+ rows; deploy-check p95 ~45 ms gateway /
+  ~34 ms catalog. Sitemap ~25,189 URLs.
+- Backups: restic off-host + `VACUUM INTO` (see §4 below); backup age and
+  watchdog are visible in the admin overview.
+- RTB: web code deployed; real block blocked by Yandex `PAGE_DISABLED`, and
+  РСЯ moderation is deferred until ≥100 real visitors/week (resubmit from
+  2026-11-20 05:55). See [`ADS.md`](ADS.md).
+
+The 2026-11-12 audit below remains useful for memory/backup/crawler history;
+its `:8088/:8443` and firewall notes are historical.
+
+---
+
 # 1. Надёжность, бэкапы, алерты и стоимость
 
 Аудит production-контура MangaPoisk Reborn по issue
@@ -52,7 +81,7 @@ mangapoisk-notifier   active  127.0.0.1:8106   health 200
 mangapoisk-replica    active  0.0.0.0:8108     health 200
 mangapoisk-comments   active  127.0.0.1:8109   health 200
 mangapoisk-scheduler  active  (без HTTP)
-mangapoisk-web        active  nginx :8088/:8443
+mangapoisk-web        active  nginx :80/:443 (+ legacy 8443 API, 8088 redirect)
 ```
 
 - Gateway `/api/v1/health`: `{"status":"ok","checks":{"catalog":true,"parser":true,"library":true,"media":true}}`.
@@ -134,8 +163,9 @@ mangapoisk-web        active  nginx :8088/:8443
    Часть issue #53.
 
 10. **`nginx.service` в failed.** Production-сайт обслуживает отдельный
-    standalone nginx (`mangapoisk-web`, :8088/:8443), поэтому сайт работает,
-    но системный юнит создаёт ложный сигнал в мониторинге. Низкий приоритет.
+    standalone nginx (`mangapoisk-web`, 80/443 + legacy 8443 API/8088
+    redirect), поэтому сайт работает, но системный юнит создаёт ложный сигнал
+    в мониторинге. Низкий приоритет; не трогать чужой сайт.
 
 11. **Нет p95/error-rate метрик.** Есть только access log без
     `$request_time`; p95 считается только ручным smoke-тестом. Дашборд
@@ -614,7 +644,7 @@ keys.
 
 Replica service listens on `8108`.  Every node pulls SQLite snapshots from the
 healthy leader selected from the control registry
-(`http://85.192.37.58:8088/api/v1/registry`).  `jump-83` and `aeza-2` pull from
+(`https://85.192.37.58.nip.io/api/v1/registry`).  `jump-83` and `aeza-2` pull from
 `primary-85`; `primary-85` snapshots its own live files.
 
 `primary-85` binds application services to `127.0.0.1`.  `jump-83` and `aeza-2`
@@ -648,9 +678,10 @@ checks were used before the timer was cancelled.
 
 ```text
 22/tcp                         ALLOW IN  Anywhere      # SSH
-80/tcp                         ALLOW IN  Anywhere      # ACME HTTP (certbot webroot/standalone)
-8088/tcp                       ALLOW IN  Anywhere      # MangaPoisk HTTP
-8443/tcp                       ALLOW IN  Anywhere      # MangaPoisk HTTPS
+80/tcp                         ALLOW IN  Anywhere      # ACME HTTP + redirect
+443/tcp                        ALLOW IN  Anywhere      # HTTPS / primary site
+8088/tcp                       ALLOW IN  Anywhere      # legacy redirect + /ads.txt
+8443/tcp                       ALLOW IN  Anywhere      # legacy API for APK 1.3.0 only
 8080/tcp                       ALLOW IN  Anywhere      # existing ytdl service
 8108/tcp                       ALLOW IN  83.141.92.137  # jump-83 replica
 8108/tcp                       ALLOW IN  85.192.30.224  # aeza-2 replica
@@ -658,6 +689,10 @@ checks were used before the timer was cancelled.
 Anywhere on tailscale0         ALLOW IN  Anywhere      # tailscale interface
 41641/udp                      ALLOW IN  Anywhere      # tailscale direct
 ```
+
+> Historical UFW snapshot from the 2026-11-12 audit. Since the v1.3.2 port
+> migration, 80/443 are the primary rules and 8088/8443 are legacy-only. Keep
+> them until APK 1.3.0 and old links are retired (#82).
 
 `jump-83`:
 
@@ -725,7 +760,7 @@ systemd-run --unit=ufw-rollback --on-active=300 \
 # 3. Enable and verify in the same SSH session
 ufw --force enable
 ufw status verbose
-curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8088/health
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8089/index.html
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8108/health
 
 # 4. From a second connection and from an external host, verify SSH and the
@@ -750,8 +785,11 @@ From a machine outside the production network:
 curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://85.192.37.58:8108/health   # expected 000/timeout
 curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://83.141.92.137:8108/health  # expected 000/timeout
 curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://85.192.30.224:8108/health  # expected 000/timeout
-curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://85.192.37.58:8088/health  # expected 200
-curl --max-time 5 -sk -o /dev/null -w '%{http_code}\n' https://85.192.37.58.nip.io:8443/health # expected 200
+curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://85.192.37.58.nip.io/       # expected 301
+curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://85.192.37.58.nip.io:8088/ # expected 301
+curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' https://85.192.37.58.nip.io/health # expected 200
+curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' https://85.192.37.58.nip.io:8443/api/v1/health # expected 200 (legacy APK)
+curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' https://85.192.37.58.nip.io:8443/ # expected 301
 ```
 
 Between nodes (must still work):
@@ -1060,8 +1098,9 @@ curl -sS -H "X-Internal-Token: $TOKEN" http://127.0.0.1:8108/internal/replica/st
 
 ## 7. Incident checklist
 
-1. Is the site down? Check `curl -k https://85.192.37.58.nip.io:8443/health`,
-   then each service's `/health` on `127.0.0.1`.
+1. Is the site down? Check `curl -I https://85.192.37.58.nip.io/` and
+   `/api/v1/health`, then each service's `/health` on `127.0.0.1`. Remember
+   `:8443` is legacy API only and `:8088` redirects.
 2. Is the firewall the cause? `ufw status verbose`; check the allowlist and
    `/var/log/ufw.log`.  Disable UFW only as a last resort and immediately
    re-enable with corrected rules.

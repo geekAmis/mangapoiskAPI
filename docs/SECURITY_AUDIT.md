@@ -1,7 +1,7 @@
 # Security audit — MangaPoisk Reborn
 
 **Audit date:** 2026-11-11  
-**Targets:** repository working tree at `repo/` and the public deployment `https://85.192.37.58.nip.io:8443`  
+**Targets:** repository working tree at `repo/` and the public deployment `https://85.192.37.58.nip.io` (the original audit used `:8443`; production moved to 80/443 in v1.3.2)<br>
 **Method:** static review first, followed by minimal non-destructive runtime probes (HTTP GET/POST against public endpoints, authorized admin login, JWT/secret validation tests, local unit-level checks). No brute force, no destructive writes, no denial-of-service tests.  
 **Scope:** gateway, parser, catalog, library, media, control, scheduler, notifier, shared `manga_common`; production nginx/TLS, exposed ports, admin panel, deployment/SSH, secrets, dependencies and CI.
 
@@ -9,10 +9,12 @@
 > 11.11.2026. TLS/admin transport, admin rate limiting, rate-limit trust, secret
 > separation and media SSRF findings were remediated after the audit; see
 > [Remediation status (post-audit)](#remediation-status-post-audit) at the end.
-> HTTP `:8088` is now a compatibility fallback behind the HTTPS deployment.
+> HTTP `:8088` is now a redirect (except `/ads.txt`) and `:8443` is legacy API
+> only for APK 1.3.0; the public site is on 80/443.
 > Keep the historical findings for context, but do not treat the original
 > "Critical" summary as the current state without reading the remediation
-> section.
+> section. Commands below with `:8443` are historical; use
+> `https://85.192.37.58.nip.io` for current checks.
 
 > The working tree was not clean during the audit: it contained uncommitted control/gateway/replica work. Findings reflect the working tree as reviewed. No source files were modified and nothing was committed. The only file created is this report.
 

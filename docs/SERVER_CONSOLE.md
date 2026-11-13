@@ -1,5 +1,8 @@
 # Ограниченная серверная консоль
 
+Статус: работает в production v1.3.2 на вкладке «Терминал». Traffic/Metrika
+панель в эту версию не входит (#85).
+
 Консоль в админке — **не произвольный shell**. Запрос проходит через
 allowlist-парсер, выполняется как argv-вектор по SSH, а каждое обращение
 попадает в audit log. Взлом админки не даёт выполнить `rm`, `sudo`, `apt`,
@@ -17,6 +20,7 @@ GET  /api/v1/admin/servers
 POST /api/v1/admin/servers/{id}/console
 GET  /api/v1/admin/servers/{id}/console/history?limit=50
 GET  /api/v1/admin/jobs?limit=30
+POST /api/v1/admin/jobs/{id}/cancel
 ```
 
 Тело запроса — либо read-only команда, либо структурированное действие:

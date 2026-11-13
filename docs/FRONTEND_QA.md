@@ -1,7 +1,13 @@
 # Frontend QA — MangaPoisk Reborn
 
+> **Historical QA (12.11.2026).** The audited build predates the 80/443
+> migration and v1.3.x. Current production is
+> <https://85.192.37.58.nip.io>; `:8443` is legacy API only for APK 1.3.0 and
+> `:8088` redirects (except `/ads.txt`). Re-verify findings against current
+> v1.3.2 before acting on them.
+
 **Date:** 12 Nov 2026, 06:00–06:50 local (UTC+3)  
-**Environment:** production `https://85.192.37.58.nip.io:8443`  
+**Environment:** production `https://85.192.37.58.nip.io:8443` (historical)<br>
 **Build tested:** `index-BvYMjlco.js` / `index-171nzuLo.css`, `Last-Modified: Thu, 12 Nov 2026 03:25:57 GMT`  
 **Browser:** Microsoft Edge (Playwright Chromium), desktop 1440×900, mobile 390×844 and 360×800, touch enabled for mobile  
 **Accounts:** reader `qa-jump-check@example.com`, admin credentials redacted  
@@ -9,7 +15,10 @@
 
 > Build note: production was redeployed during QA from the 2026-11-11 build to the 2026-11-12 03:25 UTC build. An earlier screenshot (`qa-export-dialog-desktop.png`) shows the old CBZ/PDF/HTML export dialog. That dialog is **not present in the current build**; see the “Export UI” pass section below. All other findings below refer to the current build unless explicitly stated.
 
-> **Update 13.11.2026:** production now serves HTTPS at <https://85.192.37.58.nip.io:8443> with a Let's Encrypt certificate. The service-worker/offline findings below describe the audited HTTP build; re-verify service-worker install, precache and cold offline deep links on the HTTPS deployment. Admin credentials in this report are redacted.
+> **Update 13.11.2026:** this audit covered the older `:8443` deployment.
+> Production moved to 80/443 in v1.3.2; the service-worker/offline findings
+> below still need re-verification on the current HTTPS deployment. Admin
+> credentials in this report are redacted.
 
 ---
 

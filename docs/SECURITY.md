@@ -35,8 +35,10 @@ for a fix and coordinated disclosure before publishing details.
 - SSH passwords and integration/ad secrets are encrypted at rest with Fernet
   (`CONTROL_SECRET_KEY`). Rotating that key makes existing ciphertext
   unreadable, so plan a re-entry/rotation procedure.
-- Production is HTTPS-only; HTTP is a compatibility fallback. Admin endpoints
-  should be restricted to a management network or allowlist.
+- Production is HTTPS-only on **80/443**; `http://` and `www` redirect to
+  apex HTTPS. `:8443` is legacy API only (APK 1.3.0), `:8088` redirects except
+  `/ads.txt`. Admin endpoints should be restricted to a management network or
+  allowlist.
 - Rate limits use the trusted proxy address, and admin login has a dedicated
   lockout/backoff.
 
@@ -79,7 +81,7 @@ a rollback path. See [`DEPENDENCIES.md`](DEPENDENCIES.md) and
 
 # Security hardening — MangaPoisk Reborn
 
-**Status:** 2026-11-13
+**Status:** 2026-11-13 (v1.3.2, `main` @ `affe7d0`)
 
 **Scope:** production nodes `jump-83` (`83.141.92.137`) and `aeza`
 (`85.192.37.58`), plus the repository configuration that must keep the
@@ -110,11 +112,12 @@ contain passwords, tokens, private keys, cookies, or `.env` values.
 
 ### Trust boundaries
 
-1. **Internet → edge**: Caddy/nginx TLS termination; only 80/443 (and the
-   temporary compatibility port) should be public.
+1. **Internet → edge**: nginx TLS termination on 80/443; the only other
+   public ports are legacy `:8443` (API for APK 1.3.0) and `:8088` (redirect,
+   except `/ads.txt`).
 2. **Edge → application services**: gateway and internal HTTP services. Several
    services are bound to loopback on the primary node; cross-node traffic and
-   the legacy public ports remain a risk (#60).
+   the remaining legacy ports are still a hardening item (#82/#79).
 3. **Application → host**: systemd services run as `mangapoisk`; the control
    service can deploy as root over SSH. This is the highest-value boundary.
 4. **Operator → production**: SSH with root password authentication today;
@@ -184,9 +187,11 @@ The public HTTPS endpoint returns:
   `form-action 'self'`, `default-src 'self'`.
 
 The CSP is still broad (`script-src 'self' 'unsafe-inline'`, `connect-src http:
-https:`, `img-src http: https:`). It is functional but should be tightened after
-the boot loader/inline theme code is moved to nonces or hashes. This is tracked
-as a follow-up; no nginx changes were made in this task.
+https:`, `img-src http: https:`). In v1.3.2 `script-src`/`frame-src` also allow
+`https://yandex.ru`, `https://an.yandex.ru` and `https://yastatic.net` for the
+RTB loader. It is functional but should be tightened after the boot
+loader/inline theme code is moved to nonces or hashes. This is tracked as a
+follow-up (#79); the RTB deploy only added the Yandex allowances.
 
 ### 2.3 SSH
 
@@ -330,6 +335,11 @@ requirements reports **0 known vulnerabilities**, and the Fernet
 | Journal secret scan (24h) | all counts 0 |
 | `pip-audit` | findings recorded in §2.7 |
 | `npm audit --omit=dev` | 0 vulnerabilities |
+| Public ports / redirects (v1.3.2) | 80/443 active; `http`/`www` 301; `:8443` API 200/web 301; `:8088` 301 except `/ads.txt` |
+| TLS certificate (v1.3.2) | SAN apex+www; expires 2027-02-11; targeted `certbot renew --dry-run` passed |
+| `ads.txt` direct paths | 80/443/8088 → 200 `text/plain`, 9 lines, no Location |
+| Yandex ID production login | real login confirmed; redirect URI no port; scopes include `login:info` |
+| Yandex RTB CSP / config | loader reaches `yandex.ru`; provider returns `config.block_id`; SDK external `PAGE_DISABLED` remains |
 
 ---
 
@@ -405,20 +415,22 @@ systemctl stop <timer-unit>
    `cryptography` 50.0.2 are merged; `pip-audit` reports 0 known
    vulnerabilities. Keep the audit cadence from [`DEPENDENCIES.md`](DEPENDENCIES.md)
    and re-run it on every dependency change.
-2. **Root password SSH is still enabled.** `PermitRootLogin yes` and
+2. **Root password SSH is still enabled (#78).** `PermitRootLogin yes` and
    `PasswordAuthentication yes` remain for operational continuity. Move to
    per-host keys, then `PermitRootLogin prohibit-password` and
    `PasswordAuthentication no`. See §6.
-3. **CSP is broad.** `script-src 'unsafe-inline'` and broad `connect-src`/
-   `img-src` remain. Tighten after inline boot/theme code is removed.
-4. **Public internal/fallback ports (#60).** The secondary node and legacy
-   ports still need firewall/VPN closure; this change did not touch nginx or
-   firewall policy beyond fail2ban.
+3. **CSP is broad (#79).** `script-src 'unsafe-inline'` and broad
+   `connect-src`/`img-src` remain; v1.3.2 added the Yandex RTB domains.
+   Tighten after inline boot/theme code is removed.
+4. **Legacy public ports (#82).** The site is on 80/443; `:8443` is API-only
+   for APK 1.3.0 and `:8088` redirects except `/ads.txt`. Keep the firewall
+   rules minimal and remove both ports after the old APK/links are retired.
+   The secondary-node fallback ports remain a separate follow-up.
 5. **Report endpoint rate limit.** Reports are authenticated and deduplicated
    per comment, but there is no per-user daily report cap. Add one if abuse is
    observed.
-6. **Admin panel exposure.** There is no IP allowlist or MFA on `/admin`; a
-   stolen 60-minute admin token remains usable until expiry. Consider VPN/IP
+6. **Admin panel exposure (#79).** There is no IP allowlist or MFA on `/admin`;
+   a stolen 60-minute admin token remains usable until expiry. Consider VPN/IP
    allowlisting and TOTP.
 7. **fail2ban is local.** Each node has its own jail; there is no central
    ban feed. This is acceptable for two nodes but should be revisited if the
