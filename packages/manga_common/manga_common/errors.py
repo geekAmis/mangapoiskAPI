@@ -64,6 +64,11 @@ class UpstreamError(AppError):
     code = "upstream_error"
 
 
+class ServiceUnavailableError(AppError):
+    status_code = 503
+    code = "service_unavailable"
+
+
 class TimeoutError(AppError):
     status_code = 504
     code = "upstream_timeout"

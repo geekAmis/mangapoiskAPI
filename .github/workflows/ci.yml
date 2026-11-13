@@ -41,7 +41,7 @@ jobs:
         run: pytest --cov=packages --cov=services --cov-report=term-missing
 
   web:
-    name: Web / typecheck / build
+    name: Web / typecheck / build / unit
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -58,8 +58,57 @@ jobs:
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - name: Typecheck
         run: npm run typecheck
+      - name: Component tests (vitest)
+        run: npm test
       - name: Build
         run: npm run build
+      - name: Node unit tests (progress/profiles)
+        run: npm run test:unit
+
+  docs-encoding:
+    name: Docs / UTF-8 encoding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check docs encoding
+        run: python scripts/check_docs_encoding.py
+
+  mobile-web:
+    name: Mobile / build:www
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/mobile/package-lock.json
+      # build:www runs the web build first, so the web workspace needs its deps too.
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Install mobile dependencies
+        working-directory: apps/mobile
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Build mobile web bundle
+        working-directory: apps/mobile
+        run: npm run build:www
+
+  ops-scripts:
+    name: Ops / shell syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check ops shell syntax
+        run: |
+          bash -n scripts/ops/*.sh
 
   android:
     name: Android / assembleDebug

@@ -1,5 +1,9 @@
 # MangaPoisk Reborn — performance & UX audit
 
+> Catalogue list latency work for #68 (schema, materialised cards, planner
+> statistics, benchmarks) is documented in
+> [CATALOG_PERFORMANCE.md](CATALOG_PERFORMANCE.md).
+
 **Audited:** 2026-11-11, 10:50–11:10 MSK  
 **Production:** <https://85.192.37.58.nip.io:8443> (HTTPS now live; this baseline was measured before TLS on nginx 1.28.3, HTTP/1.1)  
 **Frontend bundle audited:** `/assets/index-BjlbtnB4.js` (477,131 B), `/assets/index-Dnn-IPAM.css` (109,652 B)  

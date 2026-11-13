@@ -76,6 +76,9 @@ class MangaOut(ORMModel):
     source: str
     source_id: str
     slug: str | None = None
+    # Cosmetic, transliterated slug used by the public URL
+    # ``/manga/{id}-{url_slug}``.  ``slug`` above is source-owned.
+    url_slug: str | None = None
     title: str
     title_en: str | None = None
     title_alt: str | None = None
@@ -128,6 +131,8 @@ class SitemapEntryOut(BaseModel):
     """Minimal catalogue row used by the gateway sitemap collector."""
 
     id: UUID
+    url_slug: str | None = None
+    title: str = ""
     last_chapter_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -168,6 +173,7 @@ class SearchSuggestionOut(BaseModel):
     poster_url: str | None = None
     year: int | None = None
     source: str
+    url_slug: str | None = None
     reason: str = "title"
 
 
@@ -239,6 +245,126 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class AuthProvidersOut(BaseModel):
+    """Public feature flags for login buttons; no credentials are exposed."""
+
+    yandex: bool = False
+
+
+class YandexExchangeRequest(BaseModel):
+    code: str = Field(min_length=16, max_length=256)
+
+
+class YandexStatusOut(BaseModel):
+    enabled: bool
+
+
+class YandexCredentials(BaseModel):
+    """Internal-only credentials resolved by the gateway.
+
+    The secret uses ``repr=False`` so an accidental debug log of the model does
+    not print it.  This model is never returned by a public endpoint.
+    """
+
+    client_id: str = Field(max_length=128)
+    client_secret: str = Field(max_length=256, repr=False)
+    redirect_uri: str = Field(max_length=512)
+
+    @property
+    def complete(self) -> bool:
+        return bool(self.client_id and self.client_secret and self.redirect_uri)
+
+
+class YandexStartRequest(BaseModel):
+    return_url: str = Field(min_length=1, max_length=512)
+    next_path: str = Field(default="/", max_length=512)
+    browser_hash: str | None = Field(default=None, max_length=64)
+    credentials: YandexCredentials | None = None
+
+
+class YandexStartOut(BaseModel):
+    authorize_url: str
+
+
+class YandexCallbackRequest(BaseModel):
+    state: str = Field(min_length=16, max_length=256)
+    code: str = Field(min_length=1, max_length=512)
+    browser_hash: str | None = Field(default=None, max_length=64)
+    user_agent: str | None = Field(default=None, max_length=512)
+    ip_address: str | None = Field(default=None, max_length=64)
+    credentials: YandexCredentials | None = None
+
+
+class YandexCallbackOut(BaseModel):
+    handoff_code: str
+    redirect_url: str
+    expires_in: int
+    is_new_user: bool = False
+
+
+class YandexDenyRequest(BaseModel):
+    state: str = Field(min_length=16, max_length=256)
+    browser_hash: str | None = Field(default=None, max_length=64)
+
+
+class YandexDenyOut(BaseModel):
+    redirect_url: str
+
+
+class IntegrationSecretOut(BaseModel):
+    """Masked status of one encrypted integration value."""
+
+    configured: bool = False
+    hint: str = ""
+    updated_at: datetime | None = None
+
+
+class YandexIntegrationOut(BaseModel):
+    provider: str = "yandex"
+    enabled: bool = True
+    configured: bool = False
+    client_id: IntegrationSecretOut = Field(default_factory=IntegrationSecretOut)
+    client_secret: IntegrationSecretOut = Field(default_factory=IntegrationSecretOut)
+    # The redirect URI is a public callback address, not a secret.  Returning
+    # it lets the admin UI prefill the exact registered value.
+    redirect_uri: str | None = None
+    redirect_uri_updated_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class YandexIntegrationUpdate(BaseModel):
+    enabled: bool | None = None
+    client_id: str | None = Field(default=None, max_length=128)
+    client_secret: str | None = Field(default=None, max_length=256, repr=False)
+    redirect_uri: str | None = Field(default=None, max_length=512)
+
+
+class YandexIntegrationTestCheck(BaseModel):
+    name: str
+    ok: bool
+    message: str
+
+
+class YandexIntegrationTestOut(BaseModel):
+    ok: bool
+    configured: bool
+    enabled: bool
+    checks: list[YandexIntegrationTestCheck] = Field(default_factory=list)
+    redirect_uri: str | None = None
+    message: str = ""
+
+
+class YandexCredentialsOut(BaseModel):
+    """Internal credential bundle.  Never exposed by a public/admin route."""
+
+    source: Literal["db", "none"] = "none"
+    enabled: bool = False
+    client_id: str | None = None
+    client_secret: str | None = Field(default=None, repr=False)
+    redirect_uri: str | None = None
+    updated_at: datetime | None = None
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=16)
 
@@ -263,6 +389,14 @@ class ProgressUpsert(BaseModel):
     chapter_id: UUID
     page: int = Field(default=1, ge=1)
     total_pages: int = Field(default=0, ge=0)
+    # Optional catalogue metadata.  Only the gateway fills these from trusted
+    # catalogue responses before forwarding to the internal library service;
+    # public clients cannot influence XP or event labels through them.
+    manga_title: str | None = Field(default=None, max_length=255)
+    chapter_label: str | None = Field(default=None, max_length=128)
+    poster_url: str | None = Field(default=None, max_length=1024)
+    genres: list[str] = Field(default_factory=list, max_length=8)
+    title_completed: bool = False
 
 
 class ProgressOut(ORMModel):
@@ -324,6 +458,51 @@ class RecommendationListOut(BaseModel):
 class RelatedMangaOut(BaseModel):
     series: list[MangaOut] = Field(default_factory=list)
     related: list[MangaOut] = Field(default_factory=list)
+    # Heuristic shelf: genres, rating, year, type and chapter count.  Explicit
+    # ``related`` links are curated and therefore returned separately.
+    similar: list[MangaOut] = Field(default_factory=list)
+
+
+class CollectionOut(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    description: str = ""
+    kind: Literal["smart", "manual"] = "manual"
+    rule: str | None = None
+    enabled: bool = True
+    position: int = 100
+    limit: int = 12
+    item_count: int = 0
+    items: list[MangaOut] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CollectionListOut(BaseModel):
+    items: list[CollectionOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class CollectionAuditOut(BaseModel):
+    id: UUID
+    action: str
+    collection_id: UUID | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class AnalyticsSurfaceOut(BaseModel):
+    surface: str
+    impressions: int = 0
+    clicks: int = 0
+    ctr: float = 0.0
+
+
+class AnalyticsSurfacesOut(BaseModel):
+    days: int = 30
+    generated_at: datetime
+    items: list[AnalyticsSurfaceOut] = Field(default_factory=list)
 
 
 AnalyticsEventName = Literal[

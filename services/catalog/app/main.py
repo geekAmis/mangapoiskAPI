@@ -8,10 +8,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from manga_common.db import create_engine, create_session_factory, ping
 from manga_common.service import add_ready_check, create_service_app
+from sqlalchemy import text
 
 from .api import router
 from .config import CatalogSettings
+from .discovery import seed_smart_collections
 from .migrations import ensure_runtime_schema
+from .observability import (
+    CatalogMetricsCollector,
+    install_slow_query_logging,
+    install_sqlite_optimize_on_close,
+)
 from .parser_client import ParserClient
 from .search_backfill import (
     BackfillConfig,
@@ -19,9 +26,35 @@ from .search_backfill import (
     bootstrap_search_index,
 )
 from .service import CatalogService
+from .slug_backfill import run_slug_backfill_safe
 
 logger = logging.getLogger(__name__)
 settings = CatalogSettings()
+
+
+async def _optimize_planner_stats(engine) -> float:  # type: ignore[no-untyped-def]
+    """Bounded SQLite stats refresh; never a full blocking ANALYZE."""
+
+    started = time.perf_counter()
+    async with engine.connect() as connection:
+        await connection.execute(text("PRAGMA analysis_limit=400"))
+        await connection.execute(text("PRAGMA optimize"))
+        await connection.commit()
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    logger.info("catalogue planner stats optimized in %.0fms", elapsed_ms)
+    return elapsed_ms
+
+
+async def _planner_stats_loop(engine, interval_seconds: int) -> None:  # type: ignore[no-untyped-def]
+    interval = max(60, int(interval_seconds))
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await _optimize_planner_stats(engine)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("catalogue planner stats refresh failed", exc_info=True)
 
 
 @asynccontextmanager
@@ -29,8 +62,15 @@ async def lifespan(app: FastAPI):
     settings.validate_production_secrets()
     started = time.perf_counter()
     engine = create_engine(settings.catalog_dsn, echo=settings.debug)
+    install_slow_query_logging(engine, threshold_ms=settings.slow_query_ms)
+    install_sqlite_optimize_on_close(engine)
     session_factory = create_session_factory(engine)
     await ensure_runtime_schema(engine)
+    async with session_factory() as session:
+        created = await seed_smart_collections(session)
+        await session.commit()
+    if created:
+        logger.info("seeded %s discovery collections", created)
     schema_elapsed = time.perf_counter() - started
     try:
         bootstrap = await bootstrap_search_index(
@@ -74,10 +114,28 @@ async def lifespan(app: FastAPI):
     elif bootstrap:
         logger.info("search backfill disabled by configuration")
 
+    app.state.url_slug_backfill_task = None
+    if settings.url_slug_backfill_enabled:
+        app.state.url_slug_backfill_task = asyncio.create_task(
+            run_slug_backfill_safe(
+                session_factory,
+                batch_size=settings.url_slug_backfill_batch_size,
+                yield_seconds=settings.url_slug_backfill_yield_seconds,
+            )
+        )
+
+    stats_task: asyncio.Task[None] | None = None
+    if settings.stats_optimize_enabled and engine.dialect.name == "sqlite":
+        stats_task = asyncio.create_task(
+            _planner_stats_loop(engine, settings.stats_optimize_interval_seconds)
+        )
+
     async def db_ready() -> bool:
         return await ping(engine)
 
     add_ready_check(app, "database", db_ready)
+    metrics_collector = CatalogMetricsCollector(service)
+    app.state.metrics_collectors.append(metrics_collector.collect)
 
     async def sync_sources() -> None:
         try:
@@ -97,6 +155,18 @@ async def lifespan(app: FastAPI):
         if backfill_task is not None:
             backfill_task.cancel()
             await asyncio.gather(backfill_task, return_exceptions=True)
+        slug_task = getattr(app.state, "url_slug_backfill_task", None)
+        if slug_task is not None:
+            slug_task.cancel()
+            await asyncio.gather(slug_task, return_exceptions=True)
+        if stats_task is not None:
+            stats_task.cancel()
+            await asyncio.gather(stats_task, return_exceptions=True)
+        if engine.dialect.name == "sqlite":
+            try:
+                await asyncio.wait_for(_optimize_planner_stats(engine), timeout=5.0)
+            except Exception:
+                logger.debug("final planner stats refresh skipped", exc_info=True)
         await parser.close()
         await engine.dispose()
 

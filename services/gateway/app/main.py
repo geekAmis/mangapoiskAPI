@@ -16,6 +16,9 @@ from .config import GatewaySettings
 from .middleware import RateLimitMiddleware
 from .notifications_api import router as notifications_router
 from .notifier_client import NotifierClient
+from .observability import GatewayObservabilityCollector
+from .prerender import router as prerender_router
+from .profile_api import router as profile_router
 from .retention import router as retention_router
 from .routing import EndpointPool, reset_client_key, set_client_key
 from .seo import router as seo_router
@@ -72,10 +75,14 @@ async def lifespan(app: FastAPI):
 
     sync_task = asyncio.create_task(registry_sync())
     warm_task = asyncio.create_task(warm_sitemap_cache(app))
+    observability = GatewayObservabilityCollector(app, settings)
+    app.state.observability_collector = observability
+    observability.start()
     logger.info("gateway ready")
     try:
         yield
     finally:
+        await observability.stop()
         sync_task.cancel()
         warm_task.cancel()
         await asyncio.gather(sync_task, warm_task, return_exceptions=True)
@@ -98,6 +105,7 @@ app.add_middleware(
     search_limit=settings.gateway_search_limit_per_minute,
     suggest_limit=settings.gateway_suggest_limit_per_minute,
     import_limit=settings.gateway_import_limit_per_minute,
+    oauth_limit=settings.gateway_oauth_limit_per_minute,
 )
 
 
@@ -134,8 +142,10 @@ async def client_identity(request, call_next):  # type: ignore[no-untyped-def]
 
 app.include_router(router)
 app.include_router(retention_router)
+app.include_router(profile_router)
 app.include_router(comments_router)
 app.include_router(seo_router)
+app.include_router(prerender_router)
 app.include_router(notifications_router)
 
 

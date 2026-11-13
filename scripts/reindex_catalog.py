@@ -20,7 +20,7 @@ from manga_common.db import create_engine, create_session_factory
 from services.catalog.app.config import CatalogSettings
 from services.catalog.app.migrations import ensure_runtime_schema
 from services.catalog.app.models import Manga
-from services.catalog.app.repository import search_backfill_stats
+from services.catalog.app.repository import rebuild_catalog_groups, search_backfill_stats
 from services.catalog.app.search_backfill import (
     BackfillConfig,
     SearchBackfillWorker,
@@ -43,6 +43,11 @@ async def run(args: argparse.Namespace) -> int:
     try:
         print("schema: applying additive changes")
         await ensure_runtime_schema(engine)
+        if args.rebuild_catalog:
+            async with factory() as session:
+                count = await rebuild_catalog_groups(session)
+                await session.commit()
+            print(f"catalog: rebuilt {count} cards")
         if args.force:
             async with factory() as session:
                 await session.execute(update(Manga).values(search_indexed=False))
@@ -98,6 +103,11 @@ def main() -> int:
         "--rebuild-fts",
         action="store_true",
         help="Rebuild the SQLite FTS mirror before normalizing (SQLite only).",
+    )
+    parser.add_argument(
+        "--rebuild-catalog",
+        action="store_true",
+        help="Force a rebuild of the materialised catalogue card tables.",
     )
     return asyncio.run(run(parser.parse_args()))
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=Run MangaPoisk observability watchdog every minute
+Documentation=file:/opt/mangapoisk-reborn/docs/OBSERVABILITY.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+Unit=mangapoisk-watchdog.service
+
+[Install]
+WantedBy=timers.target

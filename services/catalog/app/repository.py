@@ -8,24 +8,31 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from manga_common.source_models import MangaDetail, MangaSummary, SourceInfo
+from manga_common.text import build_url_slug
 from sqlalchemy import (
     Integer,
     String,
     and_,
+    bindparam,
     case,
     cast,
+    delete,
     desc,
-    exists,
     func,
     or_,
     select,
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import (
+    CatalogGroup,
+    CatalogSourceGroup,
+    CatalogState,
     Chapter,
     CrawlState,
     Manga,
@@ -67,6 +74,9 @@ SEARCH_CANDIDATE_LIMIT = 300
 SUGGESTION_CANDIDATE_LIMIT = 180
 PENDING_FALLBACK_LIMIT = 500
 SUGGESTION_PENDING_FALLBACK_LIMIT = 200
+# Bump when the card-table shape/representative semantics change so the next
+# startup rebuilds it instead of silently serving stale rows.
+CATALOG_CARDS_VERSION = 1
 
 
 async def upsert_source(session: AsyncSession, info: SourceInfo) -> Source:
@@ -129,6 +139,18 @@ async def find_manga_by_source(
 
 def _clean(value: Any) -> Any:
     return value.strip() if isinstance(value, str) else value
+
+
+def ensure_url_slug(manga: Manga) -> str:
+    """Return the stored public slug, computing it for legacy rows.
+
+    The value is written on import and by the background backfill.  Read paths
+    only *compute* a fallback: mutating the ORM row here would mark it dirty and
+    could make a later autoflush rewrite ``updated_at`` (and therefore every
+    sitemap lastmod) just because somebody opened a legacy title.
+    """
+
+    return manga.url_slug or build_url_slug(manga.title)
 
 
 def compute_group_key(title: str | None) -> str:
@@ -354,6 +376,7 @@ async def upsert_manga_detail(
     await ensure_source(session, detail.source)
     manga = await find_manga_by_source(session, detail.source, detail.source_id)
     created = manga is None
+    previous_group_key = _catalog_group_key(manga) if manga is not None else None
     if manga is None:
         manga = Manga(
             source=detail.source,
@@ -366,6 +389,11 @@ async def upsert_manga_detail(
     manga.slug = detail.slug or manga.slug
     if detail.title and (not _weak_title(detail.title) or _weak_title(manga.title)):
         manga.title = detail.title
+    # Keep the public slug stable after the first assignment.  A title change
+    # must not silently move an indexed URL; the gateway 301s stale slugs to
+    # the stored one.
+    if not manga.url_slug:
+        manga.url_slug = build_url_slug(manga.title)
     manga.title_en = detail.title_en or manga.title_en
     manga.title_alt = detail.title_alt or manga.title_alt
     manga.description = detail.description or manga.description
@@ -391,6 +419,12 @@ async def upsert_manga_detail(
         manga.chapters_count = max(int(manga.chapters_count or 0), int(detail.chapters_count))
     manga.refresh_search_fields()
     await session.flush()
+    if not manga.group_key:
+        # The slug can be empty for symbol-only titles.  A deterministic
+        # id-based key keeps the materialised table and per-group refresh in
+        # sync across SQLite/PostgreSQL UUID representations.
+        manga.group_key = f"manga-{manga.id.hex}"
+        await session.flush()
 
     new_chapters: list[Chapter] = []
     for summary in detail.chapters:
@@ -429,6 +463,10 @@ async def upsert_manga_detail(
         )
     ).one()
     manga.chapters_count = max(int(count or 0), int(detail.chapters_count or 0))
+    # Visibility is driven by real chapter rows, not by the source-reported
+    # counter.  A detail payload may advertise chapters before it contains any
+    # (or the chapter list may be paginated); such a row must stay hidden.
+    manga.has_chapters = int(count or 0) > 0
     manga.last_chapter_at = latest
     await session.flush()
 
@@ -436,6 +474,10 @@ async def upsert_manga_detail(
     await merge_group_metadata(session, manga.group_key)
     await sync_search_fts(session, manga.id, manga.search_blob)
     await refresh_group_primary_cover(session, manga.group_key)
+    current_group_key = _catalog_group_key(manga)
+    if previous_group_key and previous_group_key != current_group_key:
+        await refresh_catalog_group(session, previous_group_key, manga_id=manga.id)
+    await refresh_catalog_group(session, current_group_key, manga_id=manga.id)
     return manga, created, new_chapters
 
 
@@ -451,6 +493,7 @@ async def upsert_manga_summary(
     await ensure_source(session, summary.source)
     manga = await find_manga_by_source(session, summary.source, summary.source_id)
     created = manga is None
+    previous_group_key = _catalog_group_key(manga) if manga is not None else None
     if manga is None:
         manga = Manga(
             source=summary.source,
@@ -462,6 +505,8 @@ async def upsert_manga_summary(
     manga.slug = summary.slug or manga.slug
     if summary.title and (not _weak_title(summary.title) or _weak_title(manga.title)):
         manga.title = summary.title
+    if not manga.url_slug:
+        manga.url_slug = build_url_slug(manga.title)
     manga.title_en = summary.title_en or manga.title_en
     manga.title_alt = summary.title_alt or manga.title_alt
     manga.description = summary.description or manga.description
@@ -483,11 +528,18 @@ async def upsert_manga_summary(
     manga.last_synced_at = None if created else manga.last_synced_at
     manga.refresh_search_fields()
     await session.flush()
+    if not manga.group_key:
+        manga.group_key = f"manga-{manga.id.hex}"
+        await session.flush()
 
     await upsert_cover(session, manga, summary.poster_url or manga.poster_url)
     await merge_group_metadata(session, manga.group_key)
     await sync_search_fts(session, manga.id, manga.search_blob)
     await refresh_group_primary_cover(session, manga.group_key)
+    current_group_key = _catalog_group_key(manga)
+    if previous_group_key and previous_group_key != current_group_key:
+        await refresh_catalog_group(session, previous_group_key, manga_id=manga.id)
+    await refresh_catalog_group(session, current_group_key, manga_id=manga.id)
     return manga, created
 
 
@@ -589,16 +641,316 @@ def _manga_conditions(
             conditions.append(Manga.status_key == key)
     if not include_empty:
         # Production QA: never lead users to a card that has no chapters yet.
-        # Both checks matter: a summary may know chapters_count before the
-        # chapter rows are imported, and rows can exist while the counter is
-        # stale after a partial migration.
-        conditions.append(Manga.chapters_count > 0)
-        conditions.append(exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)))
+        # ``has_chapters`` is maintained from actual chapter rows on import and
+        # repaired by the runtime migration, so this is a cheap column check
+        # instead of a correlated EXISTS(chapters) probe for every candidate.
+        conditions.append(Manga.has_chapters.is_(True))
     return conditions
 
 
 def _group_expr():
     return func.coalesce(func.nullif(Manga.group_key, ""), cast(Manga.id, String))
+
+
+def _catalog_group_key(manga: Manga) -> str:
+    """Key used by ``catalog_groups``; mirrors :func:`_group_expr`."""
+
+    return manga.group_key or f"manga-{manga.id.hex}"
+
+
+def _catalog_group_condition(key: str, manga_id: uuid.UUID):
+    """Match the variants that belong to one materialised group.
+
+    Empty/null ``group_key`` means "one group per row" (the historical fallback
+    used by ``_group_expr``).  Such a key is the manga UUID itself, so the extra
+    ``group_key`` predicate prevents a row that has just moved to a real group
+    from being counted in its old id-based group.
+    """
+
+    if key == f"manga-{manga_id.hex}":
+        return and_(
+            Manga.id == manga_id,
+            or_(Manga.group_key.is_(None), Manga.group_key == ""),
+        )
+    return Manga.group_key == key
+
+
+def _representative_order():
+    """Pick one card per group: most chapters, then rating, then freshness."""
+
+    return (
+        desc(Manga.chapters_count),
+        case((Manga.rating.is_(None), 1), else_=0),
+        desc(Manga.rating),
+        desc(Manga.updated_at),
+        Manga.id.asc(),
+    )
+
+
+def _catalog_values(manga: Manga, key: str) -> dict[str, Any]:
+    return {
+        "group_key": key,
+        "manga_id": manga.id,
+        "title": manga.title,
+        "source": manga.source,
+        "status_key": manga.status_key,
+        "year": manga.year,
+        "genres_key": manga.genres_key,
+        "rating": manga.rating,
+        "rating_count": manga.rating_count,
+        "chapters_count": int(manga.chapters_count or 0),
+        "last_chapter_at": manga.last_chapter_at,
+        "created_at": manga.created_at,
+        "updated_at": manga.updated_at,
+    }
+
+
+async def _refresh_catalog_sources(
+    session: AsyncSession, key: str, *, manga_id: uuid.UUID
+) -> None:
+    """Refresh the per-source representatives for one group."""
+
+    await session.execute(
+        delete(CatalogSourceGroup).where(CatalogSourceGroup.group_key == key)
+    )
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite":
+        id_key = "id"
+    elif dialect == "postgresql":
+        id_key = "replace(id::text, '-', '')"
+    else:  # pragma: no cover - the project ships SQLite/PostgreSQL only
+        id_key = "cast(id as varchar)"
+    id_based = key == f"manga-{manga_id.hex}"
+    if id_based:
+        key_expr = f"'manga-' || {id_key}"
+        condition = "(id = :manga_id AND (group_key IS NULL OR group_key = ''))"
+        params = {"manga_id": manga_id}
+    else:
+        key_expr = ":group_key"
+        condition = "group_key = :group_key"
+        params = {"group_key": key}
+    await session.execute(
+        text(
+            "INSERT INTO catalog_source_groups ("
+            "group_key, source, manga_id, title, status_key, year, genres_key, "
+            "rating, rating_count, chapters_count, last_chapter_at, created_at, updated_at"
+            ") SELECT "
+            f"{key_expr}, source, id, title, status_key, year, genres_key, "
+            "rating, rating_count, chapters_count, last_chapter_at, created_at, updated_at "
+            "FROM ("
+            "SELECT source, id, title, status_key, year, genres_key, rating, "
+            "rating_count, chapters_count, last_chapter_at, created_at, updated_at, "
+            "row_number() OVER ("
+            "PARTITION BY source ORDER BY chapters_count DESC, "
+            "CASE WHEN rating IS NULL THEN 1 ELSE 0 END, "
+            "rating DESC, updated_at DESC, id ASC"
+            ") AS row_number "
+            f"FROM manga WHERE has_chapters = 1 AND {condition}"
+            ") WHERE row_number = 1"
+        ),
+        params,
+    )
+    await session.flush()
+
+
+async def refresh_catalog_group(
+    session: AsyncSession, key: str | None, *, manga_id: uuid.UUID
+) -> None:
+    """Refresh (or remove) one materialised group after a variant changed."""
+
+    if not key:
+        return
+    await _refresh_catalog_sources(session, key, manga_id=manga_id)
+    representative = await session.scalar(
+        select(Manga)
+        .where(Manga.has_chapters.is_(True), _catalog_group_condition(key, manga_id))
+        .order_by(*_representative_order())
+        .limit(1)
+    )
+    if representative is None:
+        await session.execute(delete(CatalogGroup).where(CatalogGroup.group_key == key))
+        await session.flush()
+        return
+
+    values = _catalog_values(representative, key)
+    dialect = session.get_bind().dialect.name
+    update_values = {name: value for name, value in values.items() if name != "group_key"}
+    if dialect == "sqlite":
+        statement = sqlite_insert(CatalogGroup).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[CatalogGroup.group_key], set_=update_values
+        )
+        await session.execute(statement)
+    elif dialect == "postgresql":
+        statement = postgresql_insert(CatalogGroup).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[CatalogGroup.group_key], set_=update_values
+        )
+        await session.execute(statement)
+    else:  # pragma: no cover - the project ships SQLite/PostgreSQL only
+        existing = await session.get(CatalogGroup, key)
+        if existing is None:
+            session.add(CatalogGroup(**values))
+        else:
+            for name, value in update_values.items():
+                setattr(existing, name, value)
+    await session.flush()
+
+
+async def rebuild_catalog_groups(session: AsyncSession) -> int:
+    """Rebuild the materialised card table from the current manga rows.
+
+    Used by the runtime migration and by the background reindex worker.  The
+    window function runs once over ``manga`` (78k rows) instead of on every
+    request.  The result is deterministic: the same representative ordering as
+    the live fallback, with the manga id as the final tie-breaker.
+
+    The SQL is kept as one ``INSERT ... SELECT`` instead of a Python round trip
+    over every card: on a 100k-row SQLite fixture this cuts the rebuild from
+    ~2.1s to ~1.2s while all sort indexes are maintained.
+    """
+
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite":
+        id_key = "id"
+    elif dialect == "postgresql":
+        id_key = "replace(id::text, '-', '')"
+    else:  # pragma: no cover - the project ships SQLite/PostgreSQL only
+        id_key = "cast(id as varchar)"
+
+    await session.execute(delete(CatalogGroup))
+    await session.execute(
+        text(
+            "INSERT INTO catalog_groups ("
+            "group_key, manga_id, title, source, status_key, year, genres_key, "
+            "rating, rating_count, chapters_count, last_chapter_at, created_at, updated_at"
+            ") SELECT "
+            f"CASE WHEN group_key IS NULL OR group_key = '' "
+            f"THEN 'manga-' || {id_key} ELSE group_key END, "
+            "id, title, source, status_key, year, genres_key, rating, rating_count, "
+            "chapters_count, last_chapter_at, created_at, updated_at "
+            "FROM ("
+            "SELECT id, group_key, title, source, status_key, year, genres_key, "
+            "rating, rating_count, chapters_count, last_chapter_at, created_at, updated_at, "
+            "row_number() OVER ("
+            f"PARTITION BY coalesce(nullif(group_key, ''), {id_key}) "
+            "ORDER BY chapters_count DESC, "
+            "CASE WHEN rating IS NULL THEN 1 ELSE 0 END, "
+            "rating DESC, updated_at DESC, id ASC"
+            ") AS row_number "
+            "FROM manga WHERE has_chapters = 1"
+            ") WHERE row_number = 1"
+        )
+    )
+    # Per-source cards use the same visibility and representative rules, but
+    # partition by (group, source) so a source filter keeps its variant.
+    await session.execute(text("DELETE FROM catalog_source_groups"))
+    await session.execute(
+        text(
+            "INSERT INTO catalog_source_groups ("
+            "group_key, source, manga_id, title, status_key, year, genres_key, "
+            "rating, rating_count, chapters_count, last_chapter_at, created_at, updated_at"
+            ") SELECT "
+            f"CASE WHEN group_key IS NULL OR group_key = '' "
+            f"THEN 'manga-' || {id_key} ELSE group_key END, "
+            "source, id, title, status_key, year, genres_key, rating, rating_count, "
+            "chapters_count, last_chapter_at, created_at, updated_at "
+            "FROM ("
+            "SELECT source, id, group_key, title, status_key, year, genres_key, "
+            "rating, rating_count, chapters_count, last_chapter_at, created_at, updated_at, "
+            "row_number() OVER ("
+            f"PARTITION BY coalesce(nullif(group_key, ''), {id_key}), source "
+            "ORDER BY chapters_count DESC, "
+            "CASE WHEN rating IS NULL THEN 1 ELSE 0 END, "
+            "rating DESC, updated_at DESC, id ASC"
+            ") AS row_number "
+            "FROM manga WHERE has_chapters = 1"
+            ") WHERE row_number = 1"
+        )
+    )
+    await session.flush()
+    # The tables are small (~19k rows each) and freshly rebuilt; cheap planner
+    # stats avoid a full 21s ANALYZE over manga/chapters during startup.
+    await session.execute(text("ANALYZE catalog_groups"))
+    await session.execute(text("ANALYZE catalog_source_groups"))
+    count = int(
+        (await session.scalar(text("SELECT count(*) FROM catalog_groups"))) or 0
+    )
+    state = await session.get(CatalogState, 1)
+    if state is None:
+        state = CatalogState(id=1)
+        session.add(state)
+    state.cards_version = CATALOG_CARDS_VERSION
+    state.cards_count = count
+    state.built_at = datetime.now(UTC)
+    await session.flush()
+    return count
+
+
+async def ensure_catalog_groups(session: AsyncSession) -> tuple[int, bool]:
+    """Build the card tables only when they are missing or stale.
+
+    A normal restart must not pay the one-time window/insert cost again.  The
+    marker also covers a half-initialised database where the card table exists
+    but is empty while visible manga rows do exist.
+    """
+
+    state = await session.get(CatalogState, 1)
+    cards = int(
+        (await session.scalar(text("SELECT count(*) FROM catalog_groups"))) or 0
+    )
+    source_cards = int(
+        (await session.scalar(text("SELECT count(*) FROM catalog_source_groups"))) or 0
+    )
+    visible = int(
+        (
+            await session.scalar(
+                select(func.count(Manga.id)).where(Manga.has_chapters.is_(True))
+            )
+        )
+        or 0
+    )
+    if (
+        state is not None
+        and state.cards_version == CATALOG_CARDS_VERSION
+        and cards > 0
+        and source_cards > 0
+    ):
+        return cards, False
+    if state is not None and state.cards_version == CATALOG_CARDS_VERSION and visible == 0:
+        return cards, False
+    rebuilt = await rebuild_catalog_groups(session)
+    return rebuilt, True
+
+
+def _catalog_conditions(
+    model: type[CatalogGroup] | type[CatalogSourceGroup],
+    *,
+    source: str | None = None,
+    genre: str | None = None,
+    genres: list[str] | None = None,
+    year: int | None = None,
+    status: str | None = None,
+) -> list[Any]:
+    conditions: list[Any] = []
+    if source:
+        conditions.append(model.source == source)
+    requested = (
+        parse_genre_filter(genres) if isinstance(genres, str) else list(genres or [])
+    )
+    if genre:
+        requested.append(genre)
+    for raw in requested:
+        key = canonical_genre(raw)
+        if key:
+            conditions.append(model.genres_key.contains(f"|{key}|", autoescape=True))
+    if year:
+        conditions.append(model.year == year)
+    if status:
+        key = status_key(status)
+        if key:
+            conditions.append(model.status_key == key)
+    return conditions
 
 
 def _legacy_search_text():
@@ -840,6 +1192,65 @@ async def list_manga(
             limit=limit,
         )
 
+    if not include_empty:
+        # Fast path: one pre-computed card per canonical title group.  Counts
+        # and sort orders are indexed, so this stays flat as the catalogue grows.
+        # With a source filter we use the per-source representative table so the
+        # card still comes from the requested source (the historical semantics).
+        model = CatalogSourceGroup if source else CatalogGroup
+        conditions = _catalog_conditions(
+            model,
+            source=source,
+            genre=genre,
+            genres=genres,
+            year=year,
+            status=status,
+        )
+        order_map = {
+            "popular": (
+                desc(model.rating_count),
+                desc(model.rating),
+                desc(model.updated_at),
+                desc(model.group_key),
+            ),
+            "rating": (
+                desc(model.rating),
+                desc(model.rating_count),
+                desc(model.group_key),
+            ),
+            "updated": (
+                desc(model.last_chapter_at),
+                desc(model.updated_at),
+                desc(model.group_key),
+            ),
+            "title": (model.title.asc(), model.group_key.asc()),
+            "new": (desc(model.created_at), desc(model.group_key)),
+        }
+        order_by = order_map.get(sort, order_map["popular"])
+        total = int(
+            (
+                await session.scalar(
+                    select(func.count()).select_from(model).where(*conditions)
+                )
+            )
+            or 0
+        )
+        items = list(
+            (
+                await session.scalars(
+                    select(Manga)
+                    .join(model, Manga.id == model.manga_id)
+                    .where(*conditions)
+                    .order_by(*order_by)
+                    .offset((page - 1) * limit)
+                    .limit(limit)
+                )
+            ).all()
+        )
+        return items, total
+
+    # Live grouped path for ``include_empty`` and for source filters (a source
+    # is variant-specific, while catalog_groups stores one representative).
     conditions = _manga_conditions(
         source=source,
         genre=genre,
@@ -849,11 +1260,16 @@ async def list_manga(
         include_empty=include_empty,
     )
     order_map = {
-        "popular": (desc(Manga.rating_count), desc(Manga.rating), desc(Manga.updated_at)),
-        "rating": (desc(Manga.rating), desc(Manga.rating_count)),
-        "updated": (desc(Manga.last_chapter_at), desc(Manga.updated_at)),
-        "title": (Manga.title.asc(),),
-        "new": (desc(Manga.created_at),),
+        "popular": (
+            desc(Manga.rating_count),
+            desc(Manga.rating),
+            desc(Manga.updated_at),
+            desc(Manga.id),
+        ),
+        "rating": (desc(Manga.rating), desc(Manga.rating_count), desc(Manga.id)),
+        "updated": (desc(Manga.last_chapter_at), desc(Manga.updated_at), desc(Manga.id)),
+        "title": (Manga.title.asc(), Manga.id.asc()),
+        "new": (desc(Manga.created_at), desc(Manga.id)),
     }
     order_by = order_map.get(sort, order_map["popular"])
 
@@ -875,12 +1291,7 @@ async def list_manga(
             func.row_number()
             .over(
                 partition_by=group_expr,
-                order_by=(
-                    desc(Manga.chapters_count),
-                    case((Manga.rating.is_(None), 1), else_=0),
-                    desc(Manga.rating),
-                    desc(Manga.updated_at),
-                ),
+                order_by=_representative_order(),
             )
             .label("row_number"),
         )
@@ -904,46 +1315,34 @@ async def list_manga(
 
 async def sitemap_entries(
     session: AsyncSession, *, limit: int = 50_000
-) -> list[tuple[uuid.UUID, datetime | None, datetime | None]]:
+) -> list[tuple[uuid.UUID, str | None, str, datetime | None, datetime | None]]:
     """One lightweight row per canonical title group for sitemap generation.
 
     The public sitemap used to call the paginated catalogue list ~65 times for
     a few thousand titles, which made a cold build take 79 s.  This query keeps
     the same group-dedup semantics but returns the whole set in one round trip:
-    only id and lastmod fields are selected, no cards/covers are serialized.
+    only id, slug/title and lastmod fields are selected, no cards/covers are
+    serialized.  Adult titles are excluded from the sitemap on purpose.
     """
 
-    group_expr = _group_expr()
-    ranked = (
-        select(
-            Manga.id.label("manga_id"),
-            Manga.last_chapter_at.label("last_chapter_at"),
-            Manga.updated_at.label("updated_at"),
-            func.row_number()
-            .over(
-                partition_by=group_expr,
-                order_by=(
-                    desc(Manga.chapters_count),
-                    desc(Manga.last_chapter_at),
-                    desc(Manga.updated_at),
-                ),
-            )
-            .label("row_number"),
-        )
-        .where(*_manga_conditions())
-        .subquery()
-    )
     rows = await session.execute(
         select(
-            ranked.c.manga_id,
-            ranked.c.last_chapter_at,
-            ranked.c.updated_at,
+            CatalogGroup.manga_id,
+            Manga.url_slug,
+            Manga.title,
+            CatalogGroup.last_chapter_at,
+            CatalogGroup.updated_at,
         )
-        .where(ranked.c.row_number == 1)
-        .order_by(desc(ranked.c.last_chapter_at), desc(ranked.c.updated_at))
+        .join(Manga, Manga.id == CatalogGroup.manga_id)
+        .where(Manga.adult.is_(False))
+        .order_by(
+            desc(CatalogGroup.last_chapter_at),
+            desc(CatalogGroup.updated_at),
+            desc(CatalogGroup.group_key),
+        )
         .limit(max(1, limit))
     )
-    return [(row[0], row[1], row[2]) for row in rows.all()]
+    return [(row[0], row[1], row[2], row[3], row[4]) for row in rows.all()]
 
 
 async def backfill_group_keys(session: AsyncSession) -> int:
@@ -955,10 +1354,51 @@ async def backfill_group_keys(session: AsyncSession) -> int:
         ).all()
     )
     for manga in rows:
-        manga.group_key = compute_group_key(manga.title)
+        manga.group_key = compute_group_key(manga.title) or f"manga-{manga.id.hex}"
         manga.refresh_search_fields()
         await sync_search_fts(session, manga.id, manga.search_blob)
     await session.flush()
+    if rows:
+        await rebuild_catalog_groups(session)
+    return len(rows)
+
+
+async def backfill_url_slugs(session: AsyncSession, *, batch_size: int = 500) -> int:
+    """Fill ``url_slug`` for legacy rows in one small transaction.
+
+    Idempotent and resumable: the next call simply selects the next rows whose
+    slug is still empty.  Keeping the batch bounded means a 78k-row catalogue
+    never holds the SQLite write lock for minutes during startup.
+    """
+
+    rows = list(
+        (
+            await session.scalars(
+                select(Manga)
+                .where((Manga.url_slug.is_(None)) | (Manga.url_slug == ""))
+                .order_by(Manga.id.asc())
+                .limit(max(1, batch_size))
+            )
+        ).all()
+    )
+    if not rows:
+        return 0
+    # Use a Core update with an explicit ``updated_at = updated_at`` so the
+    # TimestampMixin onupdate does not make every backfilled title look freshly
+    # modified to crawlers (and to the sitemap lastmod).
+    table = Manga.__table__
+    statement = (
+        table.update()
+        .where(table.c.id == bindparam("manga_id"))
+        .values(url_slug=bindparam("url_slug"), updated_at=table.c.updated_at)
+    )
+    await session.execute(
+        statement,
+        [
+            {"manga_id": manga.id, "url_slug": build_url_slug(manga.title)}
+            for manga in rows
+        ],
+    )
     return len(rows)
 
 
@@ -1032,7 +1472,7 @@ def _enrichment_pending_condition(now: datetime | None = None) -> Any:
     return or_(
         Manga.last_synced_at.is_(None),
         and_(
-            ~exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+            Manga.has_chapters.is_(False),
             or_(
                 Manga.last_synced_at.is_(None),
                 Manga.last_synced_at < current - timedelta(hours=ENRICHMENT_STALE_HOURS),
@@ -1154,7 +1594,7 @@ async def latest_updates(
         await session.execute(
             select(Chapter, Manga)
             .join(Manga, Chapter.manga_id == Manga.id)
-            .where(Manga.chapters_count > 0)
+            .where(Manga.has_chapters.is_(True))
             .order_by(desc(order_at), desc(Chapter.created_at))
             .limit(limit)
         )
@@ -1167,19 +1607,13 @@ async def list_genres(session: AsyncSession) -> list[dict[str, Any]]:
 
     rows = (
         await session.execute(
-            select(Manga.id, Manga.group_key, Manga.genres_key).where(
-                Manga.chapters_count > 0,
-                exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+            select(CatalogGroup.group_key, CatalogGroup.genres_key).where(
+                CatalogGroup.genres_key.is_not(None)
             )
         )
     ).all()
     counts: dict[str, int] = {}
-    seen_groups: set[str] = set()
-    for manga_id, group_key, key in rows:
-        group = group_key or str(manga_id)
-        if group in seen_groups:
-            continue
-        seen_groups.add(group)
+    for _group_key, key in rows:
         if not key:
             continue
         for slug in str(key).strip("|").split("|"):
@@ -1551,10 +1985,7 @@ async def recommend_manga(
                 related_ids.add(relation.from_manga_id)
     related_ids -= excluded_ids
 
-    conditions: list[Any] = [
-        Manga.chapters_count > 0,
-        exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
-    ]
+    conditions: list[Any] = [Manga.has_chapters.is_(True)]
     if excluded_ids:
         conditions.append(Manga.id.notin_(list(excluded_ids)))
     candidates = list(
@@ -1726,8 +2157,7 @@ async def manga_relations(
                 select(Manga)
                 .where(
                     Manga.id.in_(ids),
-                    Manga.chapters_count > 0,
-                    exists(select(Chapter.id).where(Chapter.manga_id == Manga.id)),
+                    Manga.has_chapters.is_(True),
                 )
                 .order_by(desc(Manga.rating), desc(Manga.rating_count), Manga.title.asc())
             )

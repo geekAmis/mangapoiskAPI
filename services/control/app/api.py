@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
+from manga_common.schemas import (
+    YandexCredentialsOut,
+    YandexIntegrationOut,
+    YandexIntegrationTestOut,
+    YandexIntegrationUpdate,
+)
 from manga_common.security import require_internal_token
 from pydantic import BaseModel, Field
 
@@ -14,9 +20,12 @@ from .ads import (
     AdSecretOut,
     AdsService,
 )
+from .integrations import IntegrationsService
 from .repository import audit_out, list_audit
 from .schemas import (
     AuditOut,
+    ConsoleRequest,
+    ConsoleResultOut,
     DeployRequest,
     DeployResponse,
     JobOut,
@@ -41,6 +50,49 @@ def get_service(request: Request) -> ControlService:
 
 def get_ads_service(request: Request) -> AdsService:
     return request.app.state.ads
+
+
+def get_integrations_service(request: Request) -> IntegrationsService:
+    return request.app.state.integrations
+
+
+@router.get("/integrations/yandex", response_model=YandexIntegrationOut)
+async def get_yandex_integration(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexIntegrationOut:
+    return await integrations.get_yandex()
+
+
+@router.put("/integrations/yandex", response_model=YandexIntegrationOut)
+async def update_yandex_integration(
+    payload: YandexIntegrationUpdate,
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexIntegrationOut:
+    return await integrations.update_yandex(payload)
+
+
+@router.delete("/integrations/yandex")
+async def delete_yandex_integration(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> dict[str, bool]:
+    await integrations.delete_yandex()
+    return {"ok": True}
+
+
+@router.post("/integrations/yandex/test", response_model=YandexIntegrationTestOut)
+async def test_yandex_integration(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexIntegrationTestOut:
+    return await integrations.test_yandex()
+
+
+@router.get("/integrations/yandex/credentials", response_model=YandexCredentialsOut)
+async def yandex_credentials(
+    integrations: IntegrationsService = Depends(get_integrations_service),
+) -> YandexCredentialsOut:
+    """Internal-only plaintext bundle for the gateway; never proxied publicly."""
+
+    return await integrations.yandex_credentials()
 
 
 @router.get("/ads", response_model=list[AdProviderOut])
@@ -157,6 +209,30 @@ async def server_health(
     return await service.server_health(server_id)
 
 
+@router.post("/servers/{server_id}/console", response_model=ConsoleResultOut)
+async def server_console(
+    server_id: uuid.UUID,
+    payload: ConsoleRequest,
+    service: ControlService = Depends(get_service),
+    x_admin_user: str | None = Header(default=None, alias="X-Admin-User"),
+) -> ConsoleResultOut:
+    """Restricted console: read-only allowlist commands or structured actions."""
+
+    return await service.console(server_id, payload, admin=x_admin_user)
+
+
+@router.get(
+    "/servers/{server_id}/console/history",
+    response_model=list[AuditOut],
+)
+async def server_console_history(
+    server_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    service: ControlService = Depends(get_service),
+) -> list[AuditOut]:
+    return await service.console_history(server_id, limit)
+
+
 @router.post("/servers/{server_id}/replica/promote", response_model=ReplicaActionOut)
 async def promote_replica(
     server_id: uuid.UUID, service: ControlService = Depends(get_service)
@@ -171,6 +247,14 @@ async def bootstrap_replica(
     service: ControlService = Depends(get_service),
 ) -> ReplicaActionOut:
     return await service.bootstrap_replica(server_id, payload.source_server_id)
+
+
+@router.get("/jobs", response_model=list[JobOut])
+async def jobs(
+    limit: int = Query(default=30, ge=1, le=100),
+    service: ControlService = Depends(get_service),
+) -> list[JobOut]:
+    return await service.jobs(limit)
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

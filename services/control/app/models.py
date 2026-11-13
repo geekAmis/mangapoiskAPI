@@ -85,6 +85,32 @@ class AuditLog(Base, UUIDPrimaryKey, TimestampMixin):
     details: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
 
 
+class IntegrationSecret(Base, UUIDPrimaryKey, TimestampMixin):
+    """Encrypted credential value for an external integration.
+
+    Values are encrypted with the same Fernet key as SSH/ad secrets.  Only the
+    masked hint is returned to the admin UI; the plaintext is available solely
+    through the internal credentials endpoint used by the gateway.
+    """
+
+    __tablename__ = "integration_secrets"
+    __table_args__ = (
+        UniqueConstraint("provider", "name", name="uq_integration_secrets_provider_name"),
+    )
+
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    value_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    hint: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+
+
+class IntegrationSetting(Base, UUIDPrimaryKey, TimestampMixin):
+    __tablename__ = "integration_settings"
+
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class AdProvider(Base, UUIDPrimaryKey, TimestampMixin):
     """A configured advertising integration and its slot placement.
 

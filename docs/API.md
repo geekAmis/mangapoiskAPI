@@ -52,10 +52,15 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 Query: `query`, `source`, `genre`, `year`, `status`, `sort` (`popular`, `rating`,
 `updated`, `title`, `new`), `page`, `limit`.
 
-`MangaOut` fields: `id, source, source_id, slug, title, title_en, title_alt,
-description, year, status, content_type, rating, rating_count, poster_url,
-adult, genres[], chapters_count, last_chapter_at, last_synced_at, created_at,
-updated_at`.
+`MangaOut` fields: `id, source, source_id, slug, url_slug, title, title_en,
+title_alt, description, year, status, content_type, rating, rating_count,
+poster_url, adult, genres[], chapters_count, last_chapter_at, last_synced_at,
+created_at, updated_at`.
+
+`slug` is source-owned and may be Cyrillic or change between imports. Public
+URLs use `url_slug` (`/manga/{id}-{url_slug}`); the UUID is the routing key and
+the slug is cosmetic. A legacy row may briefly expose a computed value before
+the background slug backfill stores it.
 
 ### `GET /api/v1/manga/search`
 
@@ -131,6 +136,75 @@ or `{"source":"mangapoisk","source_id":"overgeared-abs3nSd"}`.  Requires no
 auth (public import is rate-limited).  Returns `ImportMangaResponse` with
 `manga`, `imported_chapters`, `imported_pages`, `source`.
 
+## Discovery: related titles and public collections
+
+See [`DISCOVERY.md`](DISCOVERY.md) for the heuristic weights, collection rules,
+editorial workflow, caching and metrics.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/manga/{id}/related` | explicit series/links + heuristic `similar` shelf |
+| GET | `/api/v1/collections` | enabled public collections with preview items |
+| GET | `/api/v1/collections/{slug}` | one collection with up to 60 titles |
+
+### `GET /api/v1/manga/{id}/related`
+
+Query: `history` (optional comma-separated UUIDs of locally read titles, up to
+4096 characters), `limit` (6–12, default 12).
+
+Response:
+
+```json
+{
+  "series": [],
+  "related": [],
+  "similar": [
+    {
+      "id": "uuid", "title": "…", "poster_url": "…",
+      "chapters_count": 120, "rating": 8.7, "year": 2021,
+      "genre_slugs": ["fantasy", "action"]
+    }
+  ]
+}
+```
+
+`similar` is deterministic and explainable: genres 52 %, rating 18 %, year
+10 %, type 8 %, chapter-count closeness 7 %, popularity 5 %.  The seed itself,
+its source variants, empty stubs (no cover/chapter), already-read titles and
+explicit `series`/`related` entries are excluded.  Authenticated requests add
+server-side history and return `Cache-Control: private, max-age=120`; anonymous
+responses are `public, max-age=120`.
+
+### `GET /api/v1/collections`
+
+Returns `CollectionListOut`:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid", "slug": "weekly-best", "title": "Лучшее за неделю",
+      "description": "…", "kind": "smart", "rule": "weekly_best",
+      "enabled": true, "position": 10, "limit": 12, "item_count": 8,
+      "items": [{"id": "uuid", "title": "…", "poster_url": "…", "chapters_count": 42}],
+      "created_at": "…", "updated_at": "…"
+    }
+  ],
+  "total": 5
+}
+```
+
+`kind` is `smart` or `manual`.  Smart collections are generated from the
+catalogue rules (`weekly_best`, `beginners`, `completed`, `short`, `new`);
+manual collections keep the editor's order.  Duplicate source variants and
+empty cards are removed.  Empty smart shelves are omitted; an empty manual
+collection is still returned with `items: []` so the editor can see it.
+
+### `GET /api/v1/collections/{slug}`
+
+Same `CollectionOut` shape with up to 60 items.  Disabled or unknown slugs
+return `404`.  Responses are `public, max-age=60, stale-while-revalidate=300`.
+
 ## Reader
 
 | Method | Path | Description |
@@ -200,9 +274,16 @@ after archiving); metadata and covers are not evicted.
 | POST | `/api/v1/auth/refresh` | `{refresh_token}` |
 | POST | `/api/v1/auth/logout` | `{refresh_token}` |
 | GET | `/api/v1/auth/me` | Bearer token |
+| GET | `/api/v1/auth/providers` | public `{yandex: bool}` |
+| GET | `/api/v1/auth/yandex/start?next=/library` | 302 to Yandex; 503 when disabled |
+| GET | `/api/v1/auth/yandex/callback` | Yandex redirect target (302 to SPA) |
+| POST | `/api/v1/auth/yandex/exchange` | `{code}` one-time handoff → `TokenPair` |
 
 `TokenPair`: `{access_token, refresh_token, token_type:"bearer", expires_in,
 user:{id,email,display_name,role,created_at}}`.
+
+Yandex OAuth details, scopes and the production redirect URI are documented in
+[`AUTH_YANDEX.md`](AUTH_YANDEX.md).
 
 Access token lifetime: 30 minutes.  Refresh token: 30 days, rotated on use.
 Send `Authorization: Bearer <access_token>`.
@@ -252,6 +333,24 @@ The service stores a `manga_id` as an opaque UUID and keeps discussions after a
 title leaves the catalogue.  Create/duplicate cooldowns, daily limits and body
 length are configured by `COMMENTS_*` environment variables.
 
+## Profiles and gamification
+
+Public profiles are indexable by default.  Hiding the profile or any public
+section returns 404 to guests and `noindex,nofollow`; see
+[`PROFILES.md`](PROFILES.md) for XP/achievement rules and privacy semantics.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/users/{handle}` | public profile card (`handle` = username or UUID) |
+| POST | `/api/v1/users/{handle}/report` | report a profile (auth) |
+| POST | `/api/v1/users/{handle}/block` | block a profile (auth) |
+| DELETE | `/api/v1/users/{handle}/block` | unblock (auth) |
+| GET | `/api/v1/me/profile` | owner profile with exact timestamps |
+| PATCH | `/api/v1/me/profile` | update display name, username, bio, privacy |
+| GET | `/api/v1/me/events?limit=30` | owner activity feed |
+| GET | `/api/v1/admin/profile-reports` | moderation queue (admin) |
+| PATCH | `/api/v1/admin/profile-reports/{id}` | `resolved` or `dismissed` (admin) |
+
 ## Admin / server manager
 
 The web admin panel is at `/admin` (direct URL, no nav link).  Login uses
@@ -280,6 +379,17 @@ unaffected.
 | POST | `/api/v1/admin/registry/sync` | refresh health and switch gateway routes |
 | POST | `/api/v1/admin/failover` | same, explicit manual failover |
 | GET | `/api/v1/admin/audit` | recent admin actions |
+| GET | `/api/v1/admin/collections` | list all collections, including hidden |
+| POST | `/api/v1/admin/collections` | create a collection |
+| PATCH | `/api/v1/admin/collections/{id}` | edit fields/rule/visibility/position |
+| DELETE | `/api/v1/admin/collections/{id}` | delete a collection |
+| POST | `/api/v1/admin/collections/{id}/items` | add a title `{manga_id}` |
+| DELETE | `/api/v1/admin/collections/{id}/items/{manga_id}` | remove a title |
+| PUT | `/api/v1/admin/collections/{id}/order` | `{manga_ids:[...]}` |
+| GET | `/api/v1/admin/collections/audit?limit=100` | editorial audit trail |
+| GET | `/api/v1/admin/analytics/surfaces?days=30` | impression/click/CTR by surface |
+| GET/PUT/DELETE | `/api/v1/admin/integrations/yandex` | masked Yandex OAuth settings / set / delete |
+| POST | `/api/v1/admin/integrations/yandex/test` | presence/shape check, no secret echo |
 | GET | `/api/v1/admin/sources/{code}/cookie` | cookie status only (never the value) |
 | PUT | `/api/v1/admin/sources/{code}/cookie` | set/replace a cookie; `{cookie:""}` clears it |
 | POST | `/api/v1/admin/sources/{code}/cookie/har` | extract and store a cookie from an uploaded `.har` |
@@ -330,7 +440,17 @@ network in production and should not be exposed publicly.
 - `GET /internal/manga?...`, `GET /internal/manga/{id}`
 - `GET /internal/manga/by-source/{source}/{source_id}`
 - `GET /internal/manga/{id}/chapters`
-- `GET /internal/sitemap?limit=50000` (canonical title ids + lastmod for the gateway sitemap)
+- `GET /internal/manga/{id}/related?history=&limit=`
+- `GET /internal/manga/{id}/similar?history=&limit=`
+- `GET /internal/collections?limit=`
+- `GET /internal/collections/{slug}?limit=`
+- `GET /internal/admin/collections`, `POST /internal/admin/collections`
+- `PATCH/DELETE /internal/admin/collections/{id}`
+- `POST/DELETE /internal/admin/collections/{id}/items...`
+- `PUT /internal/admin/collections/{id}/order`
+- `GET /internal/admin/collections/audit?limit=`
+- `GET /internal/sitemap?limit=50000` (canonical title id, `url_slug`, title and
+  lastmod for the gateway sitemap; adult titles are excluded)
 - `POST /internal/manga/import`
 - `PATCH /internal/manga/{id}/chapters/{chapter_id}/pages`
 - `POST /internal/maintenance/refresh?limit=5`
@@ -340,9 +460,11 @@ network in production and should not be exposed publicly.
 
 - `POST /internal/auth/register|login|refresh|logout`
 - `GET /internal/auth/me`
+- `GET|POST /internal/auth/yandex/{status,start,callback,deny,exchange}`
 - `GET/POST/DELETE /internal/users/{user_id}/bookmarks...`
 - `GET/PUT /internal/users/{user_id}/progress...`
 - `GET/PUT /internal/users/{user_id}/settings`
+- `GET /internal/analytics/surfaces?days=30`
 
 ### Media
 

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from manga_common.db import Base
+from manga_common.db import Base, create_session_factory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+from .repository import CATALOG_CARDS_VERSION, ensure_catalog_groups
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,17 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 )
             if "genres_key" not in manga_columns:
                 await connection.execute(text("ALTER TABLE manga ADD COLUMN genres_key TEXT"))
+            if "url_slug" not in manga_columns:
+                await connection.execute(
+                    text("ALTER TABLE manga ADD COLUMN url_slug VARCHAR(255)")
+                )
+            if "has_chapters" not in manga_columns:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE manga ADD COLUMN has_chapters "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
             if "enrichment_attempts" not in manga_columns:
                 await connection.execute(
                     text(
@@ -96,6 +109,27 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
             )
             await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_url_slug ON manga (url_slug)")
+            )
+            await connection.execute(
+                text(
+                    "UPDATE manga SET group_key = 'manga-' || id "
+                    "WHERE group_key IS NULL OR group_key = ''"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_visible_group "
+                    "ON manga (group_key) WHERE has_chapters = 1"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_visible_chapters_group "
+                    "ON manga (chapters_count, group_key) WHERE has_chapters = 1"
+                )
+            )
+            await connection.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_manga_search_pending "
                     "ON manga (search_indexed) WHERE search_indexed = 0"
@@ -108,6 +142,18 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)"
                 )
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_rating_count ON manga (rating_count)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_chapters_count "
+                    "ON manga (chapters_count)"
+                )
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_created_at ON manga (created_at)")
             )
             await connection.execute(
                 text(
@@ -161,6 +207,15 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS genres_key TEXT")
+            )
+            await connection.execute(
+                text("ALTER TABLE manga ADD COLUMN IF NOT EXISTS url_slug VARCHAR(255)")
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE manga ADD COLUMN IF NOT EXISTS "
+                    "has_chapters BOOLEAN NOT NULL DEFAULT FALSE"
+                )
             )
             for column in _SEARCH_COLUMNS:
                 await connection.execute(
@@ -216,6 +271,27 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                 text("CREATE INDEX IF NOT EXISTS ix_manga_group_key ON manga (group_key)")
             )
             await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_url_slug ON manga (url_slug)")
+            )
+            await connection.execute(
+                text(
+                    "UPDATE manga SET group_key = 'manga-' || replace(id::text, '-', '') "
+                    "WHERE group_key IS NULL OR group_key = ''"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_visible_group "
+                    "ON manga (group_key) WHERE has_chapters"
+                )
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_visible_chapters_group "
+                    "ON manga (chapters_count, group_key) WHERE has_chapters"
+                )
+            )
+            await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_status_key ON manga (status_key)")
             )
             await connection.execute(
@@ -226,6 +302,18 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
             )
             await connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_manga_last_synced_at ON manga (last_synced_at)")
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_rating_count ON manga (rating_count)")
+            )
+            await connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_manga_chapters_count "
+                    "ON manga (chapters_count)"
+                )
+            )
+            await connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_manga_created_at ON manga (created_at)")
             )
             await connection.execute(
                 text(
@@ -288,6 +376,32 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                     "WHERE search_indexed = 0 AND search_blob <> ''"
                 )
             )
+            # Repair visibility once per card-table version.  The first
+            # statement fixes stale true flags after chapter cleanup; the
+            # second only probes the handful of source summaries that claim
+            # chapters but never received chapter rows (20 rows in production).
+            state_version = (
+                await connection.execute(
+                    text("SELECT cards_version FROM catalog_state WHERE id = 1")
+                )
+            ).scalar()
+            if state_version != CATALOG_CARDS_VERSION:
+                await connection.execute(
+                    text(
+                        "UPDATE manga SET has_chapters = 0 "
+                        "WHERE has_chapters = 1 "
+                        "AND NOT EXISTS (SELECT 1 FROM chapters "
+                        "WHERE chapters.manga_id = manga.id)"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE manga SET has_chapters = 1 "
+                        "WHERE has_chapters = 0 AND chapters_count > 0 "
+                        "AND EXISTS (SELECT 1 FROM chapters "
+                        "WHERE chapters.manga_id = manga.id)"
+                    )
+                )
         else:
             await connection.execute(
                 text(
@@ -295,5 +409,36 @@ async def ensure_runtime_schema(engine: AsyncEngine) -> None:
                     "WHERE search_indexed = false AND search_blob <> ''"
                 )
             )
+            state_version = (
+                await connection.execute(
+                    text("SELECT cards_version FROM catalog_state WHERE id = 1")
+                )
+            ).scalar()
+            if state_version != CATALOG_CARDS_VERSION:
+                await connection.execute(
+                    text(
+                        "UPDATE manga SET has_chapters = false "
+                        "WHERE has_chapters AND NOT EXISTS "
+                        "(SELECT 1 FROM chapters WHERE chapters.manga_id = manga.id)"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE manga SET has_chapters = true "
+                        "WHERE NOT has_chapters AND chapters_count > 0 AND EXISTS "
+                        "(SELECT 1 FROM chapters WHERE chapters.manga_id = manga.id)"
+                    )
+                )
 
-    logger.info("catalogue runtime schema is up to date")
+    # Build the small canonical card table once.  The window function runs over
+    # manga rows only; it never joins the 1.7M chapter table, and the result is
+    # ~19k rows in production.  Subsequent imports update a single group.
+    factory = create_session_factory(engine)
+    async with factory() as session:
+        rebuilt, did_rebuild = await ensure_catalog_groups(session)
+        await session.commit()
+    logger.info(
+        "catalogue runtime schema is up to date (%s cards, rebuilt=%s)",
+        rebuilt,
+        did_rebuild,
+    )

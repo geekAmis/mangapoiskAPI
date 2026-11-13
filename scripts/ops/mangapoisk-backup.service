@@ -7,7 +7,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
+EnvironmentFile=-/opt/mangapoisk-reborn/.env
 ExecStart=/usr/local/sbin/mangapoisk-backup.sh
 Nice=10
 IOSchedulingClass=idle
-TimeoutStartSec=3h
+TimeoutStartSec=6h

@@ -10,9 +10,18 @@ from fastapi.testclient import TestClient
 from services.gateway.app import seo
 
 
-def _manga(manga_id: str, *, chapters: int, updated: datetime | None = None) -> SimpleNamespace:
+def _manga(
+    manga_id: str,
+    *,
+    chapters: int,
+    updated: datetime | None = None,
+    title: str = "",
+    url_slug: str | None = None,
+) -> SimpleNamespace:
     return SimpleNamespace(
         id=manga_id,
+        title=title,
+        url_slug=url_slug,
         chapters_count=chapters,
         last_chapter_at=updated,
         updated_at=updated,
@@ -73,13 +82,19 @@ def test_sitemap_lists_only_titles_with_chapters_and_caches() -> None:
         {
             1: SimpleNamespace(
                 items=[
-                    _manga("with-chapters", chapters=3, updated=datetime(2026, 1, 2)),
-                    _manga("empty-title", chapters=0),
+                    _manga(
+                        "with-chapters",
+                        chapters=3,
+                        updated=datetime(2026, 1, 2),
+                        title="С главами",
+                        url_slug="s-glavami",
+                    ),
+                    _manga("empty-title", chapters=0, title="Пусто"),
                 ],
                 has_next=True,
             ),
             2: SimpleNamespace(
-                items=[_manga("second-page", chapters=1)],
+                items=[_manga("second-page", chapters=1, title="Second", url_slug="second")],
                 has_next=False,
             ),
         }
@@ -89,10 +104,25 @@ def test_sitemap_lists_only_titles_with_chapters_and_caches() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/xml")
     assert "<loc>https://example.test/</loc>" in response.text
-    assert "<loc>https://example.test/manga/with-chapters</loc>" in response.text
-    assert "<loc>https://example.test/manga/second-page</loc>" in response.text
+    assert "<loc>https://example.test/terms</loc>" in response.text
+    assert "<loc>https://example.test/privacy</loc>" in response.text
+    assert "<loc>https://example.test/dmca</loc>" in response.text
+    assert "<loc>https://example.test/contacts</loc>" in response.text
+    assert "<loc>https://example.test/age</loc>" in response.text
+    assert "<loc>https://example.test/manga/with-chapters-s-glavami</loc>" in response.text
+    assert "<loc>https://example.test/manga/second-page-second</loc>" in response.text
     assert "empty-title" not in response.text
     assert "<lastmod>2026-01-02</lastmod>" in response.text
+    assert "<lastmod>2026-11-13</lastmod>" in response.text
+
+    root = ElementTree.fromstring(response.text)
+    ns = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+    locs = [item.text or "" for item in root.findall(f"{ns}url/{ns}loc")]
+    assert all(loc.startswith("https://") for loc in locs)
+    assert all(
+        "/manga/" not in loc or "-" in loc.rsplit("/", 1)[-1]
+        for loc in locs
+    )
 
     catalog = client.app.state.catalog
     calls_after_first_request = catalog.calls
@@ -170,7 +200,7 @@ def test_sitemap_cold_generation_uses_one_catalog_query_and_is_bounded() -> None
     assert catalog.page_calls == 0
     assert cold_seconds < 5.0
     root = ElementTree.fromstring(response.text)
-    assert len(root.findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url")) == 6_503
+    assert len(root.findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url")) == 6_508
 
     started = time.perf_counter()
     warm = client.get("/sitemap.xml")
@@ -187,7 +217,15 @@ async def test_warm_sitemap_cache_populates_cache() -> None:
 
     class WarmCatalog:
         async def sitemap_entries(self) -> list[SimpleNamespace]:
-            return [SimpleNamespace(id="warm-1", last_chapter_at=None, updated_at=None)]
+            return [
+                SimpleNamespace(
+                    id="warm-1",
+                    title="Warm",
+                    url_slug="warm",
+                    last_chapter_at=None,
+                    updated_at=None,
+                )
+            ]
 
     app = SimpleNamespace(
         state=SimpleNamespace(
@@ -197,5 +235,5 @@ async def test_warm_sitemap_cache_populates_cache() -> None:
     )
     await seo.warm_sitemap_cache(app, attempts=1)
     assert seo._cache is not None  # type: ignore[attr-defined]
-    assert "<loc>https://example.test/manga/warm-1</loc>" in seo._cache[1]  # type: ignore[attr-defined]
+    assert "<loc>https://example.test/manga/warm-1-warm</loc>" in seo._cache[1]  # type: ignore[attr-defined]
     seo.reset_sitemap_cache()

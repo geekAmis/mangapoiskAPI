@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
+import secrets
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -13,16 +15,20 @@ from typing import Any, Literal
 from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from manga_common.auth import constant_time_compare, create_access_token
 from manga_common.errors import (
+    AppError,
     NotFoundError,
     RateLimitError,
+    ServiceUnavailableError,
     UnauthorizedError,
     UpstreamError,
     ValidationError,
 )
+from manga_common.metrics import metrics
 from manga_common.schemas import (
+    AuthProvidersOut,
     BookmarkCreate,
     BookmarkOut,
     ChapterDetailOut,
@@ -50,6 +56,11 @@ from manga_common.schemas import (
     SuggestResponse,
     TokenPair,
     UserOut,
+    YandexCredentials,
+    YandexExchangeRequest,
+    YandexIntegrationOut,
+    YandexIntegrationTestOut,
+    YandexIntegrationUpdate,
 )
 from manga_common.security import (
     UserClaims,
@@ -137,6 +148,55 @@ def _chapter_label(chapter: ChapterOut) -> str:
     if chapter.title:
         parts.append(chapter.title)
     return ", ".join(parts)
+
+
+def _chapter_number(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return float(value.replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _progress_activity(
+    manga: MangaDetailOut,
+    chapter: ChapterOut,
+    *,
+    page: int,
+    total_pages: int,
+) -> dict[str, Any]:
+    """Trusted catalogue metadata for XP, achievements and the public feed.
+
+    A title counts as finished only when the chapter belongs to the title, it is
+    the last numeric chapter and the reader reached the page count reported by
+    the catalogue.  The client's ``total_pages`` is deliberately ignored for
+    completion: otherwise a forged ``total_pages=1`` could farm finish XP.
+    Non-numeric extras/specials are ignored rather than guessed at.
+    """
+
+    numbers = [
+        number
+        for number in (_chapter_number(item.number) for item in manga.chapters)
+        if number is not None
+    ]
+    current = _chapter_number(chapter.number)
+    trusted_pages = max(0, int(chapter.page_count or 0))
+    completed = bool(
+        chapter.manga_id == manga.id
+        and current is not None
+        and numbers
+        and current >= max(numbers)
+        and trusted_pages > 0
+        and page >= trusted_pages
+    )
+    return {
+        "manga_title": manga.title,
+        "chapter_label": _chapter_label(chapter),
+        "poster_url": manga.poster_url,
+        "genres": list(manga.genres or [])[:8],
+        "title_completed": completed,
+    }
 
 
 class PrepareChapterOut(BaseModel):
@@ -1034,6 +1094,287 @@ async def me(request: Request, user: UserClaims = Depends(require_user)) -> User
 
 
 # ---------------------------------------------------------------------------
+# Yandex ID OAuth 2.0 (#67)
+# ---------------------------------------------------------------------------
+
+_YANDEX_FLOW_COOKIE = "mp_yandex_flow"
+_YANDEX_FLOW_PATH = "/api/v1/auth/yandex"
+_YANDEX_CACHE_TTL_SECONDS = 60.0
+_yandex_cache: dict[str, Any] = {"at": 0.0, "value": None}
+
+
+def _reset_yandex_credentials_cache() -> None:
+    """Test hook: force the next request to re-read control/env."""
+
+    _yandex_cache["at"] = 0.0
+    _yandex_cache["value"] = None
+
+
+async def _resolve_yandex_credentials(
+    request: Request,
+) -> tuple[YandexCredentials, bool]:
+    """Resolve Yandex credentials from control DB, then env bootstrap.
+
+    The DB always wins when it contains at least one value.  Environment values
+    are a bootstrap fallback for the first deploy and for control outages; they
+    are never merged with DB values.
+    """
+
+    now = time.monotonic()
+    cached = _yandex_cache.get("value")
+    if cached is not None and now - float(_yandex_cache.get("at", 0.0)) < _YANDEX_CACHE_TTL_SECONDS:
+        return cached
+
+    settings = request.app.state.settings
+    db = None
+    try:
+        db = await control(request).yandex_credentials()
+    except Exception as exc:
+        logger.warning(
+            "yandex credentials unavailable from control: %s", type(exc).__name__
+        )
+
+    if db is not None and db.source == "db":
+        credentials = YandexCredentials(
+            client_id=db.client_id or "",
+            client_secret=db.client_secret or "",
+            redirect_uri=db.redirect_uri or "",
+        )
+        enabled = bool(db.enabled and credentials.complete)
+    else:
+        credentials = YandexCredentials(
+            client_id=settings.yandex_client_id or "",
+            client_secret=settings.yandex_client_secret or "",
+            redirect_uri=settings.yandex_redirect_uri or "",
+        )
+        enabled = bool(settings.yandex_oauth_enabled and credentials.complete)
+
+    value = (credentials, enabled)
+    _yandex_cache["at"] = now
+    _yandex_cache["value"] = value
+    return value
+
+
+_YANDEX_ERROR_MAP = {
+    "oauth_state_invalid": "state_invalid",
+    "yandex_not_configured": "not_configured",
+    "yandex_email_missing": "email_missing",
+    "yandex_code_invalid": "code_invalid",
+    "yandex_unavailable": "yandex_unavailable",
+    "yandex_profile_invalid": "yandex_unavailable",
+    "yandex_link_conflict": "account_conflict",
+    "account_disabled": "account_disabled",
+    "invalid_return_url": "invalid_request",
+}
+
+
+def _flow_hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _safe_next_path(raw: str | None) -> str:
+    value = (raw or "/").strip()
+    if (
+        not value.startswith("/")
+        or value.startswith("//")
+        or "\\" in value
+        or len(value) > 512
+    ):
+        return "/"
+    return value
+
+
+def _yandex_finish_base(settings: Any, platform: str) -> str:
+    if platform == "app":
+        return f"{settings.yandex_app_return_url.rstrip('/')}/auth/yandex/finish"
+    return f"{settings.public_web_url.rstrip('/')}/auth/yandex/finish"
+
+
+def _yandex_fallback_finish(settings: Any, error: str) -> str:
+    return f"{settings.public_web_url.rstrip('/')}/auth/yandex/finish?error={quote(error, safe='')}"
+
+
+def _yandex_redirect(url: str) -> RedirectResponse:
+    response = RedirectResponse(url, status_code=302)
+    response.delete_cookie(_YANDEX_FLOW_COOKIE, path=_YANDEX_FLOW_PATH)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+def _yandex_error_code(exc: AppError) -> str:
+    return _YANDEX_ERROR_MAP.get(exc.code, "yandex_failed")
+
+
+@router.get("/auth/providers", response_model=AuthProvidersOut)
+async def auth_providers(request: Request) -> AuthProvidersOut:
+    """Public login-provider flags; never returns client ids or secrets."""
+
+    _, enabled = await _resolve_yandex_credentials(request)
+    return AuthProvidersOut(yandex=enabled)
+
+
+@router.get("/auth/yandex/start")
+async def yandex_start(
+    request: Request,
+    next: str = Query(default="/", max_length=512),
+    platform: Literal["web", "app"] = Query(default="web", alias="client"),
+) -> RedirectResponse:
+    """Begin the Yandex OAuth flow with a server-side single-use state."""
+
+    _, _, library, _ = clients(request)
+    credentials, enabled = await _resolve_yandex_credentials(request)
+    if not enabled:
+        raise ServiceUnavailableError(
+            "Вход через Яндекс не настроен", code="yandex_not_configured"
+        )
+
+    settings = request.app.state.settings
+    flow_secret = secrets.token_urlsafe(32)
+    result = await library.yandex_start(
+        {
+            "return_url": _yandex_finish_base(settings, platform),
+            "next_path": _safe_next_path(next),
+            "browser_hash": _flow_hash(flow_secret),
+            "credentials": credentials.model_dump(),
+        }
+    )
+    response = RedirectResponse(result.authorize_url, status_code=302)
+    response.set_cookie(
+        _YANDEX_FLOW_COOKIE,
+        flow_secret,
+        max_age=settings.yandex_state_ttl_seconds,
+        httponly=True,
+        samesite="lax",
+        secure=urlparse(settings.public_web_url).scheme == "https",
+        path=_YANDEX_FLOW_PATH,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@router.get("/auth/yandex/callback")
+async def yandex_callback(
+    request: Request,
+    code: str | None = Query(default=None, max_length=512),
+    state: str | None = Query(default=None, max_length=256),
+    error: str | None = Query(default=None, max_length=64),
+) -> RedirectResponse:
+    """Yandex redirect target.
+
+    The callback only ever redirects to the SPA with a short-lived one-time
+    handoff code (or a sanitized error code).  Access/refresh tokens are never
+    placed in the URL, and authorization codes are never logged.
+    """
+
+    settings = request.app.state.settings
+    _, _, library, _ = clients(request)
+    credentials, enabled = await _resolve_yandex_credentials(request)
+    flow_secret = request.cookies.get(_YANDEX_FLOW_COOKIE)
+    browser_hash = _flow_hash(flow_secret) if flow_secret else None
+
+    if not enabled:
+        return _yandex_redirect(_yandex_fallback_finish(settings, "not_configured"))
+
+    if error:
+        target = _yandex_fallback_finish(settings, "access_denied")
+        if state:
+            try:
+                denied = await library.yandex_deny(
+                    {"state": state, "browser_hash": browser_hash}
+                )
+                target = denied.redirect_url
+            except Exception as exc:
+                logger.info(
+                    "yandex deny callback rejected: %s",
+                    exc.code if isinstance(exc, AppError) else type(exc).__name__,
+                )
+        return _yandex_redirect(target)
+
+    if not code or not state:
+        return _yandex_redirect(_yandex_fallback_finish(settings, "invalid_request"))
+
+    try:
+        result = await library.yandex_callback(
+            {
+                "state": state,
+                "code": code,
+                "browser_hash": browser_hash,
+                "user_agent": request.headers.get("User-Agent", "")[:512] or None,
+                "ip_address": _client_ip(request),
+                "credentials": credentials.model_dump(),
+            }
+        )
+    except AppError as exc:
+        logger.info("yandex callback failed: code=%s", exc.code)
+        return _yandex_redirect(_yandex_fallback_finish(settings, _yandex_error_code(exc)))
+    except Exception:
+        logger.warning("yandex callback failed unexpectedly")
+        return _yandex_redirect(_yandex_fallback_finish(settings, "yandex_unavailable"))
+
+    separator = "&" if "?" in result.redirect_url else "?"
+    target = (
+        f"{result.redirect_url}{separator}"
+        f"code={quote(result.handoff_code, safe='')}"
+    )
+    return _yandex_redirect(target)
+
+
+@router.post("/auth/yandex/exchange", response_model=TokenPair)
+async def yandex_exchange(
+    request: Request, payload: YandexExchangeRequest
+) -> TokenPair:
+    """Exchange a one-time handoff code for the normal project token pair."""
+
+    _, _, library, _ = clients(request)
+    return await library.yandex_exchange(payload.code)
+
+
+# ---------------------------------------------------------------------------
+# Admin integrations
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/integrations/yandex", response_model=YandexIntegrationOut)
+async def admin_yandex_integration(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> YandexIntegrationOut:
+    """Masked Yandex integration state for the admin panel."""
+
+    return await control(request).yandex_integration()
+
+
+@router.put("/admin/integrations/yandex", response_model=YandexIntegrationOut)
+async def admin_update_yandex_integration(
+    request: Request,
+    payload: YandexIntegrationUpdate,
+    user: UserClaims = Depends(require_admin),
+) -> YandexIntegrationOut:
+    result = await control(request).update_yandex_integration(payload)
+    _reset_yandex_credentials_cache()
+    return result
+
+
+@router.delete("/admin/integrations/yandex")
+async def admin_delete_yandex_integration(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> dict[str, bool]:
+    await control(request).delete_yandex_integration()
+    _reset_yandex_credentials_cache()
+    return {"ok": True}
+
+
+@router.post("/admin/integrations/yandex/test", response_model=YandexIntegrationTestOut)
+async def admin_test_yandex_integration(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> YandexIntegrationTestOut:
+    """Presence/shape check only; never calls Yandex or echoes secrets."""
+
+    return await control(request).test_yandex_integration()
+
+
+# ---------------------------------------------------------------------------
 # Library
 # ---------------------------------------------------------------------------
 
@@ -1132,9 +1473,15 @@ async def upsert_progress(
     user: UserClaims = Depends(require_user),
 ) -> ProgressOut:
     catalog, _, library, _ = clients(request)
-    await catalog.manga(str(payload.manga_id))
-    await catalog.chapter_meta(str(payload.chapter_id))
-    item = await library.upsert_progress(_authorization(request), payload.model_dump(mode="json"))
+    manga = await catalog.manga(str(payload.manga_id))
+    chapter = await catalog.chapter_meta(str(payload.chapter_id))
+    activity = _progress_activity(
+        manga, chapter, page=payload.page, total_pages=payload.total_pages
+    )
+    # Catalogue values always win over anything supplied by the client.
+    body = payload.model_dump(mode="json")
+    body.update(activity)
+    item = await library.upsert_progress(_authorization(request), body)
     enriched = await _enrich_progress(catalog, [item])
     return enriched[0]
 
@@ -1474,6 +1821,58 @@ async def admin_media_stats(
     return await media.stats()
 
 
+def _fallback_observability() -> dict[str, Any]:
+    snapshot = metrics.snapshot()
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "http": snapshot["http"],
+        "db": snapshot["db"],
+        "services": {},
+        "crawler": {
+            "backlog": 0,
+            "backlog_by_source": {},
+            "sources": [],
+            "stalled": [],
+            "failed": [],
+        },
+        "media": {},
+        "backup": {
+            "configured": False,
+            "status": "missing",
+            "last_success_at": None,
+            "last_attempt_at": None,
+            "age_seconds": None,
+            "last_error": None,
+        },
+        "disk": {},
+        "alerts": [],
+    }
+
+
+@router.get("/admin/observability")
+async def admin_observability(
+    request: Request, user: UserClaims = Depends(require_admin)
+) -> dict[str, Any]:
+    """HTTP percentiles, 5xx rate, SQLite locks, backup age and active alerts.
+
+    The collector refreshes every 30 seconds; a cold process performs one
+    refresh on demand so the first admin page load is not empty.
+    """
+
+    snapshot = getattr(request.app.state, "observability_snapshot", None)
+    if snapshot is None:
+        collector = getattr(request.app.state, "observability_collector", None)
+        if collector is not None:
+            try:
+                snapshot = await collector.refresh()
+            except Exception:
+                logger.exception("admin observability refresh failed")
+                snapshot = _fallback_observability()
+        else:
+            snapshot = _fallback_observability()
+    return snapshot
+
+
 @router.get("/admin/crawl", response_model=CrawlerStatusOut)
 async def admin_crawl_status(
     request: Request, user: UserClaims = Depends(require_admin)
@@ -1566,6 +1965,29 @@ async def admin_server_health(
     return await control(request).server_health(str(server_id))
 
 
+@router.post("/admin/servers/{server_id}/console")
+async def admin_server_console(
+    request: Request,
+    server_id: uuid.UUID,
+    payload: dict[str, Any],
+    user: UserClaims = Depends(require_admin),
+) -> dict[str, Any]:
+    """Restricted console: allowlisted read-only commands or actions only."""
+
+    admin = str(user.raw.get("username") or "admin")[:64]
+    return await control(request).console(str(server_id), payload, admin=admin)
+
+
+@router.get("/admin/servers/{server_id}/console/history")
+async def admin_server_console_history(
+    request: Request,
+    server_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    user: UserClaims = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    return await control(request).console_history(str(server_id), limit)
+
+
 @router.post("/admin/servers/{server_id}/replica/promote")
 async def admin_promote_replica(
     request: Request,
@@ -1588,6 +2010,15 @@ async def admin_bootstrap_replica(
     except (TypeError, ValueError) as exc:
         raise ValidationError("Некорректный исходный сервер") from exc
     return await control(request).bootstrap_replica(str(server_id), str(source_id))
+
+
+@router.get("/admin/jobs")
+async def admin_jobs(
+    request: Request,
+    limit: int = Query(default=30, ge=1, le=100),
+    user: UserClaims = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    return await control(request).jobs(limit)
 
 
 @router.get("/admin/jobs/{job_id}")

@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     false,
     text,
 )
@@ -46,12 +47,32 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_manga_source_source_id"),
         Index("ix_manga_source_slug", "source", "slug"),
+        Index("ix_manga_url_slug", "url_slug"),
         Index("ix_manga_title", "title"),
         Index("ix_manga_group_key", "group_key"),
         Index("ix_manga_rating", "rating"),
+        Index("ix_manga_rating_count", "rating_count"),
+        Index("ix_manga_chapters_count", "chapters_count"),
+        Index("ix_manga_created_at", "created_at"),
         Index("ix_manga_last_chapter_at", "last_chapter_at"),
         Index("ix_manga_last_synced_at", "last_synced_at"),
         Index("ix_manga_enrichment_retry_at", "enrichment_retry_at"),
+        # Partial indexes keep catalogue visibility queries cheap without a
+        # correlated EXISTS(chapters) probe for every row (#68).  The composite
+        # variant also serves representative selection inside one group.
+        Index(
+            "ix_manga_visible_group",
+            "group_key",
+            sqlite_where=text("has_chapters = 1"),
+            postgresql_where=text("has_chapters"),
+        ),
+        Index(
+            "ix_manga_visible_chapters_group",
+            "chapters_count",
+            "group_key",
+            sqlite_where=text("has_chapters = 1"),
+            postgresql_where=text("has_chapters"),
+        ),
         # Partial index keeps the "rows still waiting for search indexing"
         # query cheap even with a 100k-row catalogue.
         Index(
@@ -66,7 +87,13 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         String(64), ForeignKey("sources.code", ondelete="RESTRICT"), nullable=False
     )
     source_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    # ``slug`` is the source-provided slug.  It is not used for public URLs:
+    # sources emit Cyrillic/romanised slugs and can change them at will.
     slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Stable, transliterated URL slug (``/manga/{id}-{url_slug}``).  The UUID
+    # remains the routing key; this column is cosmetic and SEO-facing.  It is
+    # nullable only while the background backfill walks an existing database.
+    url_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     title_en: Mapped[str | None] = mapped_column(String(512), nullable=True)
     title_alt: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -100,6 +127,12 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     group_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # True only after at least one chapter row exists for this variant.  A
+    # search summary may know a source-reported ``chapters_count`` before the
+    # detail import, but such a row must never become an empty catalogue card.
+    has_chapters: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     enrichment_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -144,6 +177,118 @@ class Manga(Base, UUIDPrimaryKey, TimestampMixin):
         for name, value in fields.items():
             setattr(self, name, value)
         self.search_indexed = True
+
+
+class CatalogGroup(Base):
+    """One materialised catalogue card per canonical title group.
+
+    The live ``manga`` table has one row per source variant (78k rows in
+    production) while the catalogue exposes ~19k deduplicated cards.  Recomputing
+    that grouping with a window function on every request is what made the list
+    endpoint slow.  This table stores the chosen representative plus only the
+    fields needed for filtering, sorting and pagination; the full row is joined
+    by primary key for the 20-100 cards actually returned.
+
+    A group is present only while at least one of its variants has chapter rows
+    (``Manga.has_chapters``).  ``include_empty`` remains a rare QA/admin path and
+    still uses the dynamic grouped query, so the public contract is unchanged.
+    """
+
+    __tablename__ = "catalog_groups"
+    __table_args__ = (
+        # The column order mirrors the list sort modes so SQLite can walk the
+        # index backwards for the all-DESC popular/rating/updated/new sorts.
+        Index(
+            "ix_catalog_groups_popular",
+            "rating_count",
+            "rating",
+            "updated_at",
+            "group_key",
+        ),
+        Index(
+            "ix_catalog_groups_rating",
+            "rating",
+            "rating_count",
+            "group_key",
+        ),
+        Index(
+            "ix_catalog_groups_updated",
+            "last_chapter_at",
+            "updated_at",
+            "group_key",
+        ),
+        Index("ix_catalog_groups_title", "title", "group_key"),
+        Index("ix_catalog_groups_new", "created_at", "group_key"),
+    )
+
+    group_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    manga_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    status_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    genres_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rating_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CatalogSourceGroup(Base):
+    """Per-source representative for a canonical title group.
+
+    ``catalog_groups`` answers the unfiltered listing with one card per group.
+    A source filter is variant-specific: the card should be the best variant
+    *from that source*, not another source's representative.  This small table
+    keeps that historical semantics without a window query over ``manga`` on
+    every request.  Rows exist only for sources that currently have at least one
+    visible variant in the group.
+    """
+
+    __tablename__ = "catalog_source_groups"
+    __table_args__ = (
+        Index(
+            "ix_catalog_source_groups_source_popular",
+            "source",
+            "rating_count",
+            "rating",
+            "updated_at",
+            "group_key",
+        ),
+        Index(
+            "ix_catalog_source_groups_source_title",
+            "source",
+            "title",
+            "group_key",
+        ),
+    )
+
+    group_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    manga_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    status_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    genres_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rating_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chapters_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_chapter_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CatalogState(Base):
+    """Marker for the materialised catalogue card tables."""
+
+    __tablename__ = "catalog_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    cards_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cards_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Chapter(Base, UUIDPrimaryKey, TimestampMixin):
@@ -250,6 +395,73 @@ class CrawlState(Base, UUIDPrimaryKey, TimestampMixin):
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class MangaCollection(Base, UUIDPrimaryKey, TimestampMixin):
+    """Public discovery collection shown on the home page and its own route.
+
+    ``smart`` collections are generated deterministically from the catalogue by
+    :mod:`services.catalog.app.discovery`; their rule never changes through the
+    public API.  ``manual`` collections are curated in the admin panel and keep
+    an explicit, ordered item list.  Both kinds share the same public contract.
+    """
+
+    __tablename__ = "manga_collections"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_manga_collections_slug"),
+        Index("ix_manga_collections_public", "enabled", "position"),
+    )
+
+    slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    rule: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    limit: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
+
+    items: Mapped[list[MangaCollectionItem]] = relationship(
+        back_populates="collection", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class MangaCollectionItem(Base, UUIDPrimaryKey, TimestampMixin):
+    """One explicitly ordered title in a curated collection."""
+
+    __tablename__ = "manga_collection_items"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "manga_id", name="uq_manga_collection_items_pair"),
+        Index("ix_manga_collection_items_order", "collection_id", "position"),
+    )
+
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga_collections.id", ondelete="CASCADE"), nullable=False
+    )
+    manga_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("manga.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    collection: Mapped[MangaCollection] = relationship(back_populates="items")
+
+
+class CollectionAudit(Base, UUIDPrimaryKey, TimestampMixin):
+    """Editorial audit trail for collection changes.
+
+    Only collection ids, slugs/titles and manga ids/titles are stored; no
+    administrator identity, IP address or free-form text is recorded.
+    """
+
+    __tablename__ = "manga_collection_audit"
+    __table_args__ = (
+        Index("ix_manga_collection_audit_action", "action"),
+        Index("ix_manga_collection_audit_created", "created_at"),
+    )
+
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
 
 
 class MangaRelation(Base, UUIDPrimaryKey, TimestampMixin):

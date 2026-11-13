@@ -1,51 +1,236 @@
-# Legal and source compliance
+# Юридические страницы, возрастной gate и запуск
 
-MangaPoisk Reborn is a **catalogue and reader interface**.  It does not claim
-ownership of manga, translations or images.  All metadata and page images
-belong to their respective rights holders and are fetched from third-party
-sources.
+Статус: реализовано в ветке `feat/legal-pages` (worktree `legal`), production
+не затронут. Дата редакции документов: **13 ноября 2026**.
 
-## Rules the code follows
+Документ описывает, что уже есть в коде, что владелец обязан заполнить до
+публичного запуска и как обрабатывать жалобы. Это не юридическая
+консультация: перед запуском владелец должен проверить тексты с юристом
+своей юрисдикции.
 
-1. **Public data only.**  Adapters read public catalogue pages/APIs.  No
-   account takeover, no paywall/DRM circumvention, no CAPTCHA solving.
-2. **No bypass.**  If a source blocks the service, the adapter returns an
-   error.  We do not rotate proxies to evade blocks.
-3. **Politeness.**  Per-source token bucket (default 30 req/min), exponential
-   backoff, `Retry-After`, aggressive caching.  Do not lower these limits
-   without a good reason.
-4. **Minimal personal data.**  The library stores email, display name, password
-   hash, bookmarks and reading progress.  No IP/cookie tracking.  Refresh
-   tokens are stored as SHA-256 hashes.
-5. **Optional cookies.**  Operators may supply their own session cookies for
-   sources that show more content to signed-in users.  Cookies stay in `.env`,
-   are never logged and are never sent to clients.
-6. **Attribution.**  The UI shows the source name and a link to the source
-   page.  Exports include a footer identifying MangaPoisk Reborn.
+## 1. Что реализовано
 
-## Notice for rights holders
+| Маршрут | Содержание | robots |
+| --- | --- | --- |
+| `/terms` | Пользовательское соглашение: статус агрегатора, аккаунт, допустимое использование, права правообладателей, 18+, ответственность | `index,follow` |
+| `/privacy` | Политика конфиденциальности: данные, цели, cookie/localStorage, реклама, сроки, права, удаление аккаунта | `index,follow` |
+| `/dmca` | Жалобы правообладателей: что указать, сроки, удаление записи/ссылки/адаптера, counter-notice | `index,follow` |
+| `/contacts` | Владелец, контактный email, юрисдикция, каналы связи | `index,follow` |
+| `/age` | 18+, правила взрослого контента, самоподтверждение и отзыв | `index,follow` (с видимым предупреждением) |
 
-If you believe content indexed by this software infringes your rights, open an
-issue in the repository or contact the repository owner.  The project can
-remove a source adapter or a catalogue entry without affecting the rest of the
-stack.  Because the software is self-hosted, the operator of a deployment is
-responsible for its content and for complying with local law.
+Дополнительно:
 
-## Software licence
+- футер содержит все пять ссылок; на мобильных футер теперь показывается,
+  чтобы документы были доступны без авторизации;
+- на страницах входа и регистрации есть ссылки на соглашение, политику и
+  правила 18+;
+- регистрация требует два чекбокса: «Мне 18 лет или больше» и принятие
+  terms/privacy. Существующие аккаунты не блокируются и не требуют повторного
+  подтверждения;
+- cookie/ads consent banner: «Принять» / «Отклонить», ключ
+  `localStorage['mp-ads-consent']` (`granted` / `denied`), не блокирует
+  чтение; ссылка «Настройки cookie» в футере и блок управления на `/privacy`
+  позволяют изменить или отозвать выбор;
+- `AdSlot` подписан на изменение согласия: слоты с `require_consent=true`
+  скрыты до `granted`, после изменения выбор перезапрашивает конфиг рекламы;
+- самоподтверждение 18+ хранится в `localStorage['mp-age-confirmed']` и
+  отзывается на `/age`; это декларация в браузере, не проверка личности;
+- SEO: title/description/canonical, JSON-LD `WebPage`, sitemap;
+- `/age` сознательно оставлен `index,follow`: это содержательная публичная
+  страница правил, а не doorway. Предупреждение 18+ видно на странице.
 
-The source code is MIT licensed (see `LICENSE`).  The licence does **not**
-grant rights to third-party manga, translations, images or trademarks.
+## 2. Что владелец обязан заполнить до публичного запуска
 
-## Operator checklist
+Юридические данные встраиваются в web-сборку на этапе `npm run build` /
+`docker compose build web`. После изменения значений web-образ нужно
+пересобрать и перезапустить.
 
-- [ ] Set a real `JWT_SECRET`, `INTERNAL_TOKEN`, `ADMIN_PASSWORD` and
-      `CONTROL_SECRET_KEY`.
-- [x] Put the stack behind HTTPS (the public demo uses
-      `https://85.192.37.58.nip.io:8443`; HTTP `:8088` is a compatibility
-      fallback and should be disabled for a new deployment).
-- [ ] Keep `MEDIA_ALLOWED_HOSTS` restricted to the CDNs you actually use.
-- [ ] Configure backups and a retention policy for exports.
-- [ ] Respect a source's request to stop indexing.
-- [ ] Do not enable sources whose robots.txt forbids the API. Remanga requires
-      explicit permission from the site and an operator decision
-      (`PARSER_ENABLED_SOURCES`); keep it opt-in and honour robots.
+| Переменная | Обязательно | Что указать | Если пусто |
+| --- | --- | --- | --- |
+| `LEGAL_CONTACT_EMAIL` | Да | Реальный рабочий email для жалоб, вопросов о данных и удаления аккаунта | На страницах видна заглушка «Не указано — заполните LEGAL_CONTACT_EMAIL перед запуском» |
+| `LEGAL_OWNER_NAME` | Да | ФИО ИП/самозанятого или полное название юрлица — владельца сайта | Заглушка «Не указано — заполните LEGAL_OWNER_NAME перед запуском» |
+| `LEGAL_JURISDICTION` | Да для публичного запуска | Страна/регион регистрации владельца, например «Российская Федерация» | Заглушка «Не указано — заполните LEGAL_JURISDICTION перед запуском» |
+| `VITE_SITE_URL` | Рекомендуется | Публичный origin для canonical/OG, например `https://mangapoisk.example` | SPA использует `window.location.origin` |
+
+Дополнительно владелец должен:
+
+- [ ] проверить, что email реально принимает письма и настроен антиспам;
+- [ ] указать полное юридическое название, ИНН/ОГРН (если применимо) и
+      почтовый адрес, если этого требует закон юрисдикции;
+- [ ] проверить тексты с юристом: 152-ФЗ для РФ, DMCA для США, местные
+      требования к 18+ контенту;
+- [ ] определить сроки хранения аналитики и серверных журналов и настроить
+      автоматическую очистку (в текущей версии сроки описаны как политика
+      оператора, а не жёстко зашиты в код);
+- [ ] указать перечень рекламных сетей и ссылки на их политики, если реклама
+      включается;
+- [ ] проверить, что для взрослого контента выполняются требования
+      маркировки/возрастного ограничения юрисдикции;
+- [ ] проверить, что домен и HTTPS настроены, а `PUBLIC_WEB_URL` совпадает с
+      публичным адресом;
+- [ ] удалить или заменить тестовые данные и тестовые аккаунты.
+
+### Где задавать значения
+
+- локально: `apps/web/.env` (Vite подхватывает `LEGAL_*` и `VITE_LEGAL_*`)
+  или переменные окружения перед `npm run build`;
+- Docker: корневой `.env`, затем `docker compose build web && docker compose
+  up -d web`. `docker-compose.yml` передаёт значения как build args, а
+  `apps/web/Dockerfile` — в `ENV` сборочной стадии;
+- CI/деплой: secrets/variables окружения сборки. Не коммитьте реальный email
+  в репозиторий, если он не должен быть публичным.
+
+Проверка после сборки:
+
+```bash
+curl -s https://<host>/contacts | grep -o 'LEGAL_CONTACT_EMAIL' || true
+# В HTML SPA текст появится после выполнения JS; для проверки используйте
+# браузер/Playwright и ищите «Не указано — заполните LEGAL_CONTACT_EMAIL».
+```
+
+## 3. Как обрабатывать жалобы правообладателей
+
+1. **Приём.** Письмо на `LEGAL_CONTACT_EMAIL` с темой «DMCA / Удаление
+   контента». Зафиксируйте дату, заявителя и URL.
+2. **Проверка полноты.** Нужны: заявитель и его роль, произведение/права,
+   точные URL на сайте, описание нарушения, подтверждение добросовестности,
+   подтверждение точности и подпись. Если данных нет — запросите уточнение.
+3. **Проверка по каталогу.** Найдите запись по URL/ID, проверьте, доступна ли
+   она через наш интерфейс и на каком источнике основана.
+4. **Действие.** При подтверждении: скрыть запись каталога, убрать ссылку,
+   отключить адаптер источника или очистить кэш. Для повторных нарушений —
+   отключить источник.
+5. **Ответ.** Подтверждение получения — до 3 рабочих дней; решение по
+   полному уведомлению — до 10 рабочих дней; сложные случаи — до 30
+   календарных дней с уведомлением о продлении.
+6. **Учёт.** Сохраните обезличенную запись: дата, URL, решение, кто
+   обработал. Не храните лишние персональные данные заявителя.
+7. **Counter-notice.** Если удаление ошибочно, заявитель может ответить на
+   письмо; до разрешения спора запись остаётся скрытой. Мы не обязаны
+   восстанавливать контент без подтверждения прав.
+
+Шаблон ответа:
+
+```text
+Здравствуйте!
+
+Мы получили ваше обращение от <дата> по URL <...>.
+Запись <...> скрыта из каталога / ссылка отключена / адаптер источника
+отключён. Кэш будет очищен в течение <срок>.
+
+Если вы считаете, что решение ошибочно, ответьте на это письмо и приложите
+подтверждение прав.
+
+— <владелец>, <контактный email>
+```
+
+## 4. Удаление аккаунта и права пользователей
+
+Самостоятельного удаления аккаунта в интерфейсе пока нет. Процедура:
+
+1. пользователь пишет с зарегистрированного email на `LEGAL_CONTACT_EMAIL`
+   с темой «Удаление аккаунта»;
+2. оператор подтверждает владение email (ответ с того же адреса — уже
+   достаточное подтверждение; при сомнениях можно запросить повторный вход);
+3. удаляются аккаунт, закладки, прогресс, настройки, push-подписки и
+   комментарии; активные refresh-токены отзываются;
+4. ответ пользователю; резервные копии могут содержать данные до 30 дней,
+   если иное не требуется законом.
+
+Для запросов на доступ/исправление используйте тот же канал. Срок ответа —
+30 дней или срок, установленный законом.
+
+## 5. Возрастной gate
+
+- Регистрация требует явного чекбокса 18+; без него форма не отправляется.
+- `/age` содержит кнопку «Мне 18 лет или больше» и «Отозвать подтверждение».
+  Значение хранится только в браузере (`mp-age-confirmed`), не отправляется
+  на сервер и не является проверкой личности.
+- На странице взрослого тайтла показывается напоминание 18+, если возраст не
+  подтверждён. Оно не скрывает каталог и не блокирует обычное чтение.
+- Обложки 18+ по умолчанию размываются настройкой `blur_adult_posters`.
+- Владелец обязан проверить местные требования к маркировке и доступу к
+  взрослому контенту. Для отдельных юрисдикций может потребоваться более
+  строгая проверка возраста, чем локальная декларация.
+
+## 6. Cookie и реклама
+
+- Баннер показывается, пока в `localStorage` нет выбора; «Принять» пишет
+  `granted`, «Отклонить» — `denied`.
+- Баннер не modal и не блокирует прокрутку/чтение. Он появляется в
+  `AppLayout`; читалка (`/read/*`, `/reader/*`) вне layout, поэтому чтение не
+  прерывается.
+- `AdSlot` использует `require_consent`: при отказе такие слоты не
+  показываются. Слоты без `require_consent` могут показываться, поэтому для
+  production-сетей оператор должен ставить `require_consent=true`.
+- Изменить выбор: ссылка «Настройки cookie» в футере или блок на `/privacy`.
+- Сторонние рекламные сети могут ставить cookie только после разрешения; их
+  перечень и политики обязан опубликовать оператор.
+
+## 7. Процедура обновления документов
+
+1. Измените текст в `apps/web/src/pages/{Terms,Privacy,Dmca,Contacts,Age}Page.tsx`.
+2. Обновите дату в `apps/web/src/lib/legal.ts` (`LEGAL_UPDATED`,
+   `LEGAL_UPDATED_LABEL`).
+3. Обновите дату в `LEGAL_SITEMAP_PAGES` (`services/gateway/app/seo.py`).
+4. Прогоните `npm run typecheck`, `npm test`, `npm run build`; при изменении
+   sitemap — `pytest tests/gateway/test_seo.py`.
+5. Проверьте `/contacts` и `/privacy` в браузере: не осталось ли заглушек,
+   корректны ли email и юрисдикция.
+6. Для существенных изменений (состав данных, реклама, удаление аккаунта)
+   уведомите пользователей в интерфейсе и, если требуется, по email.
+7. Пересоберите и задеплойте web-образ. Не редактируйте `dist` вручную.
+
+Рекомендуемый цикл проверки: раз в 12 месяцев, при изменении закона,
+подключении новой рекламной сети, изменении состава данных или процедуры
+удаления аккаунта.
+
+## 8. Тесты и QA
+
+Автотесты:
+
+- `apps/web/tests/legal-pages.test.tsx` — рендер пяти маршрутов, ссылки
+  футера, env-заглушка, SEO/JSON-LD, обязательные чекбоксы регистрации;
+- `apps/web/tests/consent.test.tsx` — сохранение accept/reject, скрытие
+  `require_consent` рекламы до согласия, отзыв 18+;
+- `tests/gateway/test_seo.py` — legal URL в sitemap.
+
+Команды:
+
+```bash
+cd apps/web
+npm run typecheck
+npm test
+npm run build
+cd ../..
+pytest
+ruff check .
+```
+
+QA (production-подобная сборка через Vite dev server + перехват API,
+Chromium 1254):
+
+| Проверка | 1440×900 | 390×844 |
+| --- | --- | --- |
+| `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age` | 5/5, 1 `<h1>`, canonical/robots/JSON-LD | 5/5, 1 `<h1>`, canonical/robots/JSON-LD |
+| Горизонтальный overflow | 0 | 0 |
+| Ошибки консоли / необработанные исключения | 0 / 0 | 0 / 0 |
+| Consent banner | виден, не блокирует скролл, отказ сохраняется | виден, не блокирует скролл, отказ сохраняется |
+| Регистрация | 2 чекбокса, 2 ошибки без согласия | 2 чекбокса, 2 ошибки без согласия |
+| 18+ подтверждение/отзыв | `1` → удалено | `1` → удалено |
+| Axe WCAG 2.1 AA (legal doc + footer) | 0 нарушений (paper и midnight) | 0 нарушений (paper) |
+
+Скриншоты: `docs/screenshots/legal-terms-desktop-1440.png`,
+`legal-privacy-mobile-390.png`, `legal-age-mobile-390.png`,
+`legal-consent-desktop-1440.png`, `legal-register-desktop.png`,
+`legal-register-mobile.png`.
+
+## 9. Исходный код и лицензия
+
+Проект распространяется по лицензии MIT (см. `LICENSE`). Лицензия не даёт
+прав на сторонние произведения, переводы, изображения и товарные знаки.
+Код следует правилам: публичные данные, без обхода блокировок/DRM, вежливые
+лимиты запросов, минимальный набор персональных данных, атрибуция источника.
+
+Если правообладатель просит прекратить индексацию источника, отключите
+адаптер или запись каталога; это не требует изменения остальной платформы.

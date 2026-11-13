@@ -70,6 +70,13 @@ class SearchBackfillStats(BaseModel):
     last_error: str | None = None
 
 
+class ListLatencyStats(BaseModel):
+    samples: int = 0
+    p50_ms: float = 0.0
+    p95_ms: float = 0.0
+    max_ms: float = 0.0
+
+
 class CatalogStats(BaseModel):
     manga: int
     chapters: int
@@ -78,6 +85,9 @@ class CatalogStats(BaseModel):
     pending_enrichment: int = 0
     retrying_enrichment: int = 0
     search_backfill: SearchBackfillStats | None = None
+    # Rolling in-process list latency.  Additive: older gateway/frontend
+    # clients ignore it; `/api/v1/admin/catalogue` returns the raw stats object.
+    list_latency: ListLatencyStats | None = None
 
 
 class SourceSyncRequest(BaseModel):
@@ -212,3 +222,37 @@ class RelationsIn(BaseModel):
 
 class RelationsOut(BaseModel):
     linked: int = 0
+
+
+CollectionKind = Literal["smart", "manual"]
+CollectionRule = Literal["weekly_best", "beginners", "completed", "short", "new"]
+
+
+class CollectionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=128)
+    slug: str | None = Field(default=None, max_length=64)
+    description: str = Field(default="", max_length=512)
+    kind: CollectionKind = "manual"
+    rule: CollectionRule | None = None
+    enabled: bool = True
+    position: int = Field(default=100, ge=0, le=10_000)
+    limit: int = Field(default=12, ge=1, le=60)
+
+
+class CollectionUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=128)
+    slug: str | None = Field(default=None, min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=512)
+    kind: CollectionKind | None = None
+    rule: CollectionRule | None = None
+    enabled: bool | None = None
+    position: int | None = Field(default=None, ge=0, le=10_000)
+    limit: int | None = Field(default=None, ge=1, le=60)
+
+
+class CollectionItemIn(BaseModel):
+    manga_id: UUID
+
+
+class CollectionOrderIn(BaseModel):
+    manga_ids: list[UUID] = Field(default_factory=list, max_length=200)

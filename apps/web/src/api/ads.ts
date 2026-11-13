@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import { API_BASE } from './client';
 import { useAuthStore } from '../stores/auth';
 
@@ -34,21 +35,55 @@ export interface AdSlotConfig {
 }
 
 export const ADS_CONSENT_KEY = 'mp-ads-consent';
+export const ADS_CONSENT_EVENT = 'mp-ads-consent-change';
+export const ADS_CONSENT_OPEN_EVENT = 'mp-ads-consent-open';
 
-/** The future CMP/consent banner calls this; ads stay hidden until granted. */
+export type AdsConsent = 'granted' | 'denied' | null;
+
+export function getAdsConsent(): AdsConsent {
+  try {
+    const value = localStorage.getItem(ADS_CONSENT_KEY);
+    return value === 'granted' || value === 'denied' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function setAdsConsent(granted: boolean): void {
   try {
     localStorage.setItem(ADS_CONSENT_KEY, granted ? 'granted' : 'denied');
   } catch {
-    /* приватный режим */
+    /* приватный режим: выбор живёт только до перезагрузки */
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(ADS_CONSENT_EVENT));
   }
 }
 
 export function hasAdsConsent(): boolean {
-  try {
-    return localStorage.getItem(ADS_CONSENT_KEY) === 'granted';
-  } catch {
-    return false;
+  return getAdsConsent() === 'granted';
+}
+
+export function subscribeAdsConsent(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const onChange = () => listener();
+  window.addEventListener(ADS_CONSENT_EVENT, onChange);
+  window.addEventListener('storage', onChange);
+  return () => {
+    window.removeEventListener(ADS_CONSENT_EVENT, onChange);
+    window.removeEventListener('storage', onChange);
+  };
+}
+
+/** Reactive consent state for banners, privacy controls and ad slots. */
+export function useAdsConsent(): AdsConsent {
+  return useSyncExternalStore(subscribeAdsConsent, getAdsConsent, () => null);
+}
+
+/** Open the consent banner again from the footer or the privacy page. */
+export function openAdsConsentBanner(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(ADS_CONSENT_OPEN_EVENT));
   }
 }
 

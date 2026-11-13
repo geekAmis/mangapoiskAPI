@@ -218,15 +218,18 @@ curl -fsS -H "X-Internal-Token: $INTERNAL_TOKEN" http://127.0.0.1:8102/internal/
 
 ## 5. Алерты и пороги
 
-Пока алертов нет. Минимальный набор (внешний uptime-монитор + systemd
-`OnFailure` + скрипт, дергающий notifier):
+Реализовано: in-process метрики `/metrics` (Prometheus text/JSON), агрегатор
+gateway, systemd `OnFailure` + watchdog-таймер, отправка в Telegram через
+notifier. Подробности, список метрик и runbook — в
+[`docs/OBSERVABILITY.md`](OBSERVABILITY.md). Внешний uptime-монитор всё ещё
+рекомендуется для случая недоступности самого хоста.
 
 | Алерт | Условие | Severity | Действие |
 |---|---|---|---|
 | Сервис down | `/health` != 200 > 2 мин | critical | рестарт по runbook, эскалация |
 | 5xx rate | > 2 % за 5 мин | high | смотреть gateway/upstream, откат |
-| p95 latency | > 2 с за 10 мин | high | проверить catalog/DB |
-| Диск | > 80 % warning, > 90 % critical | high | очистка кэша/экспортов, расширение |
+| p95 latency | > 2 с за 5 мин | high | проверить catalog/DB |
+| Диск | > 80 % warning, > 90 % critical | critical/warning | очистка кэша/экспортов, расширение |
 | RAM available | < 10 % или OOM-kill | high | рестарт control, добавить swap/RAM |
 | Backup fail | нет успешного бэкапа > 26 ч | critical | проверить timer/restic |
 | Crawler stalled | running и нет прогресса > 30 мин | high | source 403/404, circuit breaker |
@@ -238,8 +241,15 @@ curl -fsS -H "X-Internal-Token: $INTERNAL_TOKEN" http://127.0.0.1:8102/internal/
 | TLS | < 14 дней | warning | certbot renew |
 | Replica lag | snapshot старше 10 мин | high | проверить replica/sync |
 
-Notifier уже умеет `POST /internal/notify` (Telegram). Достаточно добавить
-`ALERT_CHAT_ID`/второй канал и не смешивать с лентой новых глав.
+Алерты идут в `POST /internal/notify/alert` (Telegram) с `ALERT_CHAT_ID`, а
+при его отсутствии — в `TELEGRAM_CHAT_ID`; лента новых глав остаётся
+отдельной. Watchdog дедуплицирует сообщения на 1 час, повторяет
+недоставленные алерты и не рассылает ложные «восстановлено», если источник
+метрик недоступен. Установка и проверка: `docs/OBSERVABILITY.md`.
+
+Watchdog покрывает сервисы, 5xx/p95, диск, backup, crawler, SQLite lock и
+media/archive. RAM, TLS и replica lag пока остаются ручными/внешними
+проверками — для них нужен отдельный exporter или uptime-монитор.
 
 ---
 
@@ -786,9 +796,19 @@ Catalog snapshots are large; a pull can take several minutes on a slow link.
 
 Backup scope:
 
-* SQLite databases snapshotted with `.backup` (online backup API) and checked
-  with `PRAGMA integrity_check`: `catalog.db`, `library.db`, `comments.db`,
+* SQLite databases snapshotted with `VACUUM INTO` and checked with
+  `PRAGMA integrity_check`: `catalog.db`, `library.db`, `comments.db`,
   `control.db`, `archives.db` (media metadata).
+* `VACUUM INTO` holds one read transaction for the whole copy, so it is safe
+  while services write and does **not** restart when the source changes.  The
+  old `.backup` (online backup API) restarts on every source write and can loop
+  forever against a busy crawler (issue #66).  A best-effort
+  `PRAGMA wal_checkpoint(PASSIVE)` runs before each copy; it never blocks
+  writers and may be a no-op while another reader holds the WAL.
+* Each database copy gets 3 attempts with a 60 s busy timeout.  If the SQLite
+  build does not understand `VACUUM INTO`, the script logs a warning and falls
+  back to `.backup`.  The log records source/destination size, copy duration,
+  integrity-check duration, and total duration per database.
 * `chapter-archives/` (user-downloaded ZIPs).
 * Critical config: `.env`, `env/*.env`, nginx config, systemd units,
   `source-cookies.json`, `/etc/ufw`, `/etc/ssh/sshd_config`, `/etc/fstab`,
@@ -809,6 +829,20 @@ Backup scope:
 * Retention: **7 daily + 4 weekly + 3 monthly** (`restic forget --prune` at most
   once per UTC day).
 * Weekly repository check: `restic check --read-data-subset=2%`.
+* Service hardening: `TimeoutStartSec=6h`, `Nice=10`,
+  `IOSchedulingClass=idle`.  The 6 h timeout is a safety net, not an expected
+  runtime: a normal run on the 1.6 GB catalog is about 7 minutes (≈20 s
+  `VACUUM INTO`, ≈4 min integrity check, ≈2 min restic upload).
+* Weekly WAL truncation: the first backup of each ISO week runs
+  `PRAGMA wal_checkpoint(TRUNCATE)` on `catalog.db` when its WAL is at least
+  64 MiB.  It runs after the database copies, uses a 60 s busy timeout, records
+  the ISO week in `/var/lib/mangapoisk-backup/last-wal-truncate`, and logs a
+  warning without failing the backup if the checkpoint is busy.  This prevents
+  a multi-hundred-MiB WAL from persisting after a long-running reader.
+* Incident #66 (2026-11-12): the 12:16 UTC run hung in `.backup` and was killed
+  by the old 3 h timeout.  The first verified run with `VACUUM INTO` created
+  snapshot `5d5ce2a0` at 21:09 UTC in 421 s; all five databases passed
+  `PRAGMA integrity_check`.
 * Log: `/var/log/mangapoisk-backup.log`, rotated weekly by
   `/etc/logrotate.d/mangapoisk-backup` (8 rotations).  Also in the journal:
   `journalctl -u mangapoisk-backup`.
@@ -816,13 +850,25 @@ Backup scope:
 ### 4.3 Manual commands
 
 ```bash
-# run a backup now
-/usr/local/sbin/mangapoisk-backup.sh
+# run a backup now through systemd (same path as the timer)
+systemctl start --no-block mangapoisk-backup.service
+journalctl -u mangapoisk-backup -n 100 --no-pager
 tail -50 /var/log/mangapoisk-backup.log
+
+# or run the script directly while debugging
+/usr/local/sbin/mangapoisk-backup.sh
 
 # inspect snapshots
 restic -r sftp:mpbackup-jump:/srv/mangapoisk-backups/restic \
   --password-file /root/.restic-password snapshots
+
+# confirm a snapshot contains all five databases and the manifest
+restic -r sftp:mpbackup-jump:/srv/mangapoisk-backups/restic \
+  --password-file /root/.restic-password ls latest \
+  | grep -E '(/db/|MANIFEST)'
+restic -r sftp:mpbackup-jump:/srv/mangapoisk-backups/restic \
+  --password-file /root/.restic-password dump latest \
+  /var/tmp/mangapoisk-backup/MANIFEST.txt
 
 # timer status
 systemctl list-timers mangapoisk-backup.timer
@@ -908,6 +954,29 @@ encrypted restic repository belongs there.
 Each directory contains UFW state, iptables/ip6tables, listening sockets,
 systemd unit list, `/etc/fstab`, sysctl, SSH config and the app config tar
 (secrets included, mode 0600).
+
+### 4.7 Rollback: backup script and unit (issue #66)
+
+The pre-change files are saved per run under
+`/root/backup-fix66/<UTC-timestamp>/` with a `SHA256SUMS` file.  To roll back
+the `VACUUM INTO` change without touching the timer or the restic repository:
+
+```bash
+systemctl stop mangapoisk-backup.service
+
+install -m 755 /root/backup-fix66/<UTC-timestamp>/mangapoisk-backup.sh \
+  /usr/local/sbin/mangapoisk-backup.sh
+install -m 644 /root/backup-fix66/<UTC-timestamp>/mangapoisk-backup.service \
+  /etc/systemd/system/mangapoisk-backup.service
+
+systemctl daemon-reload
+systemctl start --no-block mangapoisk-backup.service
+journalctl -u mangapoisk-backup -n 50 --no-pager
+```
+
+This restores the previous `.backup` behaviour and the 3 h timeout.  It does not
+delete any restic snapshot, so backups taken with `VACUUM INTO` remain valid.
+The forward fix can be reinstalled from `scripts/ops/` at any time.
 
 ## 5. Memory and swap
 

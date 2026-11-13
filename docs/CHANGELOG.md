@@ -5,17 +5,46 @@ SemVer.
 
 ## [Unreleased]
 
+- Public reader profiles (#47): `/u/{username}`, XP/levels/ranks,
+  achievements, activity feed, privacy controls and profile moderation.
+- Catalogue list performance (#68): `has_chapters` visibility flag, materialised
+  `catalog_groups`/`catalog_source_groups` card tables, bounded SQLite
+  `PRAGMA optimize`, slow-query logging and p50/p95 list latency in admin stats.
+  Measured p95 7.9 ms internal / 8.9 ms public at 100k manga rows and 1.76M
+  chapters.
 - Shared database or replication for multi-node catalogue/library failover.
 - Alembic migrations for destructive schema changes.
 - Redis-backed global rate limiting.
 - S3-compatible media storage.
 - More verified sources (MangaDex/ReadManga).
 
+### Fixed
+
+- Reader resume prompt (#81): “Продолжить со страницы N?” now appears only
+  after a 1.8 s idle grace period and only when the saved page is more than one
+  page ahead. Wheel, touch, scroll, page changes, page clicks and keyboard
+  navigation dismiss it immediately, so a slow progress response cannot show it
+  over a chapter the user has already started reading.
+
+### Security
+
+- Bumped `Pillow` to `>=13.0.0,<14` in the media service and `cryptography` to
+  `>=50.0.2,<51` in the control and notifier services (#77). This resolves the
+  40 Pillow 12.3.0 and 7 cryptography 47.0.0 advisories reported by
+  `pip-audit`; the updated environment reports 0 known vulnerabilities.
+- Added `docs/SECURITY.md` and `docs/DEPENDENCIES.md` with the reporting
+  process, audit cadence, pinning rules and upgrade checklist.
+
 ## [1.2.0] — unreleased (EPIC #48)
 
 ### Added
 
 - SEO: per-route metadata, JSON-LD, `robots.txt` and a dynamic sitemap (#38).
+- SEO v2 (#38): stable `/manga/{id}-{slug}` URLs with 301 from old/stale
+  slugs, transliterated `url_slug` with a batched background backfill,
+  gateway prerender for crawlers/social bots (HTML card + JSON-LD, humans keep
+  the SPA), server-side noindex for reader/search/admin/library, slug-only
+  sitemap excluding 18+, and env-driven Google/Yandex verification tags.
 
 ## [1.1.0] — 2026-11-12 (draft)
 

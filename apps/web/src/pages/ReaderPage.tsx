@@ -16,6 +16,7 @@ import { AdSlot } from '../components/ads/AdSlot';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { QueryCacheBridge } from '../components/QueryCacheBridge';
+import { ReaderResumePrompt } from '../components/ReaderResumePrompt';
 import { DancingLoader, DancingSpinner } from '../components/DancingLoader';
 import { useReaderZoom } from '../components/ReaderZoom';
 import { RecommendationShelf } from '../components/RecommendationShelf';
@@ -33,10 +34,12 @@ import {
   sourceLabel,
 } from '../lib/format';
 import { useDebouncedCallback, useReducedMotion } from '../lib/hooks';
+import { mangaPath, mangaPathFromId } from '../lib/mangaRoute';
 import { absoluteUrl, useSeo } from '../lib/seo';
 import { recordLocalReadingDay, saveLocalProgress } from '../lib/progress';
 import { queryKeys } from '../lib/queryClient';
 import { useReadingResume } from '../lib/useReading';
+import { useReaderResumePrompt } from '../lib/useReaderResumePrompt';
 import { useAuthStore } from '../stores/auth';
 import {
   clampSpeed,
@@ -49,6 +52,8 @@ import { toast } from '../stores/toast';
 
 const READER_PAGE_PREFIX = 'reader-page-';
 const TAP_AFTER_CLOSE_GUARD_MS = 420;
+/** Ignore the scroll event caused by the reader's own initial scroll reset. */
+const PROGRAMMATIC_SCROLL_GUARD_MS = 150;
 const FOCUSABLE_SKIP = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 const TALL_PAGE_RATIO = 2.2;
@@ -90,8 +95,6 @@ export default function ReaderPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [chapterFilter, setChapterFilter] = useState('');
-  const [resumeDismissed, setResumeDismissed] = useState(false);
-  const [progressEnabled, setProgressEnabled] = useState(false);
   const [chromeHidden, setChromeHidden] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [autoPaused, setAutoPaused] = useState(false);
@@ -108,6 +111,7 @@ export default function ReaderPage() {
   const pagedMultiTouchRef = useRef(false);
   const tapTimerRef = useRef<number | null>(null);
   const closedSettingsAtRef = useRef(0);
+  const suppressScrollInteractionUntilRef = useRef(0);
 
   const cancelPendingTap = useCallback(() => {
     if (tapTimerRef.current !== null) {
@@ -188,7 +192,7 @@ export default function ReaderPage() {
         ? `${manga.title}: ${chapterHeading(chapter)} — читать онлайн на русском в MangaPoisk Reborn.`
         : 'Читалка MangaPoisk Reborn: главы манги и манхвы с удобными режимами чтения.',
     // Chapter pages are not useful landing pages; the title page is canonical.
-    canonical: manga ? absoluteUrl(`/manga/${manga.id}`) : null,
+    canonical: manga ? absoluteUrl(mangaPath(manga)) : null,
     robots: 'noindex,follow',
   });
 
@@ -262,6 +266,18 @@ export default function ReaderPage() {
       ? savedProgress.page
       : null;
 
+  const {
+    showResume,
+    progressEnabled,
+    dismissResume,
+  } = useReaderResumePrompt({
+    chapterId: chapter?.id ?? '',
+    currentPage,
+    savedPage: resumePage,
+    resumeReady: resume.isReady,
+    requestedPage: Boolean(requestedPage),
+  });
+
   useEffect(() => {
     if (!chapter || totalPages === 0) return;
     if (readStartedRef.current === chapter.id) return;
@@ -299,14 +315,13 @@ export default function ReaderPage() {
     setSettingsOpen(false);
     setChaptersOpen(false);
     setChapterFilter('');
-    setResumeDismissed(false);
-    setProgressEnabled(false);
     setChromeHidden(false);
     setChromeVisible(true);
     setAutoPaused(true);
     progressErrorShownRef.current = false;
     initialPageHandledRef.current = null;
     cancelPendingTap();
+    suppressScrollInteractionUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_GUARD_MS;
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [chapterId, saveProgress, cancelPendingTap]);
 
@@ -324,7 +339,6 @@ export default function ReaderPage() {
     if (!requestedPage) return;
     const target = normalizePage(requestedPage, totalPages);
     setCurrentPage(target);
-    setProgressEnabled(true);
     if (mode === 'vertical') {
       window.requestAnimationFrame(() => {
         document.getElementById(`${READER_PAGE_PREFIX}${target}`)?.scrollIntoView({ block: 'start' });
@@ -333,28 +347,6 @@ export default function ReaderPage() {
     // requestedPage намеренно читается один раз на главу.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapter, totalPages, mode]);
-
-  useEffect(() => {
-    if (!chapter) return;
-    if (initialPageHandledRef.current !== chapter.id) return;
-    if (requestedPage) {
-      setProgressEnabled(true);
-      return;
-    }
-    if (!resume.isReady) return;
-    if (savedProgress && savedProgress.page > 1 && savedProgress.page <= totalPages && !resumeDismissed) {
-      setProgressEnabled(false);
-      return;
-    }
-    setProgressEnabled(true);
-  }, [
-    chapter,
-    requestedPage,
-    resume.isReady,
-    savedProgress,
-    totalPages,
-    resumeDismissed,
-  ]);
 
   useEffect(() => {
     if (!chapter || !progressEnabled || totalPages === 0) return;
@@ -411,6 +403,23 @@ export default function ReaderPage() {
 
   const autoScrollActive = autoScroll && mode === 'vertical' && !reducedMotion && totalPages > 0;
 
+  const markReaderInteraction = useCallback(() => {
+    dismissResume();
+    if (autoScrollActive && !autoPaused) setAutoPaused(true);
+  }, [dismissResume, autoScrollActive, autoPaused]);
+
+  // Scrolling is the main reading interaction in the continuous mode.  Ignore
+  // the reader's own initial scroll reset and autoscroll frames, which must
+  // not dismiss the prompt (or pause autoscroll) by themselves.
+  useEffect(() => {
+    const onScroll = () => {
+      if (Date.now() < suppressScrollInteractionUntilRef.current) return;
+      markReaderInteraction();
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [markReaderInteraction]);
+
   useEffect(() => {
     if (!autoScrollActive || autoPaused) return;
     let frame = 0;
@@ -426,6 +435,7 @@ export default function ReaderPage() {
         toast.success('Глава дочитана');
         return;
       }
+      suppressScrollInteractionUntilRef.current = Date.now() + 100;
       window.scrollBy(0, autoScrollSpeed * delta);
       frame = window.requestAnimationFrame(tick);
     };
@@ -471,24 +481,24 @@ export default function ReaderPage() {
 
   const goToPage = (page: number) => {
     if (totalPages === 0) return;
+    markReaderInteraction();
     scrollToPage(page, true);
-    dismissResumeOnInteraction();
   };
 
   const goPrevPage = () => {
+    markReaderInteraction();
     if (currentPage > 1) {
       if (mode === 'vertical') scrollToPage(currentPage - 1, false);
       else setCurrentPage(currentPage - 1);
     }
-    dismissResumeOnInteraction();
   };
 
   const goNextPage = () => {
+    markReaderInteraction();
     if (currentPage < totalPages) {
       if (mode === 'vertical') scrollToPage(currentPage + 1, false);
       else setCurrentPage(currentPage + 1);
     }
-    dismissResumeOnInteraction();
   };
 
   const goChapter = (direction: 'prev' | 'next') => {
@@ -557,26 +567,22 @@ export default function ReaderPage() {
     bookmarkMutation.mutate();
   };
 
-  function dismissResumeOnInteraction() {
-    if (!progressEnabled && user && resumePage && !resumeDismissed) {
-      setResumeDismissed(true);
-      setProgressEnabled(true);
-    }
-    if (autoScrollActive && !autoPaused) setAutoPaused(true);
-  }
-
   const onWheel = () => {
-    if (autoScrollActive && !autoPaused) setAutoPaused(true);
+    markReaderInteraction();
   };
 
   const onTouchStart = () => {
-    if (autoScrollActive && !autoPaused) setAutoPaused(true);
+    markReaderInteraction();
+  };
+
+  const onTouchMove = () => {
+    markReaderInteraction();
   };
 
   const handleTap = (action: () => void) => {
     if (Date.now() - closedSettingsAtRef.current < TAP_AFTER_CLOSE_GUARD_MS) return;
     if (Date.now() - lastSwipeAtRef.current < 450) return;
-    dismissResumeOnInteraction();
+    markReaderInteraction();
     action();
   };
 
@@ -610,6 +616,8 @@ export default function ReaderPage() {
 
   const onVerticalClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, select, textarea')) return;
+    markReaderInteraction();
     if (target.tagName !== 'IMG') return;
     if (zoom.isZoomedRef.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -622,6 +630,7 @@ export default function ReaderPage() {
   const onPagedClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     if (target.closest('button, a, input, select, textarea')) return;
+    markReaderInteraction();
     if (zoom.isZoomedRef.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -631,6 +640,7 @@ export default function ReaderPage() {
   };
 
   const onPagedTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    markReaderInteraction();
     if (event.touches.length > 1) {
       pagedMultiTouchRef.current = true;
       touchStartRef.current = null;
@@ -642,7 +652,6 @@ export default function ReaderPage() {
     }
     const touch = event.touches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-    if (autoScrollActive && !autoPaused) setAutoPaused(true);
   };
 
   const onPagedTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
@@ -663,7 +672,7 @@ export default function ReaderPage() {
     const deltaY = touch.clientY - start.y;
     if (Math.abs(deltaX) > 52 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
       lastSwipeAtRef.current = Date.now();
-      dismissResumeOnInteraction();
+      markReaderInteraction();
       if (deltaX < 0) {
         if (currentPage < totalPages) setCurrentPage((page) => Math.min(totalPages, page + 1));
       } else if (currentPage > 1) {
@@ -690,19 +699,24 @@ export default function ReaderPage() {
       switch (event.key) {
         case 'ArrowLeft':
           event.preventDefault();
+          markReaderInteraction();
           if (mode === 'horizontal' && !event.shiftKey) goPrevPage();
           else goChapter('prev');
           break;
         case 'ArrowRight':
           event.preventDefault();
+          markReaderInteraction();
           if (mode === 'horizontal' && !event.shiftKey) goNextPage();
           else goChapter('next');
           break;
         case 'ArrowDown':
         case 'ArrowUp':
-          if (autoScrollActive && !autoPaused) setAutoPaused(true);
+        case 'PageDown':
+        case 'PageUp':
+          markReaderInteraction();
           break;
         case ' ':
+          markReaderInteraction();
           if (mode === 'horizontal') {
             event.preventDefault();
             if (event.shiftKey) goPrevPage();
@@ -710,12 +724,14 @@ export default function ReaderPage() {
           }
           break;
         case 'Home':
+          markReaderInteraction();
           if (mode === 'horizontal') {
             event.preventDefault();
             goToPage(1);
           }
           break;
         case 'End':
+          markReaderInteraction();
           if (mode === 'horizontal') {
             event.preventDefault();
             goToPage(totalPages);
@@ -751,13 +767,6 @@ export default function ReaderPage() {
 
   const currentPageData = pages[currentPage - 1];
   const currentPageIsTall = isTallPage(currentPageData);
-  const showResume = Boolean(
-    resumePage &&
-      !resumeDismissed &&
-      !requestedPage &&
-      resume.isReady &&
-      !progressEnabled,
-  );
 
   const chaptersForSheet = useMemo(() => {
     const list = manga?.chapters ?? [];
@@ -826,7 +835,10 @@ export default function ReaderPage() {
                 )}
                 Обновить главу
               </button>
-              <Link to={`/manga/${chapter.manga_id}`} className="btn btn--outline">
+              <Link
+                to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
+                className="btn btn--outline"
+              >
                 <Icon name="arrow-left" size={16} />
                 К оглавлению
               </Link>
@@ -857,7 +869,7 @@ export default function ReaderPage() {
       <header className={`reader-header${headerHidden ? ' is-hidden' : ''}`}>
         <div className="reader-header__inner">
           <Link
-            to={`/manga/${chapter.manga_id}`}
+            to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
             className="reader-header__titles"
             aria-label={`К оглавлению «${manga?.title ?? 'манги'}»`}
             title="К оглавлению"
@@ -925,7 +937,7 @@ export default function ReaderPage() {
               <Icon name={isFullscreen ? 'minimize' : 'maximize'} size={19} />
             </button>
             <Link
-              to={`/manga/${chapter.manga_id}`}
+              to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
               className="btn btn--ghost btn--icon reader-header__close"
               aria-label="Закрыть читалку"
               title="Закрыть читалку"
@@ -951,39 +963,18 @@ export default function ReaderPage() {
       </span>
 
       {showResume && resumePage ? (
-        <div className="reader-resume" role="status">
-          <div className="reader-resume__body">
-            <div className="reader-resume__title">Продолжить со страницы {resumePage}?</div>
-            <div className="reader-resume__text">
-              Вы остановились здесь в прошлый раз. Можно начать заново.
-            </div>
-          </div>
-          <div className="reader-resume__actions">
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => {
-                setResumeDismissed(true);
-                setProgressEnabled(true);
-                goToPage(resumePage);
-              }}
-            >
-              Продолжить
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => {
-                setResumeDismissed(true);
-                setProgressEnabled(true);
-                setCurrentPage(1);
-                window.scrollTo({ top: 0, behavior: 'auto' });
-              }}
-            >
-              С начала
-            </button>
-          </div>
-        </div>
+        <ReaderResumePrompt
+          page={resumePage}
+          onContinue={() => {
+            dismissResume();
+            goToPage(resumePage);
+          }}
+          onStartOver={() => {
+            dismissResume();
+            setCurrentPage(1);
+            window.scrollTo({ top: 0, behavior: 'auto' });
+          }}
+        />
       ) : null}
 
       {mode === 'vertical' ? (
@@ -992,6 +983,7 @@ export default function ReaderPage() {
           className="reader-main reader-main--vertical"
           onWheel={onWheel}
           onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
           onClick={onVerticalClick}
         >
           <div className="reader-pages">
@@ -1013,7 +1005,9 @@ export default function ReaderPage() {
         <main
           ref={zoom.rootRef}
           className={`reader-paged${currentPageIsTall ? ' reader-paged--tall' : ''}`}
+          onWheel={onWheel}
           onTouchStart={onPagedTouchStart}
+          onTouchMove={onTouchMove}
           onTouchEnd={onPagedTouchEnd}
           onClick={onPagedClick}
         >
@@ -1472,7 +1466,7 @@ export default function ReaderPage() {
               {formatInt(chaptersForSheet.length)} из {formatInt(manga?.chapters.length ?? 0)}
             </span>
             <Link
-              to={`/manga/${chapter.manga_id}`}
+              to={manga ? mangaPath(manga) : mangaPathFromId(chapter.manga_id)}
               className="btn btn--outline btn--sm"
               onClick={() => setChaptersOpen(false)}
             >

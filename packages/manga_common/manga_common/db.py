@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -16,6 +17,15 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from .metrics import (
+    record_db_lock_error,
+    record_db_lock_exhausted,
+    record_db_lock_recovered,
+    record_db_lock_retry,
+)
+
+logger = logging.getLogger("manga_common.db")
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -102,8 +112,16 @@ async def session_scope(factory: async_sessionmaker[AsyncSession]) -> AsyncItera
         try:
             yield session
             await session.commit()
-        except Exception:
+        except Exception as exc:
             await session.rollback()
+            # Write paths are not retried automatically: they need explicit
+            # idempotency.  Still count the lock so /metrics and the watchdog
+            # can distinguish "reader contention" from a real database error.
+            if is_database_locked(exc):
+                record_db_lock_error()
+                logger.warning(
+                    "sqlite lock during write transaction; not retried automatically"
+                )
             raise
 
 
@@ -129,9 +147,23 @@ async def ping(engine: AsyncEngine) -> bool:
 
 
 def is_database_locked(exc: BaseException) -> bool:
-    """True for SQLite's transient single-writer contention error."""
+    """True for SQLite's transient single-writer contention errors.
 
-    return "database is locked" in str(exc).lower()
+    Older SQLite builds report ``database table is locked`` for the same
+    condition; ``database is busy`` is the WAL equivalent under heavy writer
+    pressure.  None of these are permanent and a bounded read retry is safe.
+    """
+
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "database is locked",
+            "database table is locked",
+            "database is busy",
+            "sqlite_busy",
+        )
+    )
 
 
 async def retry_on_locked(
@@ -149,9 +181,26 @@ async def retry_on_locked(
 
     for attempt in range(1, attempts + 1):
         try:
-            return await operation()
+            result = await operation()
+            if attempt > 1:
+                record_db_lock_recovered()
+            return result
         except Exception as exc:
-            if attempt >= attempts or not is_database_locked(exc):
+            if not is_database_locked(exc):
                 raise
+            record_db_lock_error()
+            if attempt >= attempts:
+                record_db_lock_exhausted()
+                logger.warning(
+                    "sqlite lock on read; retry budget exhausted after %s attempts",
+                    attempts,
+                )
+                raise
+            record_db_lock_retry()
+            logger.warning(
+                "sqlite lock on read; retrying attempt %s/%s",
+                attempt + 1,
+                attempts,
+            )
             await asyncio.sleep(base_delay * (2 ** (attempt - 1)))
     raise AssertionError("unreachable")

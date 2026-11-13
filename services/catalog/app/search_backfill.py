@@ -25,13 +25,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from manga_common.metrics import metrics
 from sqlalchemy import bindparam, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .models import Manga, SearchBackfillState
 from .normalization import genres_key, status_key
-from .repository import compute_group_key
+from .repository import compute_group_key, rebuild_catalog_groups
 from .search import build_search_fields
 from .search_fts import fts_row_count, rebuild_legacy_fts, sync_search_fts_many
 
@@ -70,10 +71,18 @@ async def retry_on_locked[T](
 
     for attempt in range(max(1, attempts)):
         try:
-            return await operation()
+            result = await operation()
+            if attempt > 0:
+                metrics.record_db_lock_recovered()
+            return result
         except OperationalError as exc:
-            if not _is_locked(exc) or attempt >= attempts - 1:
+            if not _is_locked(exc):
                 raise
+            metrics.record_db_lock_error()
+            if attempt >= attempts - 1:
+                metrics.record_db_lock_exhausted()
+                raise
+            metrics.record_db_lock_retry()
             delay = base_delay * (2**attempt)
             logger.warning(
                 "catalogue database is locked; retrying in %.1fs (%s/%s)",
@@ -459,7 +468,7 @@ class SearchBackfillWorker:
                     {
                         "manga_id": row.manga_id,
                         "group_key": compute_group_key(row.title)
-                        or f"manga-{row.manga_id}",
+                        or f"manga-{row.manga_id.hex}",
                     }
                     for row in rows
                 ]
@@ -502,6 +511,10 @@ class SearchBackfillWorker:
                 logger.info("search backfill finished: %s rows normalized", processed)
             await self.backfill_group_keys()
             await self.backfill_cover_group_keys()
+            async with self.session_factory() as session:
+                rebuilt = await rebuild_catalog_groups(session)
+                await session.commit()
+            logger.info("catalogue card table rebuilt after backfill: %s groups", rebuilt)
         finally:
             try:
                 await release_lease(self.session_factory, self.owner)

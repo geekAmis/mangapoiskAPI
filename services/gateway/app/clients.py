@@ -15,12 +15,24 @@ from manga_common.errors import (
     ValidationError,
 )
 from manga_common.http import build_client
+from manga_common.profile_schemas import (
+    AdminProfileReportOut,
+    MyProfileOut,
+    ProfileEventOut,
+    ProfileReportOut,
+    ProfileUpdate,
+    PublicProfileOut,
+)
 from manga_common.schemas import (
     AnalyticsIngestOut,
     AnalyticsRetentionOut,
+    AnalyticsSurfacesOut,
     BookmarkOut,
     ChapterDetailOut,
     ChapterOut,
+    CollectionAuditOut,
+    CollectionListOut,
+    CollectionOut,
     ExportJobOut,
     HomeUpdatesOut,
     MangaDetailOut,
@@ -38,6 +50,13 @@ from manga_common.schemas import (
     SuggestResponse,
     TokenPair,
     UserOut,
+    YandexCallbackOut,
+    YandexCredentialsOut,
+    YandexDenyOut,
+    YandexIntegrationOut,
+    YandexIntegrationTestOut,
+    YandexIntegrationUpdate,
+    YandexStartOut,
 )
 from manga_common.source_models import MangaSummary, SourceInfo
 
@@ -228,9 +247,87 @@ class CatalogClient(InternalClient):
         data = await self.request("POST", "/internal/recommendations", json=payload)
         return RecommendationListOut.model_validate(data)
 
-    async def related(self, manga_id: str) -> RelatedMangaOut:
-        data = await self.request("GET", f"/internal/manga/{manga_id}/related")
+    async def related(
+        self,
+        manga_id: str,
+        *,
+        history_ids: list[str] | None = None,
+        limit: int = 12,
+    ) -> RelatedMangaOut:
+        params: dict[str, Any] = {"limit": max(6, min(limit, 12))}
+        if history_ids:
+            params["history"] = ",".join(history_ids[:100])
+        data = await self.request(
+            "GET", f"/internal/manga/{manga_id}/related", params=params
+        )
         return RelatedMangaOut.model_validate(data)
+
+    async def collections(self, *, limit: int = 12) -> CollectionListOut:
+        data = await self.request(
+            "GET", "/internal/collections", params={"limit": max(1, min(limit, 24))}
+        )
+        return CollectionListOut.model_validate(data)
+
+    async def collection(self, slug: str, *, limit: int = 24) -> CollectionOut:
+        data = await self.request(
+            "GET",
+            f"/internal/collections/{quote(slug, safe='')}",
+            params={"limit": max(1, min(limit, 60))},
+        )
+        return CollectionOut.model_validate(data)
+
+    async def admin_collections(self) -> CollectionListOut:
+        data = await self.request("GET", "/internal/admin/collections")
+        return CollectionListOut.model_validate(data)
+
+    async def create_collection(self, payload: dict[str, Any]) -> CollectionOut:
+        data = await self.request("POST", "/internal/admin/collections", json=payload)
+        return CollectionOut.model_validate(data)
+
+    async def update_collection(
+        self, collection_id: str, payload: dict[str, Any]
+    ) -> CollectionOut:
+        data = await self.request(
+            "PATCH", f"/internal/admin/collections/{collection_id}", json=payload
+        )
+        return CollectionOut.model_validate(data)
+
+    async def delete_collection(self, collection_id: str) -> None:
+        await self.request("DELETE", f"/internal/admin/collections/{collection_id}")
+
+    async def add_collection_item(
+        self, collection_id: str, manga_id: str
+    ) -> CollectionOut:
+        data = await self.request(
+            "POST",
+            f"/internal/admin/collections/{collection_id}/items",
+            json={"manga_id": manga_id},
+        )
+        return CollectionOut.model_validate(data)
+
+    async def remove_collection_item(
+        self, collection_id: str, manga_id: str
+    ) -> CollectionOut:
+        data = await self.request(
+            "DELETE", f"/internal/admin/collections/{collection_id}/items/{manga_id}"
+        )
+        return CollectionOut.model_validate(data)
+
+    async def reorder_collection(
+        self, collection_id: str, manga_ids: list[str]
+    ) -> CollectionOut:
+        data = await self.request(
+            "PUT",
+            f"/internal/admin/collections/{collection_id}/order",
+            json={"manga_ids": manga_ids},
+        )
+        return CollectionOut.model_validate(data)
+
+    async def collection_audit(self, limit: int = 100) -> list[CollectionAuditOut]:
+        data = await self.request(
+            "GET", "/internal/admin/collections/audit", params={"limit": limit}
+        )
+        return [CollectionAuditOut.model_validate(item) for item in data]
 
     async def link_relations(self, manga_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.request("PUT", f"/internal/manga/{manga_id}/relations", json=payload)
@@ -345,6 +442,28 @@ class LibraryClient(InternalClient):
         data = await self._auth("GET", "/internal/auth/me", authorization)
         return UserOut.model_validate(data)
 
+    async def yandex_status(self) -> bool:
+        data = await self.request("GET", "/internal/auth/yandex/status")
+        return bool(data.get("enabled")) if isinstance(data, dict) else False
+
+    async def yandex_start(self, payload: dict[str, Any]) -> YandexStartOut:
+        data = await self.request("POST", "/internal/auth/yandex/start", json=payload)
+        return YandexStartOut.model_validate(data)
+
+    async def yandex_callback(self, payload: dict[str, Any]) -> YandexCallbackOut:
+        data = await self.request("POST", "/internal/auth/yandex/callback", json=payload)
+        return YandexCallbackOut.model_validate(data)
+
+    async def yandex_deny(self, payload: dict[str, Any]) -> YandexDenyOut:
+        data = await self.request("POST", "/internal/auth/yandex/deny", json=payload)
+        return YandexDenyOut.model_validate(data)
+
+    async def yandex_exchange(self, code: str) -> TokenPair:
+        data = await self.request(
+            "POST", "/internal/auth/yandex/exchange", json={"code": code}
+        )
+        return TokenPair.model_validate(data)
+
     async def bookmarks(self, authorization: str) -> list[BookmarkOut]:
         data = await self._auth("GET", "/internal/me/bookmarks", authorization)
         return [BookmarkOut.model_validate(item) for item in data]
@@ -416,6 +535,100 @@ class LibraryClient(InternalClient):
         )
         return AnalyticsRetentionOut.model_validate(data)
 
+    async def profile(
+        self,
+        handle: str,
+        *,
+        viewer_id: str | None = None,
+        timezone: str | None = None,
+    ) -> PublicProfileOut:
+        headers = {"X-Viewer-Id": viewer_id} if viewer_id else None
+        params = {"timezone": timezone} if timezone else None
+        data = await self.request(
+            "GET",
+            f"/internal/profiles/{quote(handle, safe='')}",
+            params=params,
+            headers=headers,
+        )
+        return PublicProfileOut.model_validate(data)
+
+    async def my_profile(
+        self, authorization: str, timezone: str | None = None
+    ) -> MyProfileOut:
+        params = {"timezone": timezone} if timezone else None
+        data = await self._auth("GET", "/internal/me/profile", authorization, params=params)
+        return MyProfileOut.model_validate(data)
+
+    async def update_profile(
+        self, authorization: str, payload: ProfileUpdate
+    ) -> MyProfileOut:
+        data = await self._auth(
+            "PATCH",
+            "/internal/me/profile",
+            authorization,
+            json=payload.model_dump(exclude_unset=True, mode="json"),
+        )
+        return MyProfileOut.model_validate(data)
+
+    async def my_events(
+        self, authorization: str, limit: int = 30
+    ) -> list[ProfileEventOut]:
+        data = await self._auth(
+            "GET",
+            "/internal/me/events",
+            authorization,
+            params={"limit": limit},
+        )
+        return [ProfileEventOut.model_validate(item) for item in data]
+
+    async def report_profile(
+        self, authorization: str, handle: str, reason: str
+    ) -> ProfileReportOut:
+        data = await self._auth(
+            "POST",
+            f"/internal/profiles/{quote(handle, safe='')}/reports",
+            authorization,
+            json={"reason": reason},
+        )
+        return ProfileReportOut.model_validate(data)
+
+    async def block_profile(
+        self, authorization: str, handle: str, *, blocked: bool
+    ) -> None:
+        method = "POST" if blocked else "DELETE"
+        await self._auth(
+            method,
+            f"/internal/profiles/{quote(handle, safe='')}/block",
+            authorization,
+        )
+
+    async def admin_profile_reports(
+        self, authorization: str, *, status: str = "open", limit: int = 50
+    ) -> list[AdminProfileReportOut]:
+        data = await self._auth(
+            "GET",
+            "/internal/admin/profile-reports",
+            authorization,
+            params={"status": status, "limit": limit},
+        )
+        return [AdminProfileReportOut.model_validate(item) for item in data]
+
+    async def resolve_profile_report(
+        self, authorization: str, report_id: str, status: str
+    ) -> AdminProfileReportOut:
+        data = await self._auth(
+            "PATCH",
+            f"/internal/admin/profile-reports/{quote(report_id, safe='')}",
+            authorization,
+            json={"status": status},
+        )
+        return AdminProfileReportOut.model_validate(data)
+    async def analytics_surfaces(self, days: int) -> AnalyticsSurfacesOut:
+        data = await self.request(
+            "GET", "/internal/analytics/surfaces", params={"days": days}
+        )
+        return AnalyticsSurfacesOut.model_validate(data)
+
 
 class ControlClient(InternalClient):
     service_code = "control"
@@ -445,6 +658,29 @@ class ControlClient(InternalClient):
     async def server_health(self, server_id: str) -> dict[str, Any]:
         return await self.request("GET", f"/internal/servers/{server_id}/health")
 
+    async def console(
+        self, server_id: str, payload: dict[str, Any], *, admin: str
+    ) -> dict[str, Any]:
+        return await self.request(
+            "POST",
+            f"/internal/servers/{server_id}/console",
+            json=payload,
+            headers={"X-Admin-User": admin[:64]},
+            timeout=60.0,
+        )
+
+    async def console_history(
+        self, server_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        return await self.request(
+            "GET",
+            f"/internal/servers/{server_id}/console/history",
+            params={"limit": limit},
+        )
+
+    async def jobs(self, limit: int = 30) -> list[dict[str, Any]]:
+        return await self.request("GET", "/internal/jobs", params={"limit": limit})
+
     async def promote_replica(self, server_id: str) -> dict[str, Any]:
         return await self.request(
             "POST", f"/internal/servers/{server_id}/replica/promote", timeout=300.0
@@ -457,6 +693,31 @@ class ControlClient(InternalClient):
             json={"source_server_id": source_server_id},
             timeout=600.0,
         )
+
+    async def yandex_integration(self) -> YandexIntegrationOut:
+        data = await self.request("GET", "/internal/integrations/yandex")
+        return YandexIntegrationOut.model_validate(data)
+
+    async def update_yandex_integration(
+        self, payload: YandexIntegrationUpdate
+    ) -> YandexIntegrationOut:
+        data = await self.request(
+            "PUT",
+            "/internal/integrations/yandex",
+            json=payload.model_dump(exclude_unset=True),
+        )
+        return YandexIntegrationOut.model_validate(data)
+
+    async def delete_yandex_integration(self) -> None:
+        await self.request("DELETE", "/internal/integrations/yandex")
+
+    async def test_yandex_integration(self) -> YandexIntegrationTestOut:
+        data = await self.request("POST", "/internal/integrations/yandex/test")
+        return YandexIntegrationTestOut.model_validate(data)
+
+    async def yandex_credentials(self) -> YandexCredentialsOut:
+        data = await self.request("GET", "/internal/integrations/yandex/credentials")
+        return YandexCredentialsOut.model_validate(data)
 
     async def registry(self) -> dict[str, Any]:
         return await self.request("GET", "/internal/registry")

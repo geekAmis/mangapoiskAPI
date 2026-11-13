@@ -1,0 +1,15 @@
+[DEFAULT]
+# Loopback, the two production nodes, the trusted peer and Tailscale.
+# Add the operator's current egress IP locally before enabling; do not commit
+# personal/dynamic addresses.
+ignoreip = 127.0.0.1/8 ::1 83.141.92.137 85.192.37.58 85.192.30.224 100.64.0.0/10 fd7a:115c:a1e0::/48
+bantime = 1h
+findtime = 10m
+maxretry = 5
+backend = systemd
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = %(sshd_log)s

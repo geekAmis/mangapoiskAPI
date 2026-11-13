@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import threading
 import time
 from collections.abc import Callable
@@ -26,6 +27,14 @@ class SSHTarget:
 
 class DeployCancelled(Exception):
     """Raised when a running deploy is cancelled or found stale."""
+
+
+@dataclass(slots=True)
+class SSHCommandResult:
+    exit_code: int
+    output: str
+    truncated: bool = False
+    timed_out: bool = False
 
 
 @dataclass
@@ -115,6 +124,84 @@ class SSHRunner:
             raise UpstreamError(f"SSH connection failed for {target.host}", details=str(exc)) from exc
         client._mangapoisk_jump = jump_client  # type: ignore[attr-defined]
         return client
+
+    def run_command(
+        self,
+        target: SSHTarget,
+        argv: tuple[str, ...],
+        *,
+        jump: SSHTarget | None = None,
+        timeout: float = 30.0,
+        max_output_bytes: int = 200_000,
+    ) -> SSHCommandResult:
+        """Run one already-validated argv vector with a hard timeout and cap.
+
+        ``shlex.join`` is safe here because the console policy has already
+        rejected shell metacharacters and validated every token.  The remote
+        command is still executed by the login shell, but the quoted argv
+        cannot introduce extra commands.
+        """
+
+        client = self.connect(target, jump)
+        channel: paramiko.Channel | None = None
+        try:
+            _stdin, stdout, _stderr = client.exec_command(
+                shlex.join(argv), timeout=timeout
+            )
+            channel = stdout.channel
+            channel.set_combine_stderr(True)
+            channel.settimeout(0.2)
+            buffer = bytearray()
+            truncated = False
+            timed_out = False
+            deadline = time.monotonic() + timeout
+            while True:
+                if time.monotonic() > deadline:
+                    timed_out = True
+                    break
+                try:
+                    chunk = channel.recv(65_536)
+                except TimeoutError:
+                    chunk = b""
+                if chunk:
+                    remaining = max_output_bytes - len(buffer)
+                    if remaining > 0:
+                        buffer.extend(chunk[:remaining])
+                    if len(chunk) > remaining:
+                        truncated = True
+                    continue
+                if channel.exit_status_ready():
+                    while channel.recv_ready():
+                        extra = channel.recv(65_536)
+                        remaining = max_output_bytes - len(buffer)
+                        if remaining > 0:
+                            buffer.extend(extra[:remaining])
+                        if len(extra) > remaining:
+                            truncated = True
+                    break
+                time.sleep(0.05)
+            output = buffer.decode("utf-8", "replace")
+            if timed_out:
+                output += f"\n[console] timeout after {timeout:.0f}s"
+            elif truncated:
+                output += f"\n[console] output truncated at {max_output_bytes} bytes"
+            exit_code = -1 if timed_out else channel.recv_exit_status()
+            return SSHCommandResult(
+                exit_code=exit_code,
+                output=output,
+                truncated=truncated,
+                timed_out=timed_out,
+            )
+        finally:
+            if channel is not None:
+                try:
+                    channel.close()
+                except Exception:
+                    logger.debug("failed to close SSH console channel", exc_info=True)
+            jump_client = getattr(client, "_mangapoisk_jump", None)
+            client.close()
+            if jump_client:
+                jump_client.close()
 
     def run_script(
         self,
