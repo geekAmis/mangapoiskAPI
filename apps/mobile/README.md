@@ -25,7 +25,7 @@ cd android
 The API base is baked into the web build. Production defaults to:
 
 ```text
-https://85.192.37.58.nip.io:8443/api/v1
+https://85.192.37.58.nip.io/api/v1
 ```
 
 Override it with `CAPACITOR_API_BASE`. The build script refuses arbitrary
@@ -47,6 +47,7 @@ For a physical device on the same network, use the server IP. For the emulator,
 Release builds use the secure Capacitor settings in
 `capacitor.config.json`:
 
+- `server.url: "https://85.192.37.58.nip.io"` (port 443)
 - `server.androidScheme: "https"`
 - `server.cleartext: false`
 - `android.allowMixedContent: false`

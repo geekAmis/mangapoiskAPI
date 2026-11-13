@@ -8,7 +8,7 @@ const mobile = path.resolve(here, '..');
 const web = path.resolve(mobile, '..', 'web');
 const dist = path.join(web, 'dist');
 const www = path.join(mobile, 'www');
-const defaultApiBase = 'https://85.192.37.58.nip.io:8443/api/v1';
+const defaultApiBase = 'https://85.192.37.58.nip.io/api/v1';
 const apiBase = (process.env.CAPACITOR_API_BASE || defaultApiBase).trim();
 const localDevApi = /^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?::\d+)?(?:\/|$)/i;
 
@@ -40,18 +40,23 @@ if (process.platform === 'win32') {
 }
 console.log(`Copied ${dist} -> ${www}`);
 
-// Fail the build if a stale HTTP API base survived in the packaged web assets.
+// Fail the build if a stale HTTP API base or the retired 8088/8443 ports
+// survived in the packaged web assets. Production now uses HTTPS on 443.
 const legacyHttp = /http:\/\/85\.192\.37\.58(?::8088)?(?:\/|\b)/i;
+const legacyPort = /85\.192\.37\.58(?:\.nip\.io)?:(?:8088|8443)(?:\/|\b)/i;
 const offenders = [];
 for (const entry of readdirSync(www, { recursive: true, withFileTypes: true })) {
   if (!entry.isFile() || !/\.(?:js|json|html|webmanifest)$/i.test(entry.name)) continue;
   const file = path.join(entry.parentPath ?? entry.path, entry.name);
-  if (legacyHttp.test(readFileSync(file, 'utf8'))) {
+  const text = readFileSync(file, 'utf8');
+  if (legacyHttp.test(text) || legacyPort.test(text)) {
     offenders.push(path.relative(www, file));
   }
 }
 if (offenders.length > 0) {
-  console.error(`Refusing to package HTTP API fallback in: ${offenders.join(', ')}`);
+  console.error(
+    `Refusing to package a retired HTTP/port endpoint in: ${offenders.join(', ')}`,
+  );
   process.exit(1);
 }
-console.log('Verified: no plain-HTTP API fallback in www/');
+console.log('Verified: no HTTP API fallback and no 8088/8443 endpoints in www/');

@@ -44,7 +44,7 @@ export function siteOrigin(): string {
   const configured = import.meta.env.VITE_SITE_URL?.trim();
   if (configured) return configured.replace(/\/+$/, '');
   if (typeof window !== 'undefined') return window.location.origin;
-  return 'https://85.192.37.58.nip.io:8443';
+  return 'https://85.192.37.58.nip.io';
 }
 
 export function absoluteUrl(value: string | null | undefined): string | null {

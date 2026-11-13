@@ -3,6 +3,7 @@
   "appName": "MangaPoisk",
   "webDir": "www",
   "server": {
+    "url": "https://85.192.37.58.nip.io",
     "androidScheme": "https",
     "cleartext": false
   },
