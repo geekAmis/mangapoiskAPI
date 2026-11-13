@@ -18,6 +18,13 @@ import { Skeleton } from '../Skeleton';
 import { formatDateTime, formatInt } from '../../lib/format';
 import { toast } from '../../stores/toast';
 
+const YANDEX_BLOCK_ID_RE = /^R-A-\d+-\d+$/;
+
+function configBlockId(config: Record<string, unknown> | undefined): string {
+  const value = config?.block_id;
+  return typeof value === 'string' ? value : '';
+}
+
 const TYPE_LABELS: Record<AdProviderType, string> = {
   yandex: 'Яндекс РСЯ',
   adfox: 'AdFox',
@@ -64,6 +71,7 @@ interface AdDraft {
   schedule_start: string;
   schedule_end: string;
   timezone: string;
+  blockId: string;
   configText: string;
   custom_html: string;
   custom_script: string;
@@ -88,6 +96,7 @@ function defaultDraft(): AdDraft {
     schedule_start: '00:00',
     schedule_end: '23:59',
     timezone: 'Europe/Moscow',
+    blockId: '',
     configText: '{}',
     custom_html: '',
     custom_script: '',
@@ -113,6 +122,7 @@ function draftFrom(provider: AdminAdProvider): AdDraft {
     schedule_start: provider.schedule_start,
     schedule_end: provider.schedule_end,
     timezone: provider.timezone,
+    blockId: configBlockId(provider.config),
     configText: JSON.stringify(provider.config ?? {}, null, 2),
     custom_html: provider.custom_html,
     custom_script: provider.custom_script,
@@ -254,6 +264,17 @@ function AdFormModal({
       config = parsed as Record<string, unknown>;
     } catch {
       return setError('Публичный config содержит некорректный JSON.');
+    }
+
+    if (draft.type === 'yandex') {
+      const blockId = draft.blockId.trim() || configBlockId(config);
+      if (!blockId) {
+        return setError('Укажите Block ID блока Яндекс РСЯ, например R-A-20411736-1.');
+      }
+      if (!YANDEX_BLOCK_ID_RE.test(blockId)) {
+        return setError('Block ID должен иметь формат R-A-<число>-<число>.');
+      }
+      config.block_id = blockId;
     }
 
     saveMutation.mutate({
@@ -546,6 +567,26 @@ function AdFormModal({
             <h3>Контент</h3>
             <span className="field__hint">Публичные параметры видны всем клиентам.</span>
           </div>
+          {draft.type === 'yandex' ? (
+            <div className="field">
+              <label className="field__label" htmlFor="ad-block-id">
+                Block ID
+              </label>
+              <input
+                id="ad-block-id"
+                className="input"
+                value={draft.blockId}
+                onChange={(event) => patch({ blockId: event.target.value })}
+                placeholder="R-A-20411736-1"
+                maxLength={64}
+                spellCheck={false}
+              />
+              <span className="field__hint">
+                Публичный идентификатор блока Яндекс РСЯ. Сохраняется в config.block_id,
+                секретов здесь нет.
+              </span>
+            </div>
+          ) : null}
           <div className="field">
             <label className="field__label" htmlFor="ad-config">
               Публичный config (JSON)
@@ -845,6 +886,14 @@ export function AdsPanel() {
                   <span>Формат</span>
                   <strong>{provider.format || `${provider.width ?? '—'}×${provider.height ?? '—'}`}</strong>
                 </div>
+                {provider.type === 'yandex' ? (
+                  <div>
+                    <span>Block ID</span>
+                    <strong>
+                      <code>{configBlockId(provider.config) || 'не задан'}</code>
+                    </strong>
+                  </div>
+                ) : null}
                 <div>
                   <span>Частотный лимит</span>
                   <strong>{provider.frequency_cap || 'без лимита'}</strong>

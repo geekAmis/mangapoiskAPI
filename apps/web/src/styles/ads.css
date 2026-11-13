@@ -57,6 +57,22 @@
   background: transparent;
 }
 
+/* Yandex RTB injects an iframe into this container.  The height is reserved
+   before the SDK responds, so a late banner cannot shift the page. */
+.ad-slot__yandex {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--ad-slot-height, 90px);
+  min-height: var(--ad-slot-height, 90px);
+  overflow: hidden;
+}
+
+.ad-slot__yandex > * {
+  max-width: 100%;
+}
+
 .ad-slot__placeholder {
   display: flex;
   align-items: center;

@@ -61,6 +61,11 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="mask-icon" href="/icons/favicon.svg" color="#5ec8ff" />
 
+    <!-- Yandex.RTB: queue is created before the SDK so AdSlot can register
+         render callbacks even when the SDK is still loading. -->
+    <script>window.yaContextCb=window.yaContextCb||[]</script>
+    <script src="https://yandex.ru/ads/system/context.js" async></script>
+
     <script>
       // The SPA cannot know the route when nginx serves index.html.  Give
       // crawlers and link previews a correct canonical/og:url immediately;

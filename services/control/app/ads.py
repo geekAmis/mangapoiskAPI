@@ -418,6 +418,9 @@ class AdPublicSlotOut(BaseModel):
     content: str = ""
     content_type: Literal["html", "script", "none"] = "none"
     require_consent: bool = False
+    # Public, non-secret provider parameters.  For Yandex RTB this carries
+    # `block_id`; secrets live in ad_secrets and are never serialized here.
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -723,6 +726,7 @@ class AdsService:
                         content=content,
                         content_type=content_type,
                         require_consent=row.require_consent,
+                        config=row.config or {},
                     )
                 )
             return slots

@@ -247,6 +247,59 @@ async def test_ad_crud_secret_masking_audience_and_audit(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_public_config_exposes_block_id_but_never_secrets(tmp_path: Path) -> None:
+    service, engine = await _service(tmp_path)
+    try:
+        yandex = await service.create(
+            AdProviderCreate(
+                name="Yandex in-feed",
+                type="yandex",
+                placement="in-feed",
+                audience="both",
+                config={"block_id": "R-A-20411736-1"},
+                require_consent=False,
+                exclude_adult=True,
+            )
+        )
+        await service.set_secret(yandex.id, "api_key", "synthetic-yandex-secret-9876")
+
+        # Yandex RTB is public without consent: the slot carries block_id but
+        # no secret material.
+        slots = await service.public_slots(audience="guest", consent=False)
+        slot = next(item for item in slots if item.id == yandex.id)
+        assert slot.config == {"block_id": "R-A-20411736-1"}
+        payload = slot.model_dump_json()
+        assert "synthetic-yandex-secret-9876" not in payload
+        assert "secrets" not in payload
+        assert "api_key" not in payload
+
+        # require_consent remains meaningful for custom providers.
+        custom = await service.create(
+            AdProviderCreate(
+                name="Consent-only custom",
+                type="custom_html",
+                placement="header",
+                audience="both",
+                custom_html="<div>consent</div>",
+                require_consent=True,
+            )
+        )
+        assert custom.id not in {
+            item.id for item in await service.public_slots(audience="guest", consent=False)
+        }
+        assert custom.id in {
+            item.id for item in await service.public_slots(audience="guest", consent=True)
+        }
+
+        # Adult pages still exclude the Yandex provider by default.
+        assert yandex.id not in {
+            item.id for item in await service.public_slots(audience="guest", adult=True)
+        }
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_delete_provider_removes_encrypted_secrets(tmp_path: Path) -> None:
     service, engine = await _service(tmp_path)
     try:

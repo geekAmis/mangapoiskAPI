@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import { ADS_CONSENT_OPEN_EVENT, setAdsConsent, useAdsConsent } from '../api/ads';
 
 /**
- * Small first-party consent banner.  It is intentionally not a modal and does
- * not lock scrolling: reading stays available while the reader decides.
- * The choice is stored in localStorage['mp-ads-consent'] and ad slots with
- * require_consent=true stay hidden until it is "granted".
+ * Small first-party cookie/statistics banner.  It is intentionally not a
+ * modal and does not lock scrolling: reading stays available while the reader
+ * decides.  The choice is stored in localStorage['mp-ads-consent'] for
+ * compatibility; ads are not gated globally, only slots with
+ * require_consent=true respect it.
  */
 export function ConsentBanner() {
   const consent = useAdsConsent();
@@ -34,14 +35,12 @@ export function ConsentBanner() {
   };
 
   return (
-    <aside className="consent-banner" role="region" aria-label="Согласие на cookie и рекламу">
+    <aside className="consent-banner" role="region" aria-label="Cookie и статистика">
       <div className="consent-banner__body">
-        <strong>Cookie и реклама</strong>
+        <strong>Cookie</strong>
         <p>
-          Мы используем необходимые cookie и локальное хранилище для входа,
-          настроек и анонимной статистики. Рекламные блоки, которым нужно
-          согласие, показываются только после вашего разрешения.{' '}
-          <Link to="/privacy">Подробнее в политике</Link>.
+          Используем cookie для входа, настроек и статистики.{' '}
+          <Link to="/privacy">Политика</Link>.
         </p>
       </div>
       <div className="consent-banner__actions">
@@ -49,7 +48,7 @@ export function ConsentBanner() {
           Принять
         </button>
         <button type="button" className="btn btn--outline btn--sm" onClick={() => choose(false)}>
-          Отклонить
+          Только необходимые
         </button>
       </div>
     </aside>
@@ -61,15 +60,15 @@ export function ConsentControls() {
   const consent = useAdsConsent();
   const label =
     consent === 'granted'
-      ? 'Реклама разрешена'
+      ? 'Разрешено'
       : consent === 'denied'
-        ? 'Реклама отклонена'
-        : 'Выбор ещё не сделан';
+        ? 'Только необходимые'
+        : 'Выбор не сделан';
 
   return (
     <div className="consent-controls">
       <div className="consent-controls__status">
-        <strong>Реклама и cookie</strong>
+        <strong>Cookie и статистика</strong>
         <span>{label}. Выбор хранится только в этом браузере.</span>
       </div>
       <div className="consent-controls__actions">
@@ -78,14 +77,14 @@ export function ConsentControls() {
           className="btn btn--primary btn--sm"
           onClick={() => setAdsConsent(true)}
         >
-          Разрешить рекламу
+          Разрешить
         </button>
         <button
           type="button"
           className="btn btn--outline btn--sm"
           onClick={() => setAdsConsent(false)}
         >
-          Отозвать согласие
+          Только необходимые
         </button>
         <button
           type="button"

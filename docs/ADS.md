@@ -118,7 +118,9 @@ SSH-паролей control-сервиса).
 - `consent=1` — пользователь дал согласие (передаётся фронтендом из CMP).
 
 Аудитория определяется по JWT: без токена — `guest`, с валидным токеном —
-`authenticated`. Ответ не содержит ключей, `config` и административных полей.
+`authenticated`. Ответ не содержит ключей и административных полей. Публичный
+`config` отдаётся как есть (для Яндекса — `block_id`), поэтому секреты в него
+класть нельзя.
 
 Пример синтетического ответа:
 
@@ -137,15 +139,17 @@ SSH-паролей control-сервиса).
     "height": 90,
     "content": "<div class=\"qa-banner\">Синтетическая реклама</div>",
     "content_type": "html",
-    "require_consent": false
+    "require_consent": false,
+    "config": {}
   }
 ]
 ```
 
 Для сетевых типов (`yandex`, `adfox`, `google`) публичный ответ содержит
-`content_type: "none"`; фронтенд показывает нейтральный заполнитель. Реальный
-рендер сети подключается отдельным адаптером, который использует публичный
-`config`/block id, но не секретный ключ.
+`content_type: "none"`. Для `yandex` фронтенд рендерит реальный RTB-блок по
+`config.block_id`; для остальных сетевых типов показывается нейтральный
+заполнитель до подключения отдельного адаптера. Секретный ключ в ответ не
+попадает.
 
 ## 4. Поведение фронтенда
 
@@ -162,31 +166,81 @@ SSH-паролей control-сервиса).
   серверной очистки; при ошибке загрузки картинки показывает нейтральный
   заполнитель;
 - для `custom_script` использует sandbox-iframe;
+- для `yandex` проверяет `config.block_id` по `R-A-\d+-\d+`, рендерит
+  `<div id="yandex_rtb_<block_id>">` и регистрирует callback в
+  `window.yaContextCb`, который вызывает
+  `Ya.Context.AdvManager.render({blockId, renderTo})`;
+- повторный render в React StrictMode подавляется ref-ключом
+  `slot.id:block_id` и маркером на контейнере; при смене слота/блока render
+  выполняется заново;
+- невалидный или отсутствующий `block_id`, adblock и ошибка SDK не ломают
+  страницу: остаётся заполнитель/зарезервированная высота без `console.error`;
+- для `yandex` `require_consent` не включается в production-конфиге: блок
+  показывается независимо от выбора cookie. Для остальных провайдеров
+  `require_consent=true` продолжает скрывать слот до `granted`;
 - на мобильных `mobile-sticky` поднимает нижний отступ `.site-main`, чтобы не
   перекрывать контент и кнопки; при наличии APK-баннера слот сдвигается выше.
+
+Loader подключается ровно один раз в `apps/web/index.html` до SPA:
+
+```html
+<script>window.yaContextCb=window.yaContextCb||[]</script>
+<script src="https://yandex.ru/ads/system/context.js" async></script>
+```
 
 Reader: `post-chapter` добавлен в конец вертикального режима чтения. Если слот
 не создан или выключен, в reader рекламы нет.
 
+### Яндекс РСЯ RTB
+
+- Блок production: `R-A-20411736-1`.
+- В админке у провайдера типа `yandex` есть публичное поле **Block ID**; оно
+  сохраняется в `config.block_id` и не является секретом.
+- `apps/web/public/ads.txt` содержит 9 строк, отдаваемых production по
+  `/ads.txt` (включая `yandex.com, 334843219, DIRECT` и
+  `yandex.com, 20411736, DIRECT`). После `npm run build` файл обязан быть в
+  `dist/ads.txt` — это проверяет `scripts/check-ads-txt.mjs` (`postbuild`).
+- Провайдер создаётся через admin API после деплоя:
+
+```http
+POST /api/v1/admin/ads
+Authorization: Bearer <admin JWT>
+Content-Type: application/json
+
+{
+  "name": "Яндекс РСЯ — in-feed",
+  "type": "yandex",
+  "placement": "in-feed",
+  "audience": "both",
+  "config": {"block_id": "R-A-20411736-1"},
+  "require_consent": false,
+  "exclude_adult": true
+}
+```
+
+`require_consent=false` — осознанное решение владельца: RTB показывается
+независимо от cookie-баннера. Для custom-провайдеров, которым нужно согласие,
+оставляйте `require_consent=true`.
+
 ## 5. CSP
 
-Сейчас nginx (`infra/nginx/default.conf`) не отправляет `Content-Security-Policy`.
-Для текущей реализации (без внешних рекламных SDK) достаточно:
+`infra/nginx/default.conf` отправляет CSP на всех HTML-маршрутах:
 
 ```nginx
-add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://yandex.ru https://an.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; font-src 'self' data:; connect-src 'self' https:; frame-src 'self' https://yandex.ru https://an.yandex.ru; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
 ```
 
 Важно:
 
-- `frame-src 'self'` нужен для iframe с `srcdoc` (sandbox-скрипты). Если
-  браузер/политика требует иное, проверьте слот `custom_script` в целевом
-  браузере;
-- при подключении реального SDK Яндекса/AdFox/Google нужно добавить домены
-  провайдера в `script-src`, `connect-src`, `frame-src` и `img-src`;
-- `'unsafe-inline'` в `style-src` уже нужен текущему интерфейсу; для
-  `script-src` inline-скрипты загрузчика/темы в `index.html` потребуют nonce
-  или хешей, если вы уберёте `'unsafe-inline'`;
+- `script-src` разрешает `yandex.ru`, `an.yandex.ru` и `yastatic.net` для
+  загрузчика и динамических скриптов RTB; `frame-src` — для рекламного
+  iframe; `connect-src` уже покрывает HTTPS-запросы;
+- `frame-src 'self'` остаётся нужным для iframe с `srcdoc`
+  (`custom_script`), не заменяйте его списком Яндекса;
+- `'unsafe-inline'` в `script-src` нужен текущим inline-скриптам темы,
+  canonical и `yaContextCb` в `index.html`. Если его убирать, понадобятся
+  nonce/хеши для всех inline-скриптов;
+- `img-src` допускает `http:` и `https:` для обложек и баннеров;
 - не ослабляйте `frame-ancestors` и `object-src` ради рекламы.
 
 ## 6. Приватность и согласие
@@ -197,16 +251,19 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style
   согласие. Ключ согласия на фронтенде: `localStorage['mp-ads-consent'] =
   'granted'` (хелперы `setAdsConsent`/`hasAdsConsent` в
   `apps/web/src/api/ads.ts`).
-- Первопартийный баннер `ConsentBanner` показывает «Принять» / «Отклонить»,
-  пишет `granted`/`denied` и не блокирует чтение (это не modal). Отказ не
-  скрывает слоты без `require_consent`, поэтому для production-сетей
-  оставляйте `require_consent=true`; для синтетических QA-баннеров можно
-  `false`.
+- Первопартийный баннер `ConsentBanner` теперь про cookie/статистику:
+  заголовок «Cookie», текст «Используем cookie для входа, настроек и
+  статистики», кнопки «Принять» / «Только необходимые». Ключ
+  `localStorage['mp-ads-consent']` сохранён для совместимости, но реклама
+  глобально от него не зависит. Баннер не modal и не блокирует чтение.
+- Яндекс РСЯ создаётся с `require_consent=false` и показывается при
+  `granted`, `denied` и `null`. Для других провайдеров `require_consent=true`
+  по-прежнему скрывает слот до согласия — эта логика не удалена.
 - `AdSlot` подписан на изменение согласия (`useAdsConsent`) и включает
   consent в query key, поэтому после accept/reject конфиг перезапрашивается,
   а `require_consent`-слоты появляются/исчезают без перезагрузки.
-- Изменить выбор можно на `/privacy` (блок «Реклама и cookie») или по ссылке
-  «Настройки cookie» в футере.
+- Изменить выбор можно на `/privacy` (блок «Cookie и статистика») или по
+  ссылке «Настройки cookie» в футере.
 - Не передавайте в `config`, `custom_html` и `custom_script` значения, которые
   нельзя показывать пользователю: эти поля публичны.
 - Для 18+ тайтлов `exclude_adult=true` по умолчанию. Включать рекламу на таких
@@ -251,20 +308,45 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style
 `synthetic-yandex-key-1234`, `qa-adfox-token-0000`. Не используйте реальные
 ключи, не коммитьте их и не вставляйте в скриншоты.
 
+### Выкладка Яндекс РСЯ
+
+1. Смержить ветку `feat/yandex-rtb` в `main` после review и зелёного CI.
+2. Пересобрать web-образ (вместе с `infra/nginx/default.conf` и новым
+   `index.html`): `docker compose build web && docker compose up -d web`.
+3. Проверить заголовки: `curl -I https://<host>/` содержит CSP с
+   `https://yandex.ru`, `https://an.yandex.ru`, `https://yastatic.net`;
+   `curl -i https://<host>/ads.txt` возвращает `200` и `text/plain`.
+4. Создать провайдера через admin API (см. JSON выше) с
+   `require_consent=false`, `exclude_adult=true`,
+   `config={"block_id":"R-A-20411736-1"}`.
+5. Открыть главную: в in-feed должен появиться реальный блок
+   `R-A-20411736-1`; в DevTools → Network виден запрос
+   `yandex.ru/ads/system/context.js`, в консоли нет ошибок нашего кода.
+6. Проверить, что cookie-баннер не блокирует скролл, а Yandex RTB
+   показывается и после «Только необходимые».
+
 ## 9. Проверка перед выкладкой
 
 - [ ] `pytest tests/control/test_ads.py` проходит.
-- [ ] `npm run typecheck` и `npm run build` в `apps/web` проходят.
+- [ ] `npm run typecheck`, `npm test` и `npm run build` в `apps/web` проходят;
+      build проверяет наличие `dist/ads.txt`.
 - [ ] В админке: создать/изменить/выключить/удалить провайдера, добавить и
       удалить ключ, увидеть маску и запись аудита.
+- [ ] Для `yandex` поле Block ID сохраняется в `config.block_id`; невалидный
+      ID не ломает страницу и показывает заполнитель.
 - [ ] Гость не видит `authenticated`-слоты; авторизованный не видит
       `guest`-слоты.
+- [ ] Yandex RTB рендерится при `granted`, `denied` и `null`; слот с
+      `require_consent=true` всё ещё скрыт до согласия.
 - [ ] Выключенный провайдер и запрос `/ads/config` с ошибкой не дают ошибок в
       консоли и не двигают layout.
-- [ ] Mobile 390×844: `mobile-sticky` не перекрывает навигацию/кнопки.
+- [ ] Mobile 390×844: `mobile-sticky` не перекрывает навигацию/кнопки,
+      cookie-баннер компактный и не блокирует скролл.
 - [ ] Web 1440×900: `header`/`in-feed`/`sidebar` не ломают сетку.
 - [ ] Reader: без явного `post-chapter` рекламы нет.
-- [ ] CSP-заголовок проверен в DevTools → Network → Response Headers.
+- [ ] CSP-заголовок проверен в DevTools → Network → Response Headers;
+      `context.js` и рекламный iframe Яндекса не заблокированы.
+- [ ] `GET /ads.txt` отдаёт 200 `text/plain` и ровно 9 строк.
 
 Для расписания нужен пакет `tzdata` (добавлен в
 `services/control/requirements.txt`); на slim-образах без системной tzdata он

@@ -10,6 +10,28 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
+interface YandexAdRenderOptions {
+  blockId: string;
+  renderTo: string;
+}
+
+interface YandexAdsManager {
+  render(options: YandexAdRenderOptions): void;
+}
+
+interface YandexContext {
+  AdvManager: YandexAdsManager;
+}
+
+interface Window {
+  /** Queue populated by index.html before the Yandex RTB SDK loads. */
+  yaContextCb?: Array<() => void>;
+  /** Available only after https://yandex.ru/ads/system/context.js loads. */
+  Ya?: {
+    Context?: YandexContext;
+  };
+}
+
 /**
  * Legal contact details are replaced at build time by vite.config.ts.
  * They intentionally do not use the VITE_ prefix so deployment can pass the

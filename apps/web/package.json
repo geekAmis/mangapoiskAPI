@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/reader-resume.test.tsx tests/reader-resume-page.test.tsx && node tests/progress.test.mjs && node tests/profiles.test.mjs",
     "test:admin-tabs": "node --test tests/admin-tabs.test.mts",
+    "test:legal-overflow": "npm run build && node tests/legal-overflow.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -33,6 +34,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "jsdom": "^31.0.0",
+    "playwright-core": "^1.65.0",
     "typescript": "~5.9.3",
     "vite": "^7.3.8",
     "vitest": "^5.1.0"
