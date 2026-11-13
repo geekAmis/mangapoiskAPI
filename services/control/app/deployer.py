@@ -458,6 +458,11 @@ fi
             raise RuntimeError(f"{field} must be an absolute URL")
         if self.settings.is_production and parsed.scheme != "https":
             raise RuntimeError(f"{field} must use https in production")
+        if self.settings.is_production and parsed.port == 8443:
+            raise RuntimeError(
+                f"{field} must use the standard HTTPS port 443; "
+                "port 8443 is reserved for legacy APK API compatibility"
+            )
         return value
 
     def _public_api_base(self) -> str:

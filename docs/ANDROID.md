@@ -274,8 +274,11 @@ are unused.
   on every request, so changing servers needs no restart.
 - **Debug default: `http://127.0.0.1:8000/api/v1/`**, intended for
   `adb reverse tcp:8000 tcp:8000` on a physical device or emulator.
-- **Release default: `https://85.192.37.58.nip.io:8443/api/v1/`** (HTTPS).
-- **Current demo:** `https://85.192.37.58.nip.io:8443/api/v1/` (HTTPS; the
+- **Release default (1.3.1+): `https://85.192.37.58.nip.io/api/v1/`** (HTTPS,
+  standard port 443).
+- **Legacy 1.3.0:** `https://85.192.37.58.nip.io:8443/api/v1/` remains
+  API-compatible until the 1.3.1 APK is installed; do not use it in new builds.
+- **Current demo:** `https://85.192.37.58.nip.io/api/v1/` (HTTPS; the
   release build can use this URL or your own HTTPS domain).
 - Emulator alternative: `http://10.0.2.2:8000/api/v1/` (host loopback alias).
 - Physical device on the same LAN: `http://<host-lan-ip>:8000/api/v1/`.

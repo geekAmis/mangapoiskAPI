@@ -61,7 +61,7 @@ TokenPair (access + refresh) — сохраняется как при обычн
 2. Платформа — **Веб-сервисы**.
 3. Название и иконка — на усмотрение владельца.
 4. Redirect URI (точный, без завершающего `/`):
-   - production: `https://85.192.37.58.nip.io:8443/api/v1/auth/yandex/callback`
+   - production: `https://85.192.37.58.nip.io/api/v1/auth/yandex/callback`
    - localhost для разработки: `http://localhost:8000/api/v1/auth/yandex/callback`
      (и при необходимости `http://127.0.0.1:8000/...`).
 5. Доступ к данным:
@@ -97,8 +97,14 @@ YANDEX_REDIRECT_URI=
 Production redirect URI (точный, без завершающего слэша):
 
 ```text
-https://85.192.37.58.nip.io:8443/api/v1/auth/yandex/callback
+https://85.192.37.58.nip.io/api/v1/auth/yandex/callback
 ```
+
+> **Migration note (standard ports):** the owner must update the Yandex app's
+> Redirect URI in Yandex Console to this no-port URL.  Until that is done, a
+> real Yandex login fails with `redirect_uri` mismatch; the rest of the site
+> works.  The legacy `:8443/api/v1/auth/yandex/callback` route remains
+> API-compatible for APK 1.3.0.
 
 В production control-сервис принимает только HTTPS redirect URI и требует,
 чтобы путь оканчивался на `/api/v1/auth/yandex/callback`.
@@ -199,12 +205,12 @@ WebView и тот же origin localStorage, где хранится сессия
 ## Ручная проверка после деплоя
 
 Выполнять без вывода секретов в терминал. `$HOST` =
-`https://85.192.37.58.nip.io:8443`.
+`https://85.192.37.58.nip.io`.
 
 0. **Настройки в админке**
    - Открыть `$HOST/admin` → `Интеграции → Яндекс ID`.
    - Ввести Client ID, Client secret и
-     `https://85.192.37.58.nip.io:8443/api/v1/auth/yandex/callback`, включить
+     `https://85.192.37.58.nip.io/api/v1/auth/yandex/callback`, включить
      тумблер, сохранить.
    - Нажать «Проверить конфигурацию»: все пункты ✓, секреты показаны только
      маской `••••last4`.

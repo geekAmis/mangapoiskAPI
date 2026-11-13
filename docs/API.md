@@ -6,7 +6,7 @@ Base URL: `/api/v1`.
 |---|---|---|
 | Docker Compose | `http://localhost:8080/api/v1` | through the web nginx |
 | Docker Compose, direct API | `http://localhost:8000/api/v1` | after `docker compose --profile dev up -d gateway-public` |
-| Production | `https://85.192.37.58.nip.io:8443/api/v1` | nginx on `:8088`; gateway `:8100` is private |
+| Production | `https://85.192.37.58.nip.io/api/v1` | nginx on `80/443`; gateway `:8100` is private. Legacy APK 1.3.0 may use `https://85.192.37.58.nip.io:8443/api/v1` until 1.3.1 is installed |
 
 The gateway listens on `8000` in Compose and `8100` in the systemd deployment.
 Only the nginx port is public; do not expose the internal service ports.

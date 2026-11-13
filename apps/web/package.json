@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "postbuild": "node scripts/check-ads-txt.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:unit": "vitest run tests/reader-resume.test.tsx tests/reader-resume-page.test.tsx && node tests/progress.test.mjs && node tests/profiles.test.mjs",

@@ -30,9 +30,37 @@ through a jump host) with the admin panel, or you can do it manually:
 
    The HTTP services run
    `venv/bin/uvicorn app.main:app --host 127.0.0.1 --port <port>`.
-6. Run a private nginx instance on `:8088` with root
-   `/opt/mangapoisk-reborn/web` and `/api` proxied to the gateway on 8100.
+6. Run a private nginx instance on the standard ports:
+   - `80` — ACME challenge from `/var/www/certbot`, everything else 301 to
+     `https://<public-host>`;
+   - `443` — the full site, TLS, HSTS/CSP and all API/SEO/static locations;
+   - `8443` — **API-only compatibility** for APK 1.3.0 (`/api/`), everything
+     else 301 to 443; remove it after the 1.3.1 APK is installed;
+   - `8088` — legacy HTTP 301 to 443;
+   - `127.0.0.1:8089` — internal SPA origin used by the gateway prerender
+     (`WEB_INTERNAL_URL=http://127.0.0.1:8089`).
+   The root is `/opt/mangapoisk-reborn/web` and `/api` is proxied to the
+   gateway on 8100.  Do not expose 8089 publicly.
 7. Upload the built `apps/web/dist` to `/opt/mangapoisk-reborn/web`.
+
+The web build runs `apps/web/scripts/check-ads-txt.mjs` as a `postbuild` gate:
+it fails if `dist/ads.txt` is missing or lacks `yandex.com, 20411736, DIRECT`
+and `yandex.com, 334843219, DIRECT`.  Nginx serves `/ads.txt` directly on
+ports 80, 443 and legacy 8088 (never redirects that exact path), because
+Yandex's ads.txt checker may not follow the HTTP-to-HTTPS redirect.
+
+Set the production public URLs without legacy ports:
+
+```dotenv
+PUBLIC_WEB_URL=https://85.192.37.58.nip.io
+PUBLIC_API_URL=https://85.192.37.58.nip.io/api/v1
+VITE_SITE_URL=https://85.192.37.58.nip.io
+WEB_INTERNAL_URL=http://127.0.0.1:8089
+```
+
+The control deployer refuses `:8443` in `PUBLIC_WEB_URL`/`PUBLIC_API_URL`
+when `ENVIRONMENT=production`, so a future deploy cannot silently reintroduce
+the legacy port.
 
 Do not touch existing nginx/systemd units; use a separate config and ports.
 The admin panel can do the same steps automatically for new servers.

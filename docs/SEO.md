@@ -31,7 +31,7 @@ nginx отдавал один `index.html` на все маршруты. Это 
 ### 2.1 Формат
 
 ```
-https://85.192.37.58.nip.io:8443/manga/{uuid}-{url_slug}
+https://85.192.37.58.nip.io/manga/{uuid}-{url_slug}
 ```
 
 - `uuid` — единственный ключ маршрутизации, он стабилен навсегда;
@@ -154,13 +154,13 @@ Gateway для человека проксирует `index.html` из `WEB_INTE
     <title>Ванпанчмен — читать онлайн на русском | MangaPoisk Reborn</title>
     <meta name="description" content="Сайтама — герой по приколу. Описание, список глав и читалка MangaPoisk Reborn." />
     <meta name="robots" content="index,follow,max-image-preview:large" />
-    <link rel="canonical" href="https://85.192.37.58.nip.io:8443/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen" />
+    <link rel="canonical" href="https://85.192.37.58.nip.io/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen" />
     <meta property="og:type" content="book" />
     <meta property="og:locale" content="ru_RU" />
     <meta property="og:site_name" content="MangaPoisk Reborn" />
     <meta property="og:title" content="Ванпанчмен — читать онлайн на русском | MangaPoisk Reborn" />
     <meta property="og:description" content="Сайтама — герой по приколу. Описание, список глав и читалка MangaPoisk Reborn." />
-    <meta property="og:url" content="https://85.192.37.58.nip.io:8443/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen" />
+    <meta property="og:url" content="https://85.192.37.58.nip.io/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen" />
     <meta property="og:image" content="https://cdn.example/cover.jpg" />
     <meta property="og:image:alt" content="Обложка «Ванпанчмен»" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -170,7 +170,7 @@ Gateway для человека проксирует `index.html` из `WEB_INTE
     <meta name="twitter:image:alt" content="Обложка «Ванпанчмен»" />
     <meta name="google-site-verification" content="GOOGLE_TOKEN" />
     <meta name="yandex-verification" content="YANDEX_TOKEN" />
-    <script type="application/ld+json" data-seo="json-ld">{"@context":"https://schema.org","@graph":[{"@type":["ComicStory","Book"],"@id":"https://85.192.37.58.nip.io:8443/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen#comic","name":"Ванпанчмен","url":"https://85.192.37.58.nip.io:8443/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen","inLanguage":"ru","isFamilyFriendly":true,"description":"Сайтама — герой по приколу. Описание, список глав и читалка MangaPoisk Reborn.","image":"https://cdn.example/cover.jpg","alternateName":["One Punch Man","One Punch-Man"],"genre":["Экшен","Комедия"],"copyrightYear":2012,"dateModified":"2026-11-01T00:00:00+00:00","sameAs":"https://source.example/manga/1","aggregateRating":{"@type":"AggregateRating","ratingValue":9.1,"ratingCount":1200,"bestRating":10,"worstRating":1}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Главная","item":"https://85.192.37.58.nip.io:8443/"},{"@type":"ListItem","position":2,"name":"Каталог","item":"https://85.192.37.58.nip.io:8443/catalogue"},{"@type":"ListItem","position":3,"name":"Ванпанчмен","item":"https://85.192.37.58.nip.io:8443/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen"}]}]}</script>
+    <script type="application/ld+json" data-seo="json-ld">{"@context":"https://schema.org","@graph":[{"@type":["ComicStory","Book"],"@id":"https://85.192.37.58.nip.io/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen#comic","name":"Ванпанчмен","url":"https://85.192.37.58.nip.io/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen","inLanguage":"ru","isFamilyFriendly":true,"description":"Сайтама — герой по приколу. Описание, список глав и читалка MangaPoisk Reborn.","image":"https://cdn.example/cover.jpg","alternateName":["One Punch Man","One Punch-Man"],"genre":["Экшен","Комедия"],"copyrightYear":2012,"dateModified":"2026-11-01T00:00:00+00:00","sameAs":"https://source.example/manga/1","aggregateRating":{"@type":"AggregateRating","ratingValue":9.1,"ratingCount":1200,"bestRating":10,"worstRating":1}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Главная","item":"https://85.192.37.58.nip.io/"},{"@type":"ListItem","position":2,"name":"Каталог","item":"https://85.192.37.58.nip.io/catalogue"},{"@type":"ListItem","position":3,"name":"Ванпанчмен","item":"https://85.192.37.58.nip.io/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen"}]}]}</script>
 </head>
 <body>
   <header>…MangaPoisk Reborn…</header>
@@ -182,12 +182,12 @@ Gateway для человека проксирует `index.html` из `WEB_INTE
       <p>One Punch Man · One Punch-Man</p>
       <p>2012 · Экшен, Комедия · Глав: 2</p>
       <p>Сайтама — герой по приколу…</p>
-      <p><a href="https://85.192.37.58.nip.io:8443/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen">Открыть тайтл в читалке MangaPoisk</a></p>
+      <p><a href="https://85.192.37.58.nip.io/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen">Открыть тайтл в читалке MangaPoisk</a></p>
     </article>
     <section>
       <h2>Последние главы</h2>
       <ol>
-        <li><a href="https://85.192.37.58.nip.io:8443/reader/11111111-1111-1111-1111-111111111111">Глава 2 — Глава 2</a></li>
+        <li><a href="https://85.192.37.58.nip.io/reader/11111111-1111-1111-1111-111111111111">Глава 2 — Глава 2</a></li>
       </ol>
     </section>
   </main>
@@ -246,14 +246,14 @@ Disallow: /login
 Disallow: /register
 Disallow: /offline/
 
-Sitemap: https://85.192.37.58.nip.io:8443/sitemap.xml
+Sitemap: https://85.192.37.58.nip.io/sitemap.xml
 ```
 
 `/reader/` не закрыт в robots: страницы должны отдать `noindex`, иначе
 краулер не увидит директиву. Sitemap (`services/gateway/app/seo.py`):
 
 - `GET /sitemap.xml` и alias `GET /api/v1/sitemap.xml`;
-- только `https://85.192.37.58.nip.io:8443` (production-валидация запрещает
+- только `https://85.192.37.58.nip.io` (production-валидация запрещает
   HTTP `PUBLIC_WEB_URL`);
 - статические `/`, `/catalogue`, `/sources`;
 - юридические страницы: `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age`
@@ -273,8 +273,8 @@ Sitemap: https://85.192.37.58.nip.io:8443/sitemap.xml
 Проверка:
 
 ```bash
-curl -sk https://85.192.37.58.nip.io:8443/sitemap.xml \
-  | python -c "import sys,xml.etree.ElementTree as ET; r=ET.fromstring(sys.stdin.buffer.read()); ns='{http://www.sitemaps.org/schemas/sitemap/0.9}'; u=[e.text for e in r.findall(ns+'url/'+ns+'loc')]; print(len(u)); print(all(x.startswith('https://85.192.37.58.nip.io:8443/') for x in u)); print(all('/manga/' not in x or '-' in x.rsplit('/',1)[-1] for x in u))"
+curl -sk https://85.192.37.58.nip.io/sitemap.xml \
+  | python -c "import sys,xml.etree.ElementTree as ET; r=ET.fromstring(sys.stdin.buffer.read()); ns='{http://www.sitemaps.org/schemas/sitemap/0.9}'; u=[e.text for e in r.findall(ns+'url/'+ns+'loc')]; print(len(u)); print(all(x.startswith('https://85.192.37.58.nip.io/') for x in u)); print(all('/manga/' not in x or '-' in x.rsplit('/',1)[-1] for x in u))"
 ```
 
 ## 5. Verification-теги без доступа к панелям
@@ -295,12 +295,12 @@ YANDEX_VERIFICATION=yyyyyyyyyyyyyyyyyyyyyyyy
 Ручная отправка (нужен доступ владельца):
 
 1. **Google Search Console** → Add property → URL-prefix
-   `https://85.192.37.58.nip.io:8443/` → HTML tag → скопировать `content` в
+   `https://85.192.37.58.nip.io/` → HTML tag → скопировать `content` в
    `GOOGLE_SITE_VERIFICATION` → пересобрать web и перезапустить gateway →
    Verify.
 2. **Yandex Webmaster** → Добавить сайт → подтверждение мета-тегом →
    `YANDEX_VERIFICATION` → Verify.
-3. Sitemaps → добавить `https://85.192.37.58.nip.io:8443/sitemap.xml`.
+3. Sitemaps → добавить `https://85.192.37.58.nip.io/sitemap.xml`.
 4. Request indexing для `/`, `/catalogue` и 3–5 карточек тайтлов.
 5. Через 1–2 недели проверить «Индексирование страниц» / «Страницы» и
    отчёты structured data.
@@ -310,7 +310,7 @@ YANDEX_VERIFICATION=yyyyyyyyyyyyyyyyyyyyyyyy
 ### Bash / Git Bash
 
 ```bash
-BASE=https://85.192.37.58.nip.io:8443
+BASE=https://85.192.37.58.nip.io
 MANGA=/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen
 
 curl -sk -D - -A "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" \
@@ -335,7 +335,7 @@ curl -skI -A "Googlebot/2.1" "$BASE/reader/11111111-1111-1111-1111-111111111111"
 ### PowerShell
 
 ```powershell
-$base = 'https://85.192.37.58.nip.io:8443'
+$base = 'https://85.192.37.58.nip.io'
 $ua = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
 $r = Invoke-WebRequest -Uri "$base/manga/23d337ac-d72d-4fd6-9cda-e314d72ddafd-vanpanchmen" -Headers @{ 'User-Agent' = $ua } -SkipCertificateCheck
 $r.StatusCode
