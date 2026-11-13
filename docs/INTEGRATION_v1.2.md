@@ -1,5 +1,10 @@
 # Интеграция v1.2
 
+> **Исторический документ.** Ветка v1.2 вошла в `v1.3.0` без отдельного тега.
+> Порты `:8443`/`:8088` и «HTTP fallback» ниже устарели: production v1.3.2
+> работает на 80/443, `:8443` — legacy API для APK 1.3.0, `:8088` — redirect
+> (кроме `/ads.txt`). Актуальный статус — [LAUNCH.md](LAUNCH.md).
+
 Ветка: `release/v1.2-integration`  
 База: `main` @ `b0080b2` (`merge: docs encoding and HTTPS public URL fixes`)  
 Назначение: reviewable integration branch для EPIC

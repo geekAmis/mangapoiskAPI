@@ -34,8 +34,11 @@ merged pull request, not a step.
 | [#27](https://github.com/geekAmis/mangapoiskAPI/issues/27) | 23. Node.js/Capacitor Android | done |
 | [#28](https://github.com/geekAmis/mangapoiskAPI/issues/28) | 24. Dancing loading GIFs | done |
 
-Release: [v1.0.0](https://github.com/geekAmis/mangapoiskAPI/releases/tag/v1.0.0).
-The next release draft is in [RELEASE_NOTES_v1.1.0.md](RELEASE_NOTES_v1.1.0.md).
+Release: [v1.0.0](https://github.com/geekAmis/mangapoiskAPI/releases/tag/v1.0.0),
+then [v1.3.0](https://github.com/geekAmis/mangapoiskAPI/releases/tag/v1.3.0).
+The v1.1/v1.2 sections below are historical: that work shipped in v1.3.0
+without separate tags. Current status — [LAUNCH.md](LAUNCH.md) and
+[CHANGELOG.md](CHANGELOG.md).
 
 ## v1.1 / v1.2
 

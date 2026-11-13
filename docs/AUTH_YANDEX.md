@@ -2,6 +2,13 @@
 
 Задача: [#67](https://github.com/geekAmis/mangapoiskAPI/issues/67).
 
+**Статус production (2026-11-13):** интеграция включена. Реальный вход через
+Яндекс ID подтверждён на `https://85.192.37.58.nip.io`; приложение в
+Яндекс.Консоли в статусе **«Подключен»**, redirect URI —
+`https://85.192.37.58.nip.io/api/v1/auth/yandex/callback`, scopes
+`login:email login:info login:avatar`. `login:info` должен быть включён в
+Консоли — без него не приходят `id`/`display_name`/`real_name`.
+
 Вход и регистрация через Яндекс ID работают на веб-клиенте и в мобильной
 оболочке Capacitor. Провайдер полностью опционален: без настроенной интеграции
 (БД или bootstrap `.env`) кнопка скрыта, а `GET /api/v1/auth/yandex/start`
@@ -61,12 +68,13 @@ TokenPair (access + refresh) — сохраняется как при обычн
 2. Платформа — **Веб-сервисы**.
 3. Название и иконка — на усмотрение владельца.
 4. Redirect URI (точный, без завершающего `/`):
-   - production: `https://85.192.37.58.nip.io:8443/api/v1/auth/yandex/callback`
+   - production: `https://85.192.37.58.nip.io/api/v1/auth/yandex/callback`
    - localhost для разработки: `http://localhost:8000/api/v1/auth/yandex/callback`
      (и при необходимости `http://127.0.0.1:8000/...`).
 5. Доступ к данным:
    - `login:email` — получить `default_email`;
-   - `login:info` — получить `id`, `display_name`, `real_name`;
+   - `login:info` — получить `id`, `display_name`, `real_name`; **обязателен**
+     и должен быть включён в Яндекс.Консоли;
    - `login:avatar` — `avatar_id` (сейчас не используется, но зарегистрирован
      владельцем).
 6. В настройках приложения скопируйте `ClientID` и `Client secret`.
@@ -97,7 +105,7 @@ YANDEX_REDIRECT_URI=
 Production redirect URI (точный, без завершающего слэша):
 
 ```text
-https://85.192.37.58.nip.io:8443/api/v1/auth/yandex/callback
+https://85.192.37.58.nip.io/api/v1/auth/yandex/callback
 ```
 
 В production control-сервис принимает только HTTPS redirect URI и требует,
@@ -105,8 +113,8 @@ https://85.192.37.58.nip.io:8443/api/v1/auth/yandex/callback
 
 ### Админ-панель
 
-Раздел `Интеграции → Яндекс ID` (self-contained компонент
-`YandexIntegrationPanel`, пока без перестройки AdminPage на табы):
+Раздел `Интеграции → Яндекс ID` в табовой админке (компонент
+`YandexIntegrationPanel`):
 
 - поля Client ID, Client secret, Redirect URI;
 - тумблер «Включить вход через Яндекс ID»;
@@ -144,6 +152,10 @@ API (только с admin Bearer-токеном):
    `YANDEX_CLIENT_SECRET`, `YANDEX_REDIRECT_URI` из production `.env`.
    Пустые placeholders в deploy-шаблоне остаются; deploy-скрипт сохраняет
    непустые значения, пока они есть.
+
+В production v1.3.2 миграция завершена: реальные ключи хранятся только в
+зашифрованной БД control, `.env`-строки можно оставить пустыми. Проверка —
+`GET /api/v1/auth/providers` → `{"yandex":true}` и реальный вход.
 
 Важно: не удаляйте `.env`-строки раньше шага 4 — при откате на старую версию
 без БД-пути они будут единственным источником конфигурации.
@@ -199,12 +211,12 @@ WebView и тот же origin localStorage, где хранится сессия
 ## Ручная проверка после деплоя
 
 Выполнять без вывода секретов в терминал. `$HOST` =
-`https://85.192.37.58.nip.io:8443`.
+`https://85.192.37.58.nip.io`.
 
 0. **Настройки в админке**
    - Открыть `$HOST/admin` → `Интеграции → Яндекс ID`.
    - Ввести Client ID, Client secret и
-     `https://85.192.37.58.nip.io:8443/api/v1/auth/yandex/callback`, включить
+     `https://85.192.37.58.nip.io/api/v1/auth/yandex/callback`, включить
      тумблер, сохранить.
    - Нажать «Проверить конфигурацию»: все пункты ✓, секреты показаны только
      маской `••••last4`.
@@ -253,8 +265,12 @@ WebView и тот же origin localStorage, где хранится сессия
 
 ### QA-скриншоты
 
-Локальный end-to-end с mock-Яндексом и DB-only credentials (390×844 и
-1440×900, 0 console errors на auth-экранах):
+Реальный production-вход через Яндекс ID подтверждён 13.11.2026: кнопка
+открывает `oauth.yandex.ru`, callback возвращает на
+`https://85.192.37.58.nip.io/auth/yandex/finish`, сессия создаётся/связывается,
+повторный вход не дублирует пользователя. Скриншоты ниже — локальный e2e с
+mock-Яндексом и DB-only credentials (390×844 и 1440×900, 0 console errors на
+auth-экранах):
 
 - `docs/screenshots/yandex-login-mobile.png`
 - `docs/screenshots/yandex-login-desktop.png`

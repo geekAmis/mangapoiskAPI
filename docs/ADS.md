@@ -15,6 +15,28 @@
   `post-chapter`;
 - для 18+ тайтлов реклама по умолчанию скрыта.
 
+## 0. Статус production (2026-11-13, v1.3.2)
+
+- Провайдер: `c57fb6e5-23e6-4d97-b7b4-66af8b7b9c43`,
+  `Yandex RTB — главная`, `type=yandex`, `placement=in-feed`,
+  `audience=both`, `enabled=true`, priority 10, format horizontal,
+  `config.block_id=R-A-20411736-1`, `require_consent=false`,
+  `exclude_adult=true`, cap 0.
+- Loader и CSP развёрнуты; guest и authenticated `/api/v1/ads/config` отдают
+  только публичный `config`, без секретов.
+- `ads.txt` — 9 строк, прямой `200 text/plain` на 80, 443 и 8088, без
+  редиректа. В файле есть `yandex.com, 20411736, DIRECT` и
+  `yandex.com, 334843219, DIRECT`.
+- **Внешний блокер:** реальный Yandex SDK отвечает
+  `PAGE_DISABLED Page "20411736" is disabled`, пока владелец не включит
+  площадку/блок в кабинете РСЯ. Это не ошибка кода.
+- **Модерация РСЯ:** отклонена из-за менее 100 реальных посетителей в неделю.
+  Повторная подача — с **2026-11-20 05:55**. До этого реальный показ рекламы
+  не гарантирован; накрутки и боты запрещены.
+- Consent banner относится к cookie/статистике. Яндекс RTB показывается при
+  `granted`, `denied` и `null`; другие провайдеры с `require_consent=true`
+  по-прежнему ждут согласия.
+
 ## 1. Провайдеры и слоты
 
 Одна запись в админке — это провайдер + один слот. Провайдер можно выключить,
@@ -310,20 +332,22 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsaf
 
 ### Выкладка Яндекс РСЯ
 
-1. Смержить ветку `feat/yandex-rtb` в `main` после review и зелёного CI.
-2. Пересобрать web-образ (вместе с `infra/nginx/default.conf` и новым
-   `index.html`): `docker compose build web && docker compose up -d web`.
-3. Проверить заголовки: `curl -I https://<host>/` содержит CSP с
-   `https://yandex.ru`, `https://an.yandex.ru`, `https://yastatic.net`;
-   `curl -i https://<host>/ads.txt` возвращает `200` и `text/plain`.
-4. Создать провайдера через admin API (см. JSON выше) с
-   `require_consent=false`, `exclude_adult=true`,
-   `config={"block_id":"R-A-20411736-1"}`.
-5. Открыть главную: в in-feed должен появиться реальный блок
-   `R-A-20411736-1`; в DevTools → Network виден запрос
-   `yandex.ru/ads/system/context.js`, в консоли нет ошибок нашего кода.
-6. Проверить, что cookie-баннер не блокирует скролл, а Yandex RTB
-   показывается и после «Только необходимые».
+Выполнено в v1.3.2 (13.11.2026):
+
+1. Ветка `feat/yandex-rtb` смержена в `main`; тег `v1.3.2` — `affe7d0`.
+2. Web пересобран из `main` с `VITE_SITE_URL=https://85.192.37.58.nip.io`;
+   `dist` не содержит `:8443`. Nginx получил только CSP-разрешения и
+   exact-locations для `ads.txt`.
+3. Проверены заголовки: CSP содержит `https://yandex.ru`,
+   `https://an.yandex.ru`, `https://yastatic.net`;
+   `GET /ads.txt` на 80/443/8088 — `200 text/plain`, 9 строк.
+4. Провайдер создан через admin API с `require_consent=false`,
+   `exclude_adult=true`, `config={"block_id":"R-A-20411736-1"}`.
+5. На главной создаётся контейнер `yandex_rtb_R-A-20411736-1`, loader
+   `context.js` загружается; реальный блок ждёт включения площадки в кабинете
+   Яндекса (`PAGE_DISABLED`).
+6. Cookie-баннер не блокирует скролл; RTB-слот не зависит от выбора
+   «Принять»/«Только необходимые».
 
 ## 9. Проверка перед выкладкой
 
@@ -346,7 +370,10 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsaf
 - [ ] Reader: без явного `post-chapter` рекламы нет.
 - [ ] CSP-заголовок проверен в DevTools → Network → Response Headers;
       `context.js` и рекламный iframe Яндекса не заблокированы.
-- [ ] `GET /ads.txt` отдаёт 200 `text/plain` и ровно 9 строк.
+- [ ] `GET /ads.txt` на 80/443/8088 отдаёт 200 `text/plain` и ровно 9 строк,
+      без redirect.
+- [ ] Реальный RTB: если SDK вернул `PAGE_DISABLED`, зафиксировать это как
+      owner action в кабинете Яндекса, а не как дефект фронтенда.
 
 Для расписания нужен пакет `tzdata` (добавлен в
 `services/control/requirements.txt`); на slim-образах без системной tzdata он

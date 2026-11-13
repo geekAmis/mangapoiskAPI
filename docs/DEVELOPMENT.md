@@ -25,9 +25,9 @@ Open:
   the web nginx)
 
 Compose uses ports `8000–8006` for local development.  The production systemd
-deployment uses `8100–8107` (gateway `8100`, parser `8101`, catalog `8102`,
-library `8103`, media `8104`, control `8005`, notifier `8106`, scheduler `8107`)
-behind nginx on `8088`; see
+deployment uses `8100–8109` (gateway `8100`, parser `8101`, catalog `8102`,
+library `8103`, media `8104`, control `8005`, notifier `8106`, scheduler `8107`,
+replica `8108`, comments `8109`) behind standalone nginx on **80/443**; see
 [`SERVER_MANAGER.md`](SERVER_MANAGER.md#порты-на-текущем-сервере).
 
 ## Local development without Docker

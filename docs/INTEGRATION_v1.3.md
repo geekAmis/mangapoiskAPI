@@ -1,14 +1,29 @@
-# Integration record — v1.3.0 release candidate
+# Integration record — v1.3.0 → v1.3.2
 
-Branch: `release/v1.3-integration`  
+Branch history: `release/v1.3-integration` → `main`.<br>
 Base: `main` @ `fe43baf826ef97694d3c6b280670d974df622ae5`  
 Code freeze SHA: `5cf9f023b3b32757204d6f420eaa0ff1b8048239` (feature-complete
-merge tip; this document is the following commit).  
-Status: **release candidate, not merged to `main`, not deployed.**
+merge tip).<br>
+Status: **v1.3.0 released and deployed; v1.3.2 hotfix deployed.** The
+production web runs `main` @ `affe7d0` (`v1.3.2`). Android 1.3.2 is installed on
+the QA device, but Android QA is paused (#84) and no GitHub APK asset exists.
 
 This document records the integration order, resolved conflicts, verification
-matrix, migration checks, known gaps and the deployment order for v1.3.0.
-The lead owns the merge to `main` and the production deploy.
+matrix, migration checks, known gaps and the deployment order for v1.3.x.
+The lead owns merges to `main` and production deploys.
+
+## 0. Release status
+
+| Release | Ref | Status |
+|---|---|---|
+| `v1.3.0` | `71be724` | GitHub release published; deployed 13.11.2026 |
+| `v1.3.1` | no tag | port-migration stage; Android 1.3.1 remote `server.url` regression (#84) |
+| `v1.3.2` | `affe7d0` | deployed web/infra/RTB hotfix; tag only, no GitHub release/APK |
+
+Production facts: site on 80/443, cert SAN apex+www until 2027-02-11, canonical
+and sitemap without port (~25,189 URLs), `ads.txt` direct 200 on 80/443/8088,
+Yandex ID real login confirmed, RTB provider
+`c57fb6e5-23e6-4d97-b7b4-66af8b7b9c43` with `require_consent=false`.
 
 ## 1. Merge order
 
@@ -72,14 +87,29 @@ Run on the merged tree at `5cf9f023b3b32757204d6f420eaa0ff1b8048239`.
 | Console rejection | control API, `{"command":"uptime; id"}` | **422** `console_injection` |
 | Admin tabs | deep-link parser and tab definitions | all tabs accepted, unknown falls back to `overview` |
 
+## 3.1 Post-deploy verification (v1.3.2, 13.11.2026)
+
+| Check | Result |
+|---|---|
+| Redirect matrix | 80/443 200; `http`/`www` 301; `:8443` API 200 / web 301; `:8088` 301 except `/ads.txt` |
+| Certificate | SAN apex+www; expires 2027-02-11; targeted `certbot renew --dry-run` passed |
+| Canonical/OG/sitemap | no `:8443`, no `http://`; sitemap ~25,189 URLs |
+| `ads.txt` | 200 `text/plain`, 9 lines, no Location on 80/443/8088 |
+| Yandex ID | real login confirmed; redirect URI no port; `login:info` enabled |
+| Ads config | guest/auth include `config.block_id=R-A-20411736-1`; no secrets |
+| Real RTB | external `PAGE_DISABLED Page "20411736" is disabled`; РСЯ resubmit from 2026-11-20 05:55 |
+| Android 1.3.2 | installed over 1.3.1; packaged `www`, origin `https://localhost`, API 443; cold launch/session restore PASS; QA paused |
+| CI | backend, web, docs encoding, mobile-web, ops, android and compose jobs configured; docs encoding check passed locally |
+
 ## 4. Migration / startup checks
 
-Production DB copies were not downloadable from this workstation: SSH to both
+Production DB copies were not downloadable during the RC pass: SSH to both
 `jump-83` and `primary-85` returned `Permission denied (publickey,password)`
 with the available deploy key. The checks below use a **production-like 100k-row
 catalogue** (`catalog-perf/data/bench-timing.db`, 100 000 manga / 80 000
-chapters) plus existing QA library/control databases. The lead must repeat the
-same smoke on real production copies before deploying.
+chapters) plus existing QA library/control databases. v1.3.0 was deployed and
+the live post-deploy smoke passed; repeat the migration/restore drill on a
+fresh backup before the next destructive change.
 
 | Check | Result |
 |---|---|
@@ -94,33 +124,40 @@ same smoke on real production copies before deploying.
 | Control migration | startup **0.103 s**; 2 servers / 24 audit rows / 5 jobs preserved; `integration_secrets`, `integration_settings` created; `PRAGMA integrity_check` ok |
 | Rollback (restore pre-migration copy) | original DBs have no `url_slug`/collections/profile/Yandex tables, same row counts, `integrity_check` ok; additive migrations are backward-compatible |
 
-## 5. Known gaps / lead follow-ups
+## 5. Known gaps / follow-ups (post-deploy, 2026-11-13)
 
-1. **Production DB copies not verified here** (SSH public key rejected). Repeat
-   the catalogue/library/control smoke on copies pulled from `primary-85`
-   before the deploy.
-2. **PostgreSQL branches not exercised.** Production is SQLite; the PG
-   `ALTER TABLE ... IF NOT EXISTS` and index paths are code-reviewed only.
-3. **Android APK not rebuilt.** `build:www` passed; `assembleDebug` needs the
-   Android SDK and signing material on the release host.
-4. **Catalog pre-build timing** is 0.7 s on this workstation; the branch
-   measured 6.5–12 s on the production host. Plan a maintenance window for the
-   one-time rebuild and keep the pre-build DB copy.
-5. **Legal contacts are build-time values.** The RC build used the owner’s
-   values; the lead must set `LEGAL_CONTACT_EMAIL`, `LEGAL_OWNER_NAME`,
-   `LEGAL_JURISDICTION` in the deploy environment and rebuild the web image.
-6. **Yandex credentials** must be entered in Admin → Integrations (DB wins over
-   env) or set as bootstrap env values; `/auth/providers` stays `false` until
-   all three values are present.
-7. **Admin CSS encoding:** the feature branch file was CP1251; it is UTF-8 in
-   the merge. A browser smoke of the admin tabs is still recommended.
-8. **Web chunk size** is ~642 kB (warning limit 900 kB); not a blocker.
+1. **Android QA paused (#84).** 1.3.2/code 5 is installed and cold launch /
+   session restore passed, but reader, downloads, notifications, `/privacy`
+   overflow, Yandex ID and the new v1.3 features were not re-checked. Do not
+   publish the APK until QA resumes.
+2. **Yandex RTB is externally blocked (#83).** Loader, `ads.txt`, CSP, provider
+   and `config.block_id` are deployed; the SDK reports
+   `PAGE_DISABLED Page "20411736" is disabled` until the owner enables the
+   site/block. РСЯ moderation is deferred until ≥100 real visitors/week
+   (resubmit from 2026-11-20 05:55).
+3. **Search author/typo (#76) is not deployed.** Production still has no
+   author search and misses `чензо мен`; the fix is in
+   `fix/search-author-typo`.
+4. **SSH key-only (#78) and web/admin hardening (#79) remain open.** Root
+   password SSH, broad CSP and lack of admin MFA/IP allowlist are documented in
+   [`SECURITY.md`](SECURITY.md).
+5. **Legacy ports remain (#82).** `:8443` is API-only for APK 1.3.0; `:8088`
+   redirects except `/ads.txt`. Remove after old clients are retired.
+6. **Metrika/traffic panel (#85) is not in v1.3.2.** Do not describe it as
+   live.
+7. **Production DB copies were not available during the RC pass.** The
+   post-deploy smoke used the live service; re-run the migration/restore drill
+   on a fresh backup before the next destructive change.
+8. **PostgreSQL branches were not exercised in production.** Production is
+   SQLite; PG paths are code-reviewed only.
 
-## 6. Deployment order (lead)
+## 6. Deployment order (v1.3.0, executed; v1.3.2 hotfix)
 
-Do not merge to `main` or deploy from this branch until the lead signs off.
-The order matters because control owns the new config/console APIs and the
-catalogue needs its one-time card pre-build.
+The v1.3.0 order below was executed by the lead and is kept as a reproducible
+runbook. v1.3.2 was a web/infra hotfix: merge `feat/yandex-rtb`, rebuild web
+with `VITE_SITE_URL=https://85.192.37.58.nip.io`, apply the CSP/ads.txt nginx
+changes, reload `mangapoisk-web.service`, create the RTB provider and verify
+the redirect matrix. No DB migration was required.
 
 1. **Freeze and back up.**
    - Stop writes or quiesce the crawler.
@@ -152,8 +189,8 @@ catalogue needs its one-time card pre-build.
      over env; env is bootstrap only).
    - Set `LEGAL_CONTACT_EMAIL`, `LEGAL_OWNER_NAME`, `LEGAL_JURISDICTION` and
      rebuild the web image; verify the real values appear on `/contacts`.
-   - Set `WEB_INTERNAL_URL` for nginx and install `infra/nginx/default.conf`
-     SEO routes.
+   - Set `WEB_INTERNAL_URL=http://127.0.0.1:8089` for nginx/static prerender
+     and install `infra/nginx/default.conf` SEO routes.
 6. **Web and mobile.**
    - Deploy the web build and nginx config; smoke `/`, `/manga/{id}-{slug}`,
      `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age`, `/sitemap.xml`.

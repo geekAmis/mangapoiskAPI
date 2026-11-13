@@ -1,6 +1,8 @@
 # Catalogue list performance (#68)
 
-**Branch:** `perf/catalog-list`
+**Status:** deployed in v1.3.0. Production deploy check after rollout: p95
+~45 ms at the gateway / ~34 ms at catalog for the public list. The
+2.9–8.2 s p50 numbers below are the **pre-optimization** baseline.
 
 **Scope:** catalog service list/search visibility, SQLite planner statistics,
 benchmark and rollout notes. Public API contract is unchanged.

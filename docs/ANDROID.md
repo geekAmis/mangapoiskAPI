@@ -6,17 +6,29 @@ API configuration, verification results and known limitations.
 
 ## Status
 
-The project is complete and compile-ready. On the validation machine it builds
-successfully:
+Current build (installed on the QA device): **Capacitor APK 1.3.2,
+versionCode 5** (`ru.mangapoisk.reborn`), built from `release/android-1.3.2`:
 
-- `assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
-- `assembleRelease` (R8) → `app/build/outputs/apk/release/app-release-unsigned.apk`
+- packaged `www` (no remote `server.url`), `server.androidScheme: "https"`,
+  origin `https://localhost`;
+- API base `https://85.192.37.58.nip.io/api/v1` (443, no `:8443`);
+- installed with `adb install -r` over 1.3.1 on TECNO KL6 (Android 14) without
+  uninstall; production certificate and `firstInstallTime` preserved;
+- cold launch passed: the old 1.3.0 session (`https://localhost`) and local
+  data on that origin were restored; layout is full-width;
+- APK SHA-256: `13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019`
+  (installed `base.apk` matches).
 
-The app was installed and smoke-tested on a connected TECNO KL6
-(1080×2460, Android) through `adb reverse tcp:8000 tcp:8000`: home, catalogue
-filtering, detail, reader pager/tap zones/resume, reader settings,
-sources and settings were exercised. There are no automated
-unit/instrumentation tests yet.
+**QA paused by the owner (#84).** Reader, downloads, notifications, `/privacy`
+overflow, Yandex ID and the new v1.3 features were not fully re-checked in the
+app after the cold-launch pass. No GitHub release or APK asset was published
+for 1.3.2.
+
+History: APK 1.3.1 (versionCode 4) used
+`server.url=https://85.192.37.58.nip.io`, which changed the WebView origin and
+broke layout/taps and the old `https://localhost` session. 1.3.2 removed
+`server.url` and returned to packaged `www` (#84). The Kotlin client in
+`apps/android` remains compile-ready but is not the current production APK.
 
 ## Stack and versions
 
@@ -274,9 +286,11 @@ are unused.
   on every request, so changing servers needs no restart.
 - **Debug default: `http://127.0.0.1:8000/api/v1/`**, intended for
   `adb reverse tcp:8000 tcp:8000` on a physical device or emulator.
-- **Release default: `https://85.192.37.58.nip.io:8443/api/v1/`** (HTTPS).
-- **Current demo:** `https://85.192.37.58.nip.io:8443/api/v1/` (HTTPS; the
-  release build can use this URL or your own HTTPS domain).
+- **Release default (1.3.2): `https://85.192.37.58.nip.io/api/v1`** (HTTPS,
+  443, no port suffix).
+- **Capacitor origin:** packaged `www` served as `https://localhost`; there is
+  no remote `server.url`. This preserves the origin used by 1.3.0 sessions and
+  IndexedDB/downloads. The 1.3.1 remote-URL regression is tracked in #84.
 - Emulator alternative: `http://10.0.2.2:8000/api/v1/` (host loopback alias).
 - Physical device on the same LAN: `http://<host-lan-ip>:8000/api/v1/`.
 - Production/release: HTTPS only. The release build defaults to the HTTPS
@@ -365,7 +379,8 @@ Capacitor build now uses:
 
 | Setting | Required value |
 |---|---|
-| API base | `https://85.192.37.58.nip.io:8443/api/v1` |
+| API base | `https://85.192.37.58.nip.io/api/v1` |
+| `server.url` | **absent** — use packaged `www` |
 | `server.androidScheme` | `https` |
 | `server.cleartext` | `false` |
 | `android.allowMixedContent` | `false` (or omitted) |
@@ -386,8 +401,8 @@ $env:ANDROID_HOME = "D:\Android\sdk"
 $env:ANDROID_SDK_ROOT = "D:\Android\sdk"
 
 # Optional: override the HTTPS production API base.
-# The default is already https://85.192.37.58.nip.io:8443/api/v1
-# $env:CAPACITOR_API_BASE = "https://85.192.37.58.nip.io:8443/api/v1"
+# Release 1.3.2 defaults to https://85.192.37.58.nip.io/api/v1
+# $env:CAPACITOR_API_BASE = "https://85.192.37.58.nip.io/api/v1"
 
 npm run sync
 cd android
@@ -397,15 +412,20 @@ cd android
 
 Linux/macOS uses `./gradlew assembleDebug` / `./gradlew assembleRelease`.
 
+> Release 1.3.2 was built from `release/android-1.3.2`, where the default API
+> base is 443 and the build rejects `:8088`/`:8443`. If you build from `main`
+> before that branch is merged, pass
+> `CAPACITOR_API_BASE=https://85.192.37.58.nip.io/api/v1` explicitly.
+
 Outputs:
 
 - `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk` — debug-signed,
   installable with `adb install -r`; still uses the HTTPS production API unless
   `CAPACITOR_API_BASE` was overridden for local development.
 - `apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk`
-  — release, **unsigned** because the repository has no signing config. Sign it
-  with the production key before distribution; see
-  [Release signing](#release-signing-production).
+  — intermediate release build. It is **signed outside Gradle** with the
+  production keystore before distribution; 1.3.2/code 5 is signed and installed
+  on the QA device. See [Release signing](#release-signing-production).
 
 `apps/mobile/scripts/build-www.mjs` bakes the API base into the JS bundle and
 refuses arbitrary plain-HTTP URLs. Only `https://` and local development hosts
@@ -418,7 +438,7 @@ build type, so localhost HTTP is only useful for the browser web build.
 The release APK is signed outside Gradle with the production keystore; the
 repository intentionally contains no signing config and no keystore.
 
-Current 1.1.0 certificate:
+Current production certificate (used by 1.1.0–1.3.2):
 
 | Field | Value |
 |---|---|
@@ -426,6 +446,10 @@ Current 1.1.0 certificate:
 | Key | RSA 4096, SHA-384 self-signed |
 | Validity | 2026-11-13 to 2054-03-31 (10 000 days) |
 | Certificate SHA-256 | `E8:B8:C8:12:EF:40:2E:3E:54:ED:29:32:B7:00:6E:96:E9:8B:30:AE:E5:FD:27:E4:4B:7B:B2:A4:59:E2:BE:74` |
+
+1.3.2 APK (versionName 1.3.2 / versionCode 5) SHA-256:
+`13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019`.
+The installed `base.apk` matched this value and the certificate above.
 
 The signing key is immutable for the app's lifetime: Android rejects an update
 signed by a different key. Back it up and never rotate it unless the package is
@@ -497,7 +521,7 @@ apksigner sign \
   --v1-signing-enabled true \
   --v2-signing-enabled true \
   --v3-signing-enabled true \
-  --out mangapoisk-reborn-1.1.0-release.apk \
+  --out mangapoisk-reborn-1.3.2-release.apk \
   app-release-unsigned.apk
 
 unset storePassword keyPassword
@@ -521,18 +545,18 @@ $env:keyPassword = $props['keyPassword']
 apksigner sign --ks "$KS_DIR\mangapoisk-release.jks" --ks-type PKCS12 `
   --ks-key-alias mangapoisk --ks-pass env:storePassword --key-pass env:keyPassword `
   --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true `
-  --out mangapoisk-reborn-1.1.0-release.apk app-release-unsigned.apk
+  --out mangapoisk-reborn-1.3.2-release.apk app-release-unsigned.apk
 Remove-Item Env:storePassword, Env:keyPassword
 ```
 
 **Verify the signature**
 
 ```bash
-apksigner verify --verbose --print-certs mangapoisk-reborn-1.1.0-release.apk
-sha256sum mangapoisk-reborn-1.1.0-release.apk
+apksigner verify --verbose --print-certs mangapoisk-reborn-1.3.2-release.apk
+sha256sum mangapoisk-reborn-1.3.2-release.apk
 ```
 
-Expected for 1.1.0:
+Expected for 1.3.2:
 
 - `Verifies`
 - `Verified using v1 scheme (JAR signing): true`
@@ -543,8 +567,7 @@ Expected for 1.1.0:
   `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`
   and `RSA 4096`.
 - APK SHA-256
-  `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`
-  (7 355 329 bytes).
+  `13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019`.
 
 `apksigner` may warn that `META-INF/*.version` entries are not protected by the
 v1 JAR signature. This is expected for AndroidX metadata; v2/v3 protect the
@@ -589,14 +612,15 @@ Run these checks against the signed release APK (the unsigned build has the same
 assets):
 
 ```bash
-APK=mangapoisk-reborn-1.1.0-release.apk
+APK=mangapoisk-reborn-1.3.2-release.apk
 sha256sum "$APK"
 apksigner verify --verbose --print-certs "$APK"
 
 rm -rf /tmp/apk-check && mkdir -p /tmp/apk-check
 unzip -q "$APK" 'assets/public/*' 'assets/capacitor.config.json' -d /tmp/apk-check
 grep -R -l 'http://85.192.37.58:8088' /tmp/apk-check || echo 'HTTP_8088_HITS: none'
-grep -R -l 'https://85.192.37.58.nip.io:8443' /tmp/apk-check
+grep -R -l ':8443' /tmp/apk-check || echo 'PORT_8443_HITS: none'
+grep -R -l 'https://85.192.37.58.nip.io/api/v1' /tmp/apk-check
 cat /tmp/apk-check/assets/capacitor.config.json
 
 aapt2 dump xmltree --file AndroidManifest.xml "$APK" |
@@ -604,11 +628,12 @@ aapt2 dump xmltree --file AndroidManifest.xml "$APK" |
 ```
 
 Expected: the only API base is
-`https://85.192.37.58.nip.io:8443/api/v1`; `http://85.192.37.58:8088` is absent;
-the packaged config has `"androidScheme": "https"`, `"cleartext": false` and
-`"allowMixedContent": false`; the manifest has
-`usesCleartextTraffic=false`, `versionName="1.1.0"`, `versionCode=2` and
-`package="ru.mangapoisk.reborn"`. On Windows, use `tar -xf` instead of `unzip`.
+`https://85.192.37.58.nip.io/api/v1`; `http://85.192.37.58:8088` and `:8443` are
+absent; `capacitor.config.json` has no `server.url`, but has
+`"androidScheme": "https"`, `"cleartext": false` and
+`"allowMixedContent": false`; the manifest has `usesCleartextTraffic=false`,
+`versionName="1.3.2"`, `versionCode=5` and `package="ru.mangapoisk.reborn"`.
+On Windows, use `tar -xf` instead of `unzip`.
 
 #### On-device QA checklist (TECNO KL6, Android 14)
 
@@ -616,22 +641,26 @@ Do not publish the draft release until every item passes. Record results in
 issue #35.
 
 1. **Preconditions.** Phone unlocked, USB debugging enabled, `adb devices`
-   shows the device as `device` (not `unauthorized`). The 1.0 build on the QA
-   phone is debug-signed, so the production-signed APK cannot install over it.
-   Uninstall once (this wipes app data on the QA phone):
+   shows the device as `device` (not `unauthorized`). The QA phone already has
+   1.3.1 (versionCode 4) signed with the same production certificate, so
+   1.3.2 (code 5) installs over it without uninstalling:
 
    ```bash
-   adb uninstall ru.mangapoisk.reborn
+   adb install -r mangapoisk-reborn-1.3.2-release.apk
    ```
+
+   Do **not** uninstall: the goal is to preserve the 1.3.0 session and local
+   downloads on the `https://localhost` origin. Expected `Success`.
 
 2. **Install the signed release.**
 
    ```bash
-   adb install -r mangapoisk-reborn-1.1.0-release.apk
+   adb install -r mangapoisk-reborn-1.3.2-release.apk
    ```
 
-   Expected `Success`. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means an old
-   differently-signed build is still installed; uninstall and retry.
+   Expected `Success`. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means a
+   differently-signed build is installed; `INSTALL_FAILED_VERSION_DOWNGRADE`
+   means the installed code is newer than 5.
 
 3. **Package metadata.**
 
@@ -640,8 +669,8 @@ issue #35.
      grep -E 'versionName|versionCode|firstInstallTime|lastUpdateTime|flags='
    ```
 
-   Expected `versionName=1.1.0`, `versionCode=2`, and **no** `DEBUGGABLE` in
-   `flags=`.
+   Expected `versionName=1.3.2`, `versionCode=5`, unchanged
+   `firstInstallTime`, and **no** `DEBUGGABLE` in `flags=`.
 
 4. **Installed binary signature.** Pull the installed base APK and verify it,
    not just the file you uploaded:
@@ -656,7 +685,7 @@ issue #35.
    Expected certificate SHA-256
    `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`;
    record the installed APK SHA-256 (it should equal
-   `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8`).
+   `13c5c57e51c28128949923c3ec56d2b039a212165f965b4bd8da95cd2da55019`).
 
 5. **Launch with logcat and check the API host.**
 
@@ -668,9 +697,9 @@ issue #35.
    grep -E '85\.192\.37\.58|CapacitorHttp|chromium' /tmp/mangapoisk-qa.log
    ```
 
-   Expected: requests go to `https://85.192.37.58.nip.io:8443/api/v1`; no
-   request contains `85.192.37.58:8088`; no `CleartextNotPermitted` or
-   `ERR_CLEARTEXT_NOT_PERMITTED` lines.
+   Expected: requests go to `https://85.192.37.58.nip.io/api/v1`; no
+   request contains `85.192.37.58:8088` or `:8443`; no
+   `CleartextNotPermitted` or `ERR_CLEARTEXT_NOT_PERMITTED` lines.
 
 6. **WebView origin.** The Capacitor WebView origin must be
    `https://localhost`, not `http://localhost`. Check the Chromium lines in the
@@ -711,8 +740,9 @@ issue #35.
    `85.192.37.58`.
 
 10. **Sign-off.** Attach the installed APK SHA-256, certificate fingerprint,
-    logcat excerpt and the pass/fail matrix to #35. Only then publish the draft
-    release and verify
+    logcat excerpt and the pass/fail matrix to #84. The owner paused QA after
+    the cold-launch/session pass, so do **not** publish a GitHub release or APK
+    asset until the remaining matrix is complete. After publication, verify
     `https://github.com/geekAmis/mangapoiskAPI/releases/latest/download/mangapoisk-reborn.apk`
     downloads the same SHA-256. On any failure, keep the release in draft and
     attach the exact failing logcat lines.
@@ -721,22 +751,20 @@ issue #35.
 
 | Check | Result |
 |---|---|
-| `assembleDebug` | **SUCCESS** — `app/build/outputs/apk/debug/app-debug.apk` |
-| `assembleRelease` (R8/resources shrink) | **SUCCESS** — `app/build/outputs/apk/release/app-release-unsigned.apk` |
-| Capacitor `assembleDebug` / `assembleRelease` | **SUCCESS** — `ru.mangapoisk.reborn` 1.1.0 (versionCode 2); bundle/API config verified HTTPS-only; release APK built unsigned, then signed with the production key |
-| `apksigner verify` (signed 1.1.0) | **SUCCESS** — v1, v2 and v3 schemes all `true`; RSA 4096; certificate SHA-256 `e8b8c812ef402e3e54ed2932b7006e96e98b30aee5fd27e44b7bb2a459e2be74`; APK SHA-256 `b2d8e760ff779369dbfd6e5fb4ca1730c23976afb966c30f4361b469a5e33ff8` |
-| Draft release asset | **UPLOADED** — `mangapoisk-reborn.apk` on draft `MangaPoisk Reborn 1.1.0`; not published pending on-device QA |
-| Kotlin compile | Success (Kotlin 2.0.21, JVM 17) |
-| Resource/manifest validation | Success (AAPT2 via assemble) |
-| Lint | `lintDebug` passes with no errors after the `NewApi` style fix |
-| Device run | TECNO KL6, 1080×2460, via `adb reverse`; smoke-tested Home, Catalog, Detail, Reader, Sources, Settings, Auth |
-| Poster rendering | Verified on device after adding the browser UA/Referer to Coil: MangaLib `cover.imglib.info` covers now render |
-| Reader navigation | Verified on device: Home hero «Читать» and Detail «Читать» both open the reader |
-| Unit/instrumentation tests | None added |
+| APK 1.3.2 / code 5 install over 1.3.1 | **PASS** — `adb install -r`, no uninstall, `firstInstallTime` unchanged |
+| APK 1.3.2 signature / hash | **PASS** — production certificate `e8b8c812…`; SHA-256 `13c5c57e…` matches installed `base.apk` |
+| Capacitor 1.3.2 config | **PASS** — packaged `www`, no `server.url`, `androidScheme=https`, origin `https://localhost`, API 443 |
+| Cold launch / data restore | **PASS** — session QA Notify restored, downloads visible, layout full-width |
+| Remaining Android QA | **PAUSED by owner (#84)** — reader/downloads/notifications/`/privacy`/Yandex not re-checked |
+| Kotlin `assembleDebug` / `assembleRelease` | historical 1.1.0 build: success; not the production 1.3.2 APK |
+| Kotlin compile / lint | historical 1.1.0: success (Kotlin 2.0.21, JVM 17); no unit/instrumentation tests |
+| Device run (Kotlin 1.1.0) | TECNO KL6, 1080×2460, via `adb reverse`; home/catalog/detail/reader/sources/settings/auth smoke-tested |
+| Poster rendering (Kotlin 1.1.0) | verified after adding browser UA/Referer to Coil |
 
-R8 initially reported missing compile-time Tink/ErrorProne annotations; the
-release build was fixed with a `-dontwarn com.google.errorprone.annotations.**`
-rule and then succeeded.
+The 1.1.0 signed APK and its draft-release asset are historical; they are not
+the current production build. R8 initially reported missing compile-time
+Tink/ErrorProne annotations; the release build was fixed with a
+`-dontwarn com.google.errorprone.annotations.**` rule and then succeeded.
 
 ## Known limitations
 
@@ -760,9 +788,9 @@ rule and then succeeded.
    `blur_adult_posters` server setting is not consumed.
 9. **Chapter list pagination** beyond `MangaDetailOut.chapters` (capped at 500
    by the API) is not implemented.
-10. **Release APK signing is manual.** The 1.1.0 APK is signed with the
-    production key outside Gradle and uploaded to the draft release, but
-    publication is blocked on the on-device QA checklist above.
+10. **Release APK signing is manual.** 1.3.2/code 5 is signed with the
+    production key and installed on the QA device, but publication is on hold
+    because Android QA is paused (#84).
 11. **No offline catalogue/home.** Offline support covers downloaded chapters,
     local bookmarks, history and settings.
 12. **No localization beyond Russian.** All strings are externalized, so adding

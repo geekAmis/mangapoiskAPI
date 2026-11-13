@@ -4,15 +4,19 @@
 > statistics, benchmarks) is documented in
 > [CATALOG_PERFORMANCE.md](CATALOG_PERFORMANCE.md).
 
+> **Historical baseline (11.11.2026).** Production now runs v1.3.2 on
+> <https://85.192.37.58.nip.io> (80/443); `:8443` is legacy API only. The
+> measurements below predate the port migration and v1.3 catalogue changes.
+
 **Audited:** 2026-11-11, 10:50–11:10 MSK  
-**Production:** <https://85.192.37.58.nip.io:8443> (HTTPS now live; this baseline was measured before TLS on nginx 1.28.3, HTTP/1.1)  
+**Production:** <https://85.192.37.58.nip.io> (current origin; baseline measured before TLS/port migration on nginx 1.28.3, HTTP/1.1)<br>
 **Frontend bundle audited:** `/assets/index-BjlbtnB4.js` (477,131 B), `/assets/index-Dnn-IPAM.css` (109,652 B)  
 **Browser:** Microsoft Edge `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`, Playwright 1.64.1, fresh context per page, 1440×900 and 390×844  
 **API client:** httpx 0.28.1, 1 warm-up + 10 measured runs per endpoint  
 **Repo:** current working tree at the time of the audit (priority-routing merge `02705fd` plus uncommitted docs/source changes from other sessions). No source files were changed by this audit.
 
-> **Update 13.11.2026:** production now serves HTTPS at
-> <https://85.192.37.58.nip.io:8443> with a Let's Encrypt certificate. TLS
+> **Update 13.11.2026:** production is now on 80/443
+> (<https://85.192.37.58.nip.io>) with a Let's Encrypt certificate. TLS
 > findings below describe the pre-HTTPS baseline; re-measure HTTP/2/3
 > multiplexing and compression after the TLS switch. Admin credentials in this
 > report are redacted.

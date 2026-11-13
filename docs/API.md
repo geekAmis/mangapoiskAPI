@@ -6,10 +6,12 @@ Base URL: `/api/v1`.
 |---|---|---|
 | Docker Compose | `http://localhost:8080/api/v1` | through the web nginx |
 | Docker Compose, direct API | `http://localhost:8000/api/v1` | after `docker compose --profile dev up -d gateway-public` |
-| Production | `https://85.192.37.58.nip.io:8443/api/v1` | nginx on `:8088`; gateway `:8100` is private |
+| Production | `https://85.192.37.58.nip.io/api/v1` | nginx on 80/443; gateway `:8100` is private. `:8443` is legacy API for APK 1.3.0, `:8088` redirects (except `/ads.txt`). |
 
 The gateway listens on `8000` in Compose and `8100` in the systemd deployment.
-Only the nginx port is public; do not expose the internal service ports.
+Only nginx (80/443) is the public entry point; legacy `:8443` (API for APK
+1.3.0) and `:8088` (redirect, except `/ads.txt`) are compatibility exceptions.
+Do not expose the internal service ports.
 
 All responses are JSON unless noted.  Errors always use:
 
@@ -29,6 +31,7 @@ Pagination: `?page=1&limit=24` (limit max 100).  List responses:
 |---|---|---|
 | GET | `/api/v1/health` | aggregated health |
 | GET | `/api/v1/sources` | available sources + capabilities |
+| GET | `/api/v1/sitemap.xml` | alias of `/sitemap.xml` (slug URLs, no 18+, no port) |
 
 `GET /api/v1/sources` → `[{"code":"mangapoisk","name":"MangaPoisk","base_url":"https://mangapoisk.me","language":"ru","enabled":true,"requires_cookies":false,"capabilities":{"search":true,"catalog":true,"manga":true,"chapters":true,"pages":true,"latest":true}}]`
 
@@ -66,10 +69,16 @@ the background slug backfill stores it.
 
 Query: `q` (required, min 1), `source` (optional), `live` (default `false`),
 `page`, `limit`.  Response extends pagination with `"live": true|false`.
-Search is accent/`ё`-insensitive, tolerant to one- or two-character typos,
-understands Russian/Latin transliteration and genre/media synonyms, and ranks
-exact titles above alternative titles, genres and descriptions.  The live
-fallback is an explicit submit path; keystrokes must use `/manga/suggest`.
+Search is accent/`ё`-insensitive, understands Russian/Latin transliteration,
+genre/media synonyms and alternative titles, and ranks exact titles above
+alternative titles, genres and descriptions.  The live fallback is an explicit
+submit path; keystrokes must use `/manga/suggest`.
+
+Known production gap (#76, not fixed in v1.3.2): author/artist search is not
+exposed in `MangaSummary`/`MangaDetail`, and the typo `чензо мен` does not
+reliably resolve to «Человек-бензопила». The fix is ready in
+`fix/search-author-typo` but is not merged or deployed; see
+[`SEARCH.md`](SEARCH.md).
 
 ### `GET /api/v1/manga/suggest`
 
@@ -351,6 +360,32 @@ section returns 404 to guests and `noindex,nofollow`; see
 | GET | `/api/v1/admin/profile-reports` | moderation queue (admin) |
 | PATCH | `/api/v1/admin/profile-reports/{id}` | `resolved` or `dismissed` (admin) |
 
+## Ads
+
+Public config exposes only enabled slots matching audience, schedule and
+policy. Secrets and admin fields are never returned.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/ads/config?adult=1&consent=1` | enabled slots; `adult=1` for 18+ pages, `consent=1` after CMP grant |
+| GET | `/api/v1/admin/ads` | list providers/slots with masked secret hints (admin) |
+| POST | `/api/v1/admin/ads` | create provider/slot (admin) |
+| PATCH/DELETE | `/api/v1/admin/ads/{id}` | update/delete provider (admin) |
+| PUT/DELETE | `/api/v1/admin/ads/{id}/secrets/{name}` | set/delete an encrypted secret (admin) |
+
+Response fields include `id, name, type, placement, priority, audience,
+frequency_cap, format, width, height, content, content_type, require_consent,
+config`. For `yandex`, `config.block_id` is public; the frontend renders
+`R-A-20411736-1` via `Ya.Context.AdvManager.render`. Secrets are stored
+encrypted in control and only masked hints are returned.
+
+Production provider: `c57fb6e5-23e6-4d97-b7b4-66af8b7b9c43`,
+`require_consent=false`, `exclude_adult=true`. The real SDK is externally
+blocked by `PAGE_DISABLED Page "20411736" is disabled` until the owner enables
+the site/block; see [`ADS.md`](ADS.md).
+
+Metrika/traffic endpoints are **not** part of v1.3.2 (#85 in progress).
+
 ## Admin / server manager
 
 The web admin panel is at `/admin` (direct URL, no nav link).  Login uses
@@ -374,7 +409,10 @@ unaffected.
 | PATCH/DELETE | `/api/v1/admin/servers/{id}` | update / remove |
 | POST | `/api/v1/admin/servers/{id}/deploy` | install selected services over SSH |
 | GET | `/api/v1/admin/servers/{id}/health` | check one server |
+| POST | `/api/v1/admin/servers/{id}/console` | allowlisted read-only command or structured action |
+| GET | `/api/v1/admin/servers/{id}/console/history?limit=50` | console audit history |
 | GET | `/api/v1/admin/jobs/{id}` | deployment job + log |
+| POST | `/api/v1/admin/jobs/{id}/cancel` | cancel a running/stale job |
 | GET | `/api/v1/admin/registry` | service → endpoints + health |
 | POST | `/api/v1/admin/registry/sync` | refresh health and switch gateway routes |
 | POST | `/api/v1/admin/failover` | same, explicit manual failover |

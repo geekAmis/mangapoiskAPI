@@ -5,18 +5,119 @@ SemVer.
 
 ## [Unreleased]
 
-- Public reader profiles (#47): `/u/{username}`, XP/levels/ranks,
-  achievements, activity feed, privacy controls and profile moderation.
-- Catalogue list performance (#68): `has_chapters` visibility flag, materialised
-  `catalog_groups`/`catalog_source_groups` card tables, bounded SQLite
-  `PRAGMA optimize`, slow-query logging and p50/p95 list latency in admin stats.
-  Measured p95 7.9 ms internal / 8.9 ms public at 100k manga rows and 1.76M
-  chapters.
 - Shared database or replication for multi-node catalogue/library failover.
 - Alembic migrations for destructive schema changes.
 - Redis-backed global rate limiting.
 - S3-compatible media storage.
 - More verified sources (MangaDex/ReadManga).
+- HentaiLib age-gated source (#45): branch `feat/hentailib-age-gate` is ready
+  but the source remains disabled; not in production v1.3.2.
+- AI deploy supervisor (#75): branch `feat/ai-deploy-supervisor` is ready but
+  needs OpenCode auth and is not deployed.
+- Search author/typo fix (#76): branch `fix/search-author-typo` is ready;
+  production v1.3.2 still has no author search and misses `чензо мен`.
+- Yandex Metrika and traffic panel (#85): in progress, not in production
+  v1.3.2.
+
+## [1.3.2] — 2026-11-13
+
+Tag: `v1.3.2` → `affe7d0`. This is a web/infra hotfix release: no GitHub
+release and no APK asset were published.
+
+### Added
+
+- Standard public ports **80/443** for `https://85.192.37.58.nip.io`:
+  `http://` and `www` redirect 301 to apex HTTPS; canonical/OG/sitemap URLs no
+  longer contain `:8443`.
+- Let's Encrypt certificate with SAN `85.192.37.58.nip.io` +
+  `www.85.192.37.58.nip.io`, valid until **2027-02-11**; renewal switched to
+  webroot `/var/www/certbot` with a reload hook for `mangapoisk-web.service`.
+- Legacy compatibility: `:8443` serves **API only** for APK 1.3.0 (web pages
+  301 to 443); `:8088` redirects to 443 for every path except `/ads.txt`.
+- `ads.txt` (9 lines) served directly as `200 text/plain` on ports 80, 443 and
+  8088, without redirect; includes `yandex.com, 20411736, DIRECT` and
+  `yandex.com, 334843219, DIRECT`.
+- Yandex RTB web integration: loader `yaContextCb`/`context.js`, block
+  `R-A-20411736-1` in `in-feed`, admin Block ID field, public `config.block_id`
+  and CSP allowances for `yandex.ru`, `an.yandex.ru` and `yastatic.net`.
+- Production RTB provider `c57fb6e5-23e6-4d97-b7b4-66af8b7b9c43` with
+  `require_consent=false` and `exclude_adult=true`.
+- Cookie-only consent banner: short `Cookie` text, `Принять` /
+  `Только необходимые`; ads continue to render regardless of the choice, while
+  other providers with `require_consent=true` still respect it.
+- Android APK **1.3.2 / versionCode 5** built from `release/android-1.3.2` with
+  packaged `www` (no `server.url`), `androidScheme=https`, origin
+  `https://localhost`, API `https://85.192.37.58.nip.io/api/v1`; installed over
+  1.3.1 without uninstall, restoring the 1.3.0 session and local data.
+
+### Fixed
+
+- Android 1.3.1 remote `server.url` regression (#84): the remote origin broke
+  WebView layout/taps and hid the old `https://localhost` session; 1.3.2
+  returns to the packaged `www`.
+- `/privacy` horizontal overflow at 390 px: legal tables now scroll inside
+  `.legal-table-wrap` instead of widening the page (all five legal routes
+  verified at 390×844).
+
+### Notes
+
+- Real Yandex RTB rendering is externally blocked: the SDK reports
+  `PAGE_DISABLED Page "20411736" is disabled` until the owner enables the
+  site/block. Yandex also rejected РСЯ moderation for <100 real visitors/week;
+  resubmission is available from **2026-11-20 05:55**.
+- Android QA was paused by the owner after cold-launch/session restoration
+  passed; reader/downloads/notifications and other items remain unverified.
+
+## [1.3.1] — 2026-11-13 (hotfix, no tag)
+
+- Port migration to standard HTTPS 443: public web/API moved off `:8443`;
+  nginx redirect matrix, certificate SAN/renewal and no-port canonical/OG were
+  prepared and deployed in stages.
+- Yandex OAuth redirect URI switched to
+  `https://85.192.37.58.nip.io/api/v1/auth/yandex/callback`.
+- Android 1.3.1 (versionCode 4) was built on 443 but used a remote
+  `server.url=https://85.192.37.58.nip.io`. That changed the WebView origin,
+  broke layout/taps and hid the old `https://localhost` session; the regression
+  is tracked in #84 and fixed in 1.3.2. There is no `v1.3.1` git tag.
+
+## [1.3.0] — 2026-11-13
+
+Tag: `v1.3.0` → `71be724`; GitHub release published.
+
+### Added
+
+- SEO v2 (#38): stable `/manga/{id}-{slug}` URLs with 301 from old/stale
+  slugs, transliterated `url_slug` with a batched background backfill,
+  gateway prerender for crawlers/social bots (HTML card + JSON-LD, humans keep
+  the SPA), server-side noindex for reader/search/admin/library, slug-only
+  sitemap excluding 18+, and env-driven Google/Yandex verification tags.
+  Production sitemap: ~25,189 URLs with no port.
+- Public reader profiles (#47): `/u/{username}`, XP/levels/ranks,
+  achievements, activity feed, privacy controls and profile moderation.
+- Discovery (#43): “Похожее” (`related`) and public smart/manual collections,
+  editorial admin, metrics and caching.
+- Yandex ID OAuth (#67): DB-only encrypted credentials managed in
+  `Админка → Интеграции → Яндекс ID`, account linking, scopes
+  `login:email login:info login:avatar`; real production login confirmed.
+- Legal pages (#69): `/terms`, `/privacy`, `/dmca`, `/contacts`, `/age`,
+  cookie banner, 18+ gate, real contacts
+  (`xgemxsite@gmail.com`, owner `Roman`, jurisdiction `Russia`).
+- Catalogue list performance (#68): `has_chapters` visibility flag,
+  materialised `catalog_groups`/`catalog_source_groups` card tables, bounded
+  SQLite `PRAGMA optimize`, slow-query logging and p50/p95 list latency in
+  admin stats. Production deploy check: p95 ~45 ms gateway / ~34 ms catalog.
+- Admin tabs and restricted server console (#73/#74): lazy tab panels, deep
+  links, deploy status, allowlist console and structured actions.
+- Observability (#58): p95/5xx/SQLite lock counters, backup age, watchdog and
+  admin panel.
+- Remanga page-cap fix (#59): 999-page cap and end-of-catalogue handling.
+- Backup rewrite (#66): `VACUUM INTO` snapshots, 6 h timeout and weekly WAL
+  checkpoint.
+- Security hardening (#71): DB/file permissions, UMask, fail2ban, SSH
+  hardening, rate-limit verification.
+- CI hardening (#70): docs encoding, web unit tests, mobile bundle and ops
+  shell checks.
+- Android 1.3.0 signed APK (versionCode 3) with production keystore.
 
 ### Fixed
 
@@ -35,7 +136,7 @@ SemVer.
 - Added `docs/SECURITY.md` and `docs/DEPENDENCIES.md` with the reporting
   process, audit cadence, pinning rules and upgrade checklist.
 
-## [1.2.0] — unreleased (EPIC #48)
+## [1.2.0] — 2026-11-12 (no separate tag; included in v1.3.0)
 
 ### Added
 
@@ -46,7 +147,7 @@ SemVer.
   the SPA), server-side noindex for reader/search/admin/library, slug-only
   sitemap excluding 18+, and env-driven Google/Yandex verification tags.
 
-## [1.1.0] — 2026-11-12 (draft)
+## [1.1.0] — 2026-11-12 (no separate tag; included in v1.3.0)
 
 ### Added
 
@@ -75,8 +176,10 @@ SemVer.
   browser-side extraction for large files).
 - Chapter archive LRU: about 25 GiB, `last_accessed_at`, prune on startup and
   after archiving; metadata and covers are not evicted.
-- HTTPS is live at `https://85.192.37.58.nip.io:8443` (Let's Encrypt, HSTS,
-  CSP); HTTP `:8088` remains as a compatibility fallback.
+- HTTPS went live on the then-current `:8443` endpoint (Let's Encrypt, HSTS,
+  CSP); HTTP `:8088` was the compatibility fallback at that time. Since v1.3.2
+  the public site is on 80/443, `:8443` is legacy API only and `:8088`
+  redirects to 443 (except `/ads.txt`).
 
 ### Changed
 

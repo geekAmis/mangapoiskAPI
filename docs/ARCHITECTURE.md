@@ -43,21 +43,23 @@ fragile parts.
 
 | Service | Docker Compose (dev) | Production (systemd) | Responsibility | Storage |
 |---|---:|---:|---|---|
-| `gateway` | 8000 | 8100 | Public BFF, API versioning, CORS, rate limit, aggregation | Redis (rate limit/cache) |
-| `parser` | 8001 | 8101 | Source adapters, normalisation, polite HTTP, page extraction | none (Redis cache) |
+| `gateway` | 8000 | 8100 | Public BFF, API versioning, CORS, rate limit, aggregation | in-process cache/rate limit (Redis optional) |
+| `parser` | 8001 | 8101 | Source adapters, normalisation, polite HTTP, page extraction | in-process cache |
 | `catalog` | 8002 | 8102 | Manga/chapter index, search, import/upsert, refresh | PostgreSQL (SQLite in the single-node deployment) |
 | `library` | 8003 | 8103 | Accounts, JWT, bookmarks, reading progress, settings | PostgreSQL (SQLite in the single-node deployment) |
 | `media` | 8004 | 8104 | Image proxy/cache, CBZ/PDF/HTML export jobs, chapter archive | disk (S3-compatible optional) |
 | `control` | 8005 | 8005 | Server inventory, SSH deploys, health registry/failover | SQLite/Postgres |
-| `web` | 8080 | 8088 | React build served by nginx | static |
+| `web` | 8080 | 80/443 (nginx) | React build served by nginx; legacy 8443 API / 8088 redirect | static |
+| `web-internal` | — | 8089 (loopback) | `index.html` for gateway prerender | static |
 | `scheduler` | — | 8107 (no HTTP) | Periodic catalogue refresh + notifications | none |
 | `notifier` | 8006 | 8106 | Telegram delivery | none |
 | `comments` | — | 8109 | Title discussions, reactions, reports, moderation, notifications | SQLite/Postgres |
 | `replica` | — | 8108 | SQLite snapshots and chapter-archive replication (in progress) | disk |
 
-The two port ranges are intentional: Compose is for local development, while the
-production server runs systemd units behind a private nginx on `:8088`. Only
-nginx is exposed; the backend ports bind to `127.0.0.1`.  `comments` and
+The two port ranges are intentional: Compose is for local development, while
+the production server runs systemd units behind standalone nginx on **80/443**.
+Only nginx is public; `:8443` is API-only for APK 1.3.0 and `:8088` redirects
+(except `/ads.txt`). The backend ports bind to `127.0.0.1`.  `comments` and
 `replica` are deployed by `control`/systemd; the default Compose stack does not
 include them yet.
 
