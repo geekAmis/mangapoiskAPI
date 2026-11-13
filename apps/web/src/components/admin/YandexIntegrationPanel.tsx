@@ -13,9 +13,11 @@ import { Icon } from '../Icon';
 import { Modal } from '../Modal';
 import { Skeleton } from '../Skeleton';
 import { formatDateTime } from '../../lib/format';
+import { siteOrigin } from '../../lib/seo';
 import { toast } from '../../stores/toast';
 
 const CALLBACK_PATH = '/api/v1/auth/yandex/callback';
+const CALLBACK_URL = `${siteOrigin()}${CALLBACK_PATH}`;
 
 function SecretLine({
   label,
@@ -224,14 +226,14 @@ export function YandexIntegrationPanel() {
                   className="input"
                   value={redirectUri}
                   onChange={(event) => setRedirectUri(event.target.value)}
-                  placeholder={`https://85.192.37.58.nip.io:8443${CALLBACK_PATH}`}
+                  placeholder={CALLBACK_URL}
                   spellCheck={false}
                   maxLength={512}
                 />
                 <span className="field__hint">
                   В Яндекс.Консоли у приложения должен быть указан ровно этот адрес, без
                   завершающего слэша: production —
-                  <code> https://85.192.37.58.nip.io:8443{CALLBACK_PATH}</code>.
+                  <code> {CALLBACK_URL}</code>.
                 </span>
               </div>
             </div>

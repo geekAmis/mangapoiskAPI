@@ -8,4 +8,4 @@ Disallow: /login
 Disallow: /register
 Disallow: /offline/
 
-Sitemap: https://85.192.37.58.nip.io:8443/sitemap.xml
+Sitemap: https://85.192.37.58.nip.io/sitemap.xml

@@ -40,11 +40,13 @@ export interface SeoOptions {
   jsonLd?: Record<string, unknown> | Array<Record<string, unknown>> | null;
 }
 
+declare const __SITE_URL__: string;
+
 export function siteOrigin(): string {
-  const configured = import.meta.env.VITE_SITE_URL?.trim();
+  const configured = typeof __SITE_URL__ === 'string' ? __SITE_URL__.trim() : '';
   if (configured) return configured.replace(/\/+$/, '');
   if (typeof window !== 'undefined') return window.location.origin;
-  return 'https://85.192.37.58.nip.io:8443';
+  return 'https://85.192.37.58.nip.io';
 }
 
 export function absoluteUrl(value: string | null | undefined): string | null {

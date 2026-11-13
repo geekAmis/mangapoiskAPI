@@ -43,6 +43,23 @@ function seoVerificationPlugin(env: Record<string, string>): Plugin {
   };
 }
 
+const LEGACY_PUBLIC_ORIGIN = 'https://85.192.37.58.nip.io:8443';
+
+/**
+ * Keep static canonical/OG/icon URLs in index.html aligned with the build's
+ * configured public origin.  The gateway also prerenders crawler HTML, but
+ * the SPA shell itself must not leak the legacy port to humans or link bots.
+ */
+function publicOriginPlugin(siteUrl: string): Plugin {
+  return {
+    name: 'public-origin',
+    transformIndexHtml(html) {
+      const target = siteUrl.trim().replace(/\/+$/, '');
+      return target ? html.replaceAll(LEGACY_PUBLIC_ORIGIN, target) : html;
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   // Legal details are build-time values.  Accept the documented
   // LEGAL_* names as well as VITE_LEGAL_* aliases for local development.
@@ -62,13 +79,19 @@ export default defineConfig(({ mode }) => {
     env.LEGAL_JURISDICTION ??
     env.VITE_LEGAL_JURISDICTION ??
     '';
+  const siteUrl = (
+    process.env.VITE_SITE_URL ??
+    env.VITE_SITE_URL ??
+    ''
+  ).trim();
 
   return {
-    plugins: [react(), seoVerificationPlugin(env)],
+    plugins: [react(), seoVerificationPlugin(env), ...(siteUrl ? [publicOriginPlugin(siteUrl)] : [])],
     define: {
       __LEGAL_CONTACT_EMAIL__: JSON.stringify(legalContactEmail),
       __LEGAL_OWNER_NAME__: JSON.stringify(legalOwnerName),
       __LEGAL_JURISDICTION__: JSON.stringify(legalJurisdiction),
+      __SITE_URL__: JSON.stringify(siteUrl),
     },
     server: {
       port: 5173,
